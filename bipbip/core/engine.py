@@ -54,6 +54,13 @@ class BacktestEngine:
         if bars.empty:
             raise ValueError("no bars supplied; fetch data first")
 
+        # Give the strategy the instrument's round-trip cost so it can floor
+        # its risk unit. A stop tighter than the round trip is a guaranteed
+        # loss when hit, and on real SPY data a one-minute ATR is below that
+        # threshold on 37% of bars.
+        strategy.cost_hurdle_bps = self.costs.round_trip_cost_bps(
+            symbol, float(bars["close"].iloc[-1])
+        )
         indicators = strategy.prepare(bars)
         if not indicators.index.equals(bars.index):
             raise ValueError(f"{strategy.name}.prepare() returned a misaligned index")

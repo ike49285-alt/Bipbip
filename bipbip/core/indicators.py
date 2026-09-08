@@ -25,6 +25,75 @@ def session_vwap(df: pd.DataFrame) -> pd.Series:
     return (pv / vol.replace(0, np.nan)).rename("vwap")
 
 
+def session_vwap_bands(df: pd.DataFrame, min_bars: int = 15) -> pd.DataFrame:
+    """Session VWAP with its volume-weighted standard deviation.
+
+    This exists because normalising the distance from VWAP by a one-minute ATR
+    is dimensionally wrong. Displacement from session VWAP accumulates over the
+    whole session and grows roughly with the square root of elapsed time, while
+    ATR is a per-minute quantity. Dividing one by the other produced a median
+    "stretch" of 3.7 ATR on real TQQQ data - so a 1.5-ATR threshold fired
+    almost constantly, and readings of 11 ATR were ordinary rather than
+    extreme.
+
+    Sigma here is the dispersion of price around VWAP measured on the same
+    clock as VWAP itself, so ``(price - vwap) / sigma`` is a genuine z-score
+    that means the same thing at 09:45 and at 15:30.
+
+    Computed from cumulative volume-weighted moments, so it stays causal.
+    Sigma is NaN until `min_bars` have accumulated, because a standard
+    deviation over three bars is noise pretending to be a statistic.
+    """
+    typical = (df["high"] + df["low"] + df["close"]) / 3.0
+    key = _session_key(df.index)
+    vol = df["volume"]
+
+    cum_v = vol.groupby(key).cumsum()
+    cum_pv = (typical * vol).groupby(key).cumsum()
+    cum_p2v = (typical * typical * vol).groupby(key).cumsum()
+
+    safe_v = cum_v.replace(0, np.nan)
+    vwap = cum_pv / safe_v
+    # Var(X) = E[X^2] - E[X]^2, volume-weighted. Clipped at zero: floating point
+    # can make this marginally negative when price barely moves.
+    var = (cum_p2v / safe_v) - vwap**2
+    sigma = np.sqrt(var.clip(lower=0.0))
+
+    n = pd.Series(1, index=df.index).groupby(key).cumsum()
+    sigma = sigma.where(n >= min_bars)
+
+    out = pd.DataFrame(index=df.index)
+    out["vwap"] = vwap
+    out["vwap_sigma"] = sigma
+    return out
+
+
+def vwap_zscore(df: pd.DataFrame, min_bars: int = 15, min_sigma_bps: float = 1.0) -> pd.Series:
+    """Signed z-score of price relative to session VWAP.
+
+    `min_sigma_bps` floors sigma so that a near-motionless stretch of tape
+    cannot blow the ratio up; a dispersion below a basis point of price is not
+    a tradeable dislocation whatever the arithmetic says.
+    """
+    bands = session_vwap_bands(df, min_bars=min_bars)
+    floor = df["close"] * (min_sigma_bps / 10_000.0)
+    sigma = bands["vwap_sigma"].clip(lower=floor)
+    return ((df["close"] - bands["vwap"]) / sigma).rename("vwap_z")
+
+
+def cost_floored_risk(close: pd.Series, atr_series: pd.Series, hurdle_bps: float,
+                      min_multiple: float = 2.0) -> pd.Series:
+    """Risk unit for stops and targets, floored at a multiple of trading cost.
+
+    A stop closer than the round trip is a guaranteed loss when hit. On real
+    SPY data 37% of bars had a one-minute ATR smaller than the 2.3bp round-trip
+    cost, so an unfloored ATR stop was inside the noise a third of the time -
+    which is what produced trades that entered and stopped out on the same bar.
+    """
+    floor = close * (hurdle_bps * min_multiple / 10_000.0)
+    return atr_series.clip(lower=floor)
+
+
 def ema(series: pd.Series, span: int) -> pd.Series:
     return series.ewm(span=span, adjust=False).mean()
 

@@ -115,6 +115,42 @@ never be mistaken for evidence.
 Settings live in `config/default.yaml`. Copy it to `config/local.yaml` for
 machine-specific overrides; that file is gitignored.
 
+## Two scaling bugs found on real data
+
+Worth recording, because the first diagnosis was wrong and the real cause was
+more interesting.
+
+A trade log showed VWAP-reversion entering at "11.6 ATR below VWAP". The
+obvious explanation is a collapsed ATR denominator. Measuring it said
+otherwise: TQQQ's one-minute ATR never fell below the round-trip cost at all,
+yet the median stretch was **3.7 ATR**. Extreme readings were not outliers -
+the metric was simply wrong.
+
+**The stretch metric mixed timescales.** Distance from session VWAP accumulates
+all session and grows roughly with the square root of elapsed time; a
+one-minute ATR does not. Dividing one by the other drifts upward through the
+day, so a threshold of 1.5 fired almost every bar by the afternoon and meant
+something different at 10:00 than at 15:00. `vwap_zscore` divides instead by
+the volume-weighted dispersion of price around VWAP, measured on the same
+clock. On real data the median went from 3.70 to 0.98 and the maximum from
+31.4 to 3.3, and a threshold of 2 now fires on about 9% of bars. The same
+error affected the distance-from-session-high and -low features, which are
+rebased on the same dispersion.
+
+**Stops could sit inside the cost of the trade.** On real SPY data **37% of
+bars** had a one-minute ATR smaller than the 2.3bp round-trip cost, so an
+unfloored 1-ATR stop was inside the noise a third of the time - which is what
+produced trades that entered and stopped out on the same bar.
+`cost_floored_risk` floors the risk unit at a multiple of the round trip, and
+the engine injects each instrument's hurdle before `prepare` so no strategy has
+to be told about costs by hand.
+
+Correcting the metric removed the project's most promising-looking result,
+which is the point. VWAP-reversion on TQQQ had returned +1.53% at the 100th
+percentile against matched random entries, p=0.000 - but a single trade was
+105% of that P&L, and with a correct threshold the strategy fires 3 times
+instead of 12 and returns -0.58%.
+
 ## The ML layer
 
 Hand-crafted signals are **features**, not labels. Training a net to imitate

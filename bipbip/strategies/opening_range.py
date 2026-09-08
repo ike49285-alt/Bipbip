@@ -38,6 +38,7 @@ class OpeningRangeBreakout(Strategy):
         min_rvol: float = 1.2,
         min_range_bps: float = 15.0,
         require_vwap: bool = True,
+        min_risk_multiple: float = 2.0,
     ):
         """Risk is quoted in OPENING RANGE WIDTH, not one-minute ATR.
 
@@ -55,6 +56,7 @@ class OpeningRangeBreakout(Strategy):
         self.min_rvol = min_rvol
         self.min_range_bps = min_range_bps
         self.require_vwap = require_vwap
+        self.min_risk_multiple = min_risk_multiple
         self.warmup_bars = or_minutes + 1
 
     def prepare(self, bars: pd.DataFrame) -> pd.DataFrame:
@@ -62,6 +64,10 @@ class OpeningRangeBreakout(Strategy):
         out["atr"] = ind.atr(bars, self.atr_window)
         out["vwap"] = ind.session_vwap(bars)
         out["rvol"] = ind.relative_volume(bars, 20)
+        # Smallest risk unit worth trading, given what the round trip costs.
+        out["min_risk"] = bars["close"] * (
+            self.cost_hurdle_bps * self.min_risk_multiple / 10_000.0
+        )
         return out
 
     def on_bar(self, ctx: Context) -> Intent:
@@ -94,7 +100,9 @@ class OpeningRangeBreakout(Strategy):
         if self.require_vwap and price < float(row["vwap"]):
             return HOLD
 
-        risk = self.stop_frac * width
+        # Floored so a narrow range cannot place the stop inside the cost of
+        # the trade, which produces stop-outs on the entry bar itself.
+        risk = max(self.stop_frac * width, float(row["min_risk"]))
         return Intent(
             action="enter",
             reason=f"or_break@{or_high:.2f}",

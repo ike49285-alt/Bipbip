@@ -72,6 +72,10 @@ class Strategy:
     name = "base"
     #: Extra warmup bars required before the first decision of a session.
     warmup_bars = 0
+    #: Round-trip cost in bps, injected by the engine before `prepare` is
+    #: called. Strategies should floor their risk unit at a multiple of this:
+    #: a stop tighter than the round trip loses money by construction.
+    cost_hurdle_bps = 3.0
 
     def prepare(self, bars: pd.DataFrame) -> pd.DataFrame:
         """Compute causal indicators once for the whole history.

@@ -19,7 +19,7 @@ import pandas as pd
 from ..core import indicators as ind
 
 FEATURE_COLUMNS = [
-    "vwap_stretch_atr",
+    "vwap_z",
     "rsi",
     "atr_pct",
     "rvol",
@@ -32,8 +32,8 @@ FEATURE_COLUMNS = [
     "ret_15",
     "range_pct",
     "close_in_bar",
-    "dist_from_high_atr",
-    "dist_from_low_atr",
+    "dist_from_high_sigma",
+    "dist_from_low_sigma",
     "bar_of_day",
     "vol_of_vol",
 ]
@@ -44,15 +44,21 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
     key = np.asarray([ts.date() for ts in bars.index])
     close, high, low = bars["close"], bars["high"], bars["low"]
 
-    vwap = ind.session_vwap(bars)
+    bands = ind.session_vwap_bands(bars)
+    vwap = bands["vwap"]
+    # Session-scale dispersion. Every distance that accumulates over the
+    # session is normalised by this rather than by a one-minute ATR, which
+    # would be a timescale error: such distances grow with elapsed time while
+    # ATR does not, so the ratio drifts upward all day and means nothing.
+    sigma = bands["vwap_sigma"].clip(lower=bars["close"] * 1e-4)
     atr = ind.atr(bars, 30)
     orng = ind.opening_range(bars, or_minutes)
     atr_safe = atr.replace(0, np.nan)
 
     f = pd.DataFrame(index=bars.index)
 
-    # Where price sits relative to the institutional benchmark, in risk units.
-    f["vwap_stretch_atr"] = (close - vwap) / atr_safe
+    # Where price sits relative to the institutional benchmark, as a z-score.
+    f["vwap_z"] = (close - vwap) / sigma
     f["rsi"] = ind.rsi(close, 14)
     f["atr_pct"] = atr / close
     f["rvol"] = ind.relative_volume(bars, 20)
@@ -81,8 +87,8 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
     # Distance from the session's running extremes, in risk units.
     sess_high = high.groupby(key).cummax()
     sess_low = low.groupby(key).cummin()
-    f["dist_from_high_atr"] = (sess_high - close) / atr_safe
-    f["dist_from_low_atr"] = (close - sess_low) / atr_safe
+    f["dist_from_high_sigma"] = (sess_high - close) / sigma
+    f["dist_from_low_sigma"] = (close - sess_low) / sigma
 
     # Time of day matters enormously intraday; normalised to [0, 1].
     bar_of_day = ind.minutes_since_open(bars.index).astype("float64")
@@ -91,7 +97,10 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
     # Volatility of volatility - regime instability.
     f["vol_of_vol"] = f["atr_pct"].rolling(60, min_periods=30).std()
 
-    return f[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan)
+    # Winsorise: a single exploding value dominates a standardised model far
+    # out of proportion to the information it carries.
+    out = f[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan)
+    return out.clip(lower=-20.0, upper=1000.0)
 
 
 def _bars_since(flags: np.ndarray) -> np.ndarray:

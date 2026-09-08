@@ -1,13 +1,21 @@
 """VWAP reversion.
 
-Session VWAP is the reference price institutional execution algorithms are
-benchmarked against, which gives it genuine gravitational pull: price stretched
-well below it tends to be bought back toward it. The edge is structural rather
-than predictive, which is why it survives at a horizon a retail bot can reach.
+Session VWAP is the benchmark institutional execution algorithms are measured
+against, which gives it real gravitational pull: price stretched well below it
+tends to be bought back toward it. The edge is structural rather than
+predictive, which is why it survives at a horizon a retail bot can reach.
+
+Displacement is measured as a VWAP Z-SCORE, not in ATRs. Normalising a
+session-cumulative displacement by a one-minute ATR is a timescale error:
+distance from VWAP accumulates all session while ATR is per-minute, so on real
+TQQQ data the median "stretch" was 3.7 ATR and a 1.5-ATR threshold fired
+almost every bar. The z-score divides by the dispersion of price around VWAP
+measured on the same clock, so a threshold of 2 means the same thing at 09:45
+and 15:30 and fires on roughly 9% of bars.
 
 The trade is only taken once the stretch stops widening. Buying a falling
-market because it is "far from VWAP" is how this strategy loses money - a
-trend day will stay stretched all session and stop you out on the way down.
+market because it is "far from VWAP" is how this strategy loses money - a trend
+day stays stretched all session and stops you out on the way down.
 """
 from __future__ import annotations
 
@@ -24,29 +32,36 @@ class VWAPReversion(Strategy):
 
     def __init__(
         self,
-        stretch_atr: float = 1.5,
+        stretch_z: float = 2.0,
         atr_window: int = 30,
         rsi_window: int = 14,
         max_rsi: float = 35.0,
         stop_atr: float = 1.2,
         confirm_bars: int = 2,
         warmup: int = 30,
+        min_risk_multiple: float = 2.0,
     ):
-        """ATR spans 30 one-minute bars, not 14, so the stop sits outside
-        minute-scale noise and can survive long enough to reach the target."""
-        self.stretch_atr = stretch_atr
+        self.stretch_z = stretch_z
         self.atr_window = atr_window
         self.rsi_window = rsi_window
         self.max_rsi = max_rsi
         self.stop_atr = stop_atr
         self.confirm_bars = confirm_bars
         self.warmup_bars = warmup
+        self.min_risk_multiple = min_risk_multiple
 
     def prepare(self, bars: pd.DataFrame) -> pd.DataFrame:
         out = pd.DataFrame(index=bars.index)
-        out["vwap"] = ind.session_vwap(bars)
-        out["atr"] = ind.atr(bars, self.atr_window)
+        bands = ind.session_vwap_bands(bars)
+        out["vwap"] = bands["vwap"]
+        out["vwap_z"] = ind.vwap_zscore(bars)
         out["rsi"] = ind.rsi(bars["close"], self.rsi_window)
+        # Floor the risk unit at a multiple of the round trip, so a stop can
+        # never sit inside the cost of the trade that sets it.
+        out["risk"] = ind.cost_floored_risk(
+            bars["close"], ind.atr(bars, self.atr_window),
+            self.cost_hurdle_bps, self.min_risk_multiple,
+        )
         return out
 
     def on_bar(self, ctx: Context) -> Intent:
@@ -55,13 +70,12 @@ class VWAPReversion(Strategy):
             return HOLD
 
         row = ctx.ind
-        vwap, atr_v = float(row["vwap"]), float(row["atr"])
-        if not (np.isfinite(vwap) and np.isfinite(atr_v)) or atr_v <= 0:
+        z, vwap, risk = float(row["vwap_z"]), float(row["vwap"]), float(row["risk"])
+        if not (np.isfinite(z) and np.isfinite(vwap) and np.isfinite(risk)) or risk <= 0:
             return HOLD
 
-        price = ctx.price
-        stretch = (vwap - price) / atr_v
-        if stretch < self.stretch_atr:
+        # Negative z means below VWAP; this is a long-only mean-reversion trade.
+        if z > -self.stretch_z:
             return HOLD
         if float(row["rsi"]) > self.max_rsi:
             return HOLD
@@ -74,9 +88,10 @@ class VWAPReversion(Strategy):
         if not bool((closes.diff().dropna() > 0).all()):
             return HOLD
 
+        price = ctx.price
         return Intent(
             action="enter",
-            reason=f"vwap_stretch_{stretch:.1f}atr",
-            stop_price=price - self.stop_atr * atr_v,
+            reason=f"vwap_z={z:.1f}",
+            stop_price=price - self.stop_atr * risk,
             target_price=vwap,  # mean reversion targets the mean, nothing more
         )
