@@ -72,7 +72,14 @@ class PortfolioStrategy:
         """Precompute causal indicator frames keyed by name."""
         return {}
 
-    def target_weights(self, ctx: PortfolioContext) -> dict:
+    def target_weights(self, ctx: PortfolioContext) -> dict | None:
+        """Weights to hold, summing to <= 1.
+
+        Return `None` to express no opinion, leaving the book as it is - what a
+        monthly strategy does on the other twenty days. Return an empty dict to
+        ask for cash. The distinction matters: `{}` is a decision to be flat and
+        is executed, `None` is an abstention.
+        """
         raise NotImplementedError
 
 
@@ -165,7 +172,14 @@ class PortfolioEngine:
                     current_weights=cur_w, equity=equity, date=date,
                 )
                 target = strategy.target_weights(ctx)
-                if target:
+                # None means "no opinion, keep holding". An EMPTY DICT means
+                # "hold nothing" and is acted on. Conflating the two made every
+                # go-to-cash rule inoperative: a strategy that returned {} in a
+                # downtrend stayed fully invested through it, so momentum's
+                # absolute filter and the trend filter below it never once
+                # fired. Both then scored identically to buy-and-hold in 2008,
+                # which is what exposed this.
+                if target is not None:
                     total = sum(max(0.0, w) for w in target.values())
                     if total > self.max_invested:
                         target = {s: max(0.0, w) * self.max_invested / total

@@ -60,9 +60,9 @@ class DualMomentum(PortfolioStrategy):
                               len(c.columns), axis=1),
                     index=panel.dates, columns=c.columns)}
 
-    def target_weights(self, ctx: PortfolioContext) -> dict:
+    def target_weights(self, ctx: PortfolioContext) -> dict | None:
         if not bool(ctx.ind("month_start").iloc[0]):
-            return {}  # hold; the engine only trades when the target changes
+            return None  # abstain between rebalances; {} would sell to cash
         mom = ctx.ind("mom")
         avail = [a for a in self.risk_assets if a in ctx.tradeable
                  and np.isfinite(mom.get(a, np.nan))]
@@ -111,9 +111,9 @@ class VolTargetTrend(PortfolioStrategy):
                 index=panel.dates, columns=c.columns),
         }
 
-    def target_weights(self, ctx: PortfolioContext) -> dict:
+    def target_weights(self, ctx: PortfolioContext) -> dict | None:
         if not bool(ctx.ind("month_start").iloc[0]):
-            return {}
+            return None
         trend = ctx.ind("trend").reindex(ctx.tradeable).fillna(False)
         vol = ctx.ind("vol").reindex(ctx.tradeable)
 
@@ -121,7 +121,7 @@ class VolTargetTrend(PortfolioStrategy):
                  if bool(trend.get(s, False)) and np.isfinite(vol.get(s, np.nan))
                  and vol[s] > 0]
         if not picks:
-            return {}
+            return {}  # nothing is trending: hold cash, which is the whole point
 
         # Inverse volatility, then scaled so the book targets `target_vol`.
         raw = {s: self.target_vol / float(vol[s]) for s in picks}

@@ -144,3 +144,69 @@ def test_instant_settlement_funds_a_switch_in_the_same_rebalance():
         "instant settlement must fund switches the cash account cannot")
     # And the margin book should actually reach its target weight.
     assert margin.weights.sum(axis=1).max() > 0.9
+
+
+class GoFlatAfter(PortfolioStrategy):
+    """Fully invested, then asks for cash from bar `cut` onward."""
+    name = "go_flat"
+    warmup_bars = 1
+
+    def __init__(self, cut=300):
+        self.cut = cut
+
+    def target_weights(self, ctx):
+        if ctx.i >= self.cut:
+            return {}
+        n = len(ctx.tradeable)
+        return {s: 1.0 / n for s in ctx.tradeable} if n else {}
+
+
+class AbstainAfter(GoFlatAfter):
+    """Identical, except it abstains instead of asking for cash."""
+    name = "abstain"
+
+    def target_weights(self, ctx):
+        if ctx.i >= self.cut:
+            return None
+        return super().target_weights(ctx)
+
+
+def test_an_empty_target_means_cash_not_hold():
+    """Regression: `{}` was read as "no opinion", so go-to-cash never fired.
+
+    The engine tested the target for truthiness, and an empty dict is falsey,
+    so a strategy asking to hold nothing was left fully invested instead. Every
+    downside rule in the project was silently inoperative because of it -
+    momentum's absolute filter and the trend filter both scored an identical
+    2008 to buy-and-hold, which is what gave it away.
+    """
+    panel = _panel()
+    res = PortfolioEngine(CostModel(), starting_equity=50.0,
+                          settle_days=0).run(panel, GoFlatAfter(cut=300))
+    late = res.weights.iloc[350:]
+    assert late.abs().max().max() < 1e-6, "still holding after asking for cash"
+
+
+def test_none_means_hold_the_existing_book():
+    """The other half of the contract: abstaining must NOT liquidate."""
+    panel = _panel()
+    res = PortfolioEngine(CostModel(), starting_equity=50.0,
+                          settle_days=0).run(panel, AbstainAfter(cut=300))
+    late = res.weights.iloc[350:]
+    assert late.sum(axis=1).min() > 0.5, "abstaining sold the book off"
+
+
+def test_going_flat_preserves_capital_in_a_crash():
+    """The behaviour the contract exists to make possible."""
+    n = 600
+    idx = pd.DatetimeIndex(pd.bdate_range("2015-01-05", periods=n))
+    path = np.concatenate([np.full(300, 100.0), np.linspace(100.0, 40.0, n - 300)])
+    df = pd.DataFrame({"open": path, "high": path, "low": path,
+                       "close": path, "volume": 1e7}, index=idx)
+    panel = build_panel({"AAA": df})
+
+    flat = PortfolioEngine(CostModel(), starting_equity=50.0,
+                           settle_days=0).run(panel, GoFlatAfter(cut=300))
+    held = PortfolioEngine(CostModel(), starting_equity=50.0,
+                           settle_days=0).run(panel, AbstainAfter(cut=300))
+    assert flat.final_equity > held.final_equity * 1.5
