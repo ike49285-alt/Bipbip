@@ -149,3 +149,50 @@ def test_one_minute_lookback_stays_inside_yahoo_limit():
     from bipbip.data.fetchers import YF_MAX_DAYS
 
     assert YF_MAX_DAYS["1m"] < 30
+
+
+def test_daily_bars_survive_the_rth_filter(tmp_path):
+    """Regression: the RTH window is meaningless for daily bars.
+
+    Daily bars are stamped at midnight, so applying the 09:30-16:00 intraday
+    filter to them discards every row. The store reported zero bars and the
+    collector's --require-data guard would have failed the run, for data that
+    was fetched correctly.
+    """
+    import pandas as pd
+    from bipbip.data.sessions import EXCHANGE_TZ
+
+    idx = pd.date_range("2024-01-02", periods=300, freq="B", tz=EXCHANGE_TZ)
+    daily = pd.DataFrame({"open": 400.0, "high": 404.0, "low": 398.0,
+                          "close": 402.0, "volume": 7e7}, index=idx)
+
+    store = BarStore(tmp_path)
+    info = store.append("SPY", daily, bar_size="1d")
+    assert info["rows_after"] == len(daily)
+    assert store.coverage("SPY", "1d")["bars"] == len(daily)
+
+
+def test_intraday_and_daily_archives_are_kept_separate(tmp_path):
+    """Different bar sizes must not overwrite one another."""
+    import pandas as pd
+    from bipbip.data.sessions import EXCHANGE_TZ
+
+    store = BarStore(tmp_path)
+    store.append("SPY", make_intraday_bars(n_sessions=3, seed=81), bar_size="1m")
+    idx = pd.date_range("2024-01-02", periods=100, freq="B", tz=EXCHANGE_TZ)
+    store.append("SPY", pd.DataFrame({"open": 1.0, "high": 2.0, "low": 0.5,
+                                      "close": 1.5, "volume": 10.0}, index=idx),
+                 bar_size="1d")
+
+    assert store.coverage("SPY", "1m")["bars"] > 1000
+    assert store.coverage("SPY", "1d")["bars"] == 100
+    assert store.path_for("SPY", "1m") != store.path_for("SPY", "1d")
+
+
+def test_is_intraday_classification():
+    from bipbip.data.sessions import is_intraday
+
+    for size in ("1m", "5m", "30m", "1h"):
+        assert is_intraday(size)
+    for size in ("1d", "1wk", "1mo"):
+        assert not is_intraday(size)

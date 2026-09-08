@@ -51,13 +51,32 @@ jobs:
             --symbols ${{ github.event.inputs.symbols || 'SPY TQQQ' }} \
             --lookback 30
 
+      - name: Fetch daily and hourly context
+        if: always()
+        # Daily bars have no trailing-window limit, so this pulls the full
+        # history in one request - SPY back to 1993, TQQQ to 2010. Hourly
+        # reaches two years. Neither can validate an intraday strategy, but
+        # both supply the regime context the 30-day minute archive can never
+        # hold. `if: always()` because context is still worth having on a day
+        # the minute fetch fails.
+        run: |
+          python -m bipbip.cli fetch \
+            --symbols ${{ github.event.inputs.symbols || 'SPY TQQQ' }} \
+            --bar-size 1d
+          python -m bipbip.cli fetch \
+            --symbols ${{ github.event.inputs.symbols || 'SPY TQQQ' }} \
+            --bar-size 1h
+
       - name: Report coverage
         if: always()
         # --require-data fails the run when the archive is still empty. A
         # collector whose provider blocks the runner would otherwise report
         # "no new bars" and exit green, and a silently broken scheduled job is
         # worse than a failing one because nobody goes looking for it.
-        run: python -m bipbip.cli coverage --require-data
+        run: |
+          python -m bipbip.cli coverage --require-data
+          python -m bipbip.cli coverage --bar-size 1d || true
+          python -m bipbip.cli coverage --bar-size 1h || true
 
       - name: Commit new bars
         run: |

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .sessions import restrict_to_rth, to_exchange_tz
+from .sessions import is_intraday, restrict_to_rth, to_exchange_tz
 
 OHLCV = ["open", "high", "low", "close", "volume"]
 
@@ -39,7 +39,7 @@ class BarStore:
 
     def append(self, symbol: str, bars: pd.DataFrame, bar_size: str = "1m") -> dict:
         """Merge `bars` into the archive. Returns a summary of what changed."""
-        incoming = self._normalise(bars)
+        incoming = self._normalise(bars, bar_size)
         existing = self.load(symbol, bar_size)
 
         before = len(existing)
@@ -64,7 +64,7 @@ class BarStore:
         }
 
     @staticmethod
-    def _normalise(bars: pd.DataFrame) -> pd.DataFrame:
+    def _normalise(bars: pd.DataFrame, bar_size: str = "1m") -> pd.DataFrame:
         """Coerce a provider frame into the archive's canonical shape."""
         if bars.empty:
             return pd.DataFrame(columns=OHLCV, index=pd.DatetimeIndex([], name="timestamp"))
@@ -81,7 +81,10 @@ class BarStore:
 
         df = df[OHLCV].astype("float64")
         df = to_exchange_tz(df)
-        df = restrict_to_rth(df)
+        # Daily and weekly bars are stamped at midnight; applying the RTH
+        # window to them discards the entire frame.
+        if is_intraday(bar_size):
+            df = restrict_to_rth(df)
         df = df[~df.index.duplicated(keep="last")].sort_index()
         df.index.name = "timestamp"
         # A zero-volume bar is a provider gap-fill, not a tradeable minute.

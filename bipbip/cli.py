@@ -62,8 +62,9 @@ def cmd_coverage(args, cfg) -> int:
     """Report how much history is archived - i.e. the honest sample size."""
     store = _store(cfg)
     symbols = args.symbols or cfg.get("data", {}).get("symbols", ["SPY"])
-    bar_size = cfg.get("data", {}).get("bar_size", "1m")
+    bar_size = args.bar_size or cfg.get("data", {}).get("bar_size", "1m")
 
+    print(f"{bar_size} bars")
     print(f"{'symbol':<8}{'bars':>10}{'sessions':>10}  range")
     print("-" * 64)
     empty = []
@@ -74,7 +75,9 @@ def cmd_coverage(args, cfg) -> int:
             empty.append(symbol)
             continue
         print(f"{symbol:<8}{c['bars']:>10,}{c['sessions']:>10}  {c['start'][:16]} -> {c['end'][:16]}")
-        if c["sessions"] < 60:
+        # Only the intraday archive gates strategy validation; daily bars are
+        # context and arrive complete from the first fetch.
+        if bar_size == "1m" and c["sessions"] < 60:
             print(f"{'':8}{'':20}  ^ {c['sessions']} sessions is too few to validate a "
                   "one-trade-a-day system; keep the collector running.")
 
@@ -478,6 +481,7 @@ def main(argv=None) -> int:
 
     c = sub.add_parser("coverage", help="show archived history")
     c.add_argument("--symbols", nargs="*", default=None)
+    c.add_argument("--bar-size", default=None)
     c.add_argument("--require-data", action="store_true",
                    help="exit non-zero if any symbol has no archived bars")
     c.set_defaults(func=cmd_coverage)

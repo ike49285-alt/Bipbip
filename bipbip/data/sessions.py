@@ -11,6 +11,18 @@ import datetime as dt
 import pandas as pd
 
 EXCHANGE_TZ = "America/New_York"
+
+#: Intervals that sit INSIDE a session, and to which the RTH window applies.
+#: A daily or weekly bar is stamped at midnight, so filtering it to 09:30-16:00
+#: silently discards every row - which is what happened the first time daily
+#: bars were added.
+INTRADAY_INTERVALS = frozenset({"1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h"})
+
+
+def is_intraday(bar_size: str) -> bool:
+    return str(bar_size).lower() in INTRADAY_INTERVALS
+
+
 RTH_OPEN = dt.time(9, 30)
 RTH_CLOSE = dt.time(16, 0)
 

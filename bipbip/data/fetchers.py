@@ -14,7 +14,12 @@ import pandas as pd
 # request whose start is exactly 30 days back ("must be within the last 30
 # days"), which silently drops the oldest chunk and costs about a week of
 # history on every run.
-YF_MAX_DAYS = {"1m": 29, "2m": 59, "5m": 59, "15m": 59, "30m": 59, "60m": 729}
+YF_MAX_DAYS = {"1m": 29, "2m": 59, "5m": 59, "15m": 59, "30m": 59, "60m": 729, "1h": 729}
+
+#: Daily and coarser intervals have no trailing-window limit; Yahoo serves the
+#: instrument's full history. SPY reaches back to 1993 and TQQQ to 2010, which
+#: is decades of regime context the minute archive can never contain.
+UNLIMITED_INTERVALS = frozenset({"1d", "5d", "1wk", "1mo", "3mo"})
 
 
 class FetchError(RuntimeError):
@@ -31,6 +36,13 @@ class YFinanceFetcher:
             import yfinance as yf
         except ImportError as exc:  # pragma: no cover - dependency guard
             raise FetchError("yfinance is not installed; run `pip install -r requirements.txt`") from exc
+
+        if bar_size in UNLIMITED_INTERVALS:
+            df = yf.download(symbol, period="max", interval=bar_size,
+                             progress=False, auto_adjust=False, threads=False)
+            if df is None or df.empty:
+                raise FetchError(f"no {bar_size} bars returned for {symbol}")
+            return df
 
         cap = YF_MAX_DAYS.get(bar_size, 30)
         days = cap if lookback_days is None else min(lookback_days, cap)
