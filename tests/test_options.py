@@ -330,3 +330,46 @@ def test_very_short_holds_are_not_automatically_better():
     # Both must produce trades; the point is that neither dominates by construction.
     assert very_short["trades"] > 0 and moderate["trades"] > 0
     assert very_short["median_hold_min"] <= moderate["median_hold_min"]
+
+
+def test_readme_hurdle_table_matches_the_code():
+    """Documentation drift guard.
+
+    Two commits in this project claimed to update the README while their
+    string replacements silently matched nothing, leaving numbers in the docs
+    that the code had already disproved - including a leverage figure derived
+    from the wrong clock. Numbers published in the README are recomputed here
+    so they cannot drift from the implementation again.
+    """
+    import pathlib
+    import re
+
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README not present")
+    text = readme.read_text()
+
+    section = text.split("### The hurdle grows with holding time")
+    assert len(section) == 2, "hurdle section missing from README"
+    rows = re.findall(r"\|\s*(\d+)\s*min\s*\|\s*([\d.]+)\s*bps\s*\|", section[1])
+    assert rows, "no hurdle rows parsed from README"
+
+    for hold_str, claimed_str in rows:
+        actual = breakeven_move_bps(777.0, 777.0, 390.0, 0.10, float(hold_str))
+        claimed = float(claimed_str)
+        assert abs(actual - claimed) < 0.2, (
+            f"README claims {claimed} bps at {hold_str} min; code computes {actual:.2f}"
+        )
+
+
+def test_readme_does_not_repeat_the_calendar_clock_error():
+    """The 353x leverage figure came from a calendar clock and is wrong."""
+    import pathlib
+
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README not present")
+    text = readme.read_text()
+    # It may be named as a corrected mistake, but never asserted as fact.
+    for bad in ("runs ~353x leverage", "since 353x leverage amplifies"):
+        assert bad not in text, f"stale claim still present: {bad!r}"

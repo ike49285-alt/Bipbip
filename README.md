@@ -239,33 +239,104 @@ out-of-sample trades, an observed score at or under the null's best is called
 noise outright, and p-values from too few permutations are reported as
 unresolvable rather than significant.
 
-## On 0DTE options
+## 0DTE options
 
-The intended direction is an ML price target for 0DTE SPY options. Three
-findings from costing that out, recorded here so they are not rediscovered:
+`bipbip/options/` prices 0DTE contracts and re-expresses any strategy's signals
+as long calls or puts:
+
+```bash
+python -m bipbip.cli options --symbol SPY --strategy orb
+```
 
 **Predict the underlying, not the option.** An option's price is a
-deterministic function of spot, time to expiry and implied volatility;
+deterministic function of spot, time to expiry and implied volatility, and
 Black-Scholes returns it exactly. A model trained on option prices spends its
-sample size rediscovering that formula badly. The forecasting problem is SPY
-over the hold horizon, and the option target is arithmetic on top of it.
+sample size rediscovering that formula badly.
 
-**The hurdle is about 8bp of SPY movement per two-hour hold.** At $640 spot and
-13% IV, an ATM 0DTE call runs ~353x leverage, so a 10bp move in SPY is a +23%
-move in the option — but the same position sheds 16.9% to theta over two hours
-with spot unchanged, and the spread costs ~1.1% round trip. Leverage offsets
-most of the spread; theta is the real cost, and it is certain while the edge is
-not. Compare 2.3bp for the stock.
+**The clock is the thing to get right.** Volatility estimated from one-minute
+bars is annualised over TRADING minutes, so time to expiry must use the same
+clock. An ATM 0DTE SPY call at $640 and 13% vol prices at $0.91 on a calendar
+clock and $2.14 on a trading clock; real contracts trade near the latter,
+because markets accumulate variance while open and little overnight. An earlier
+version of this file used the calendar clock and consequently quoted 353x
+leverage, which was wrong - the true figure is around 200x.
 
-**0DTE cannot be backtested on free data.** Historical intraday option chains
-are not freely available; yfinance exposes only a current snapshot. The chosen
-route is synthesising option prices from SPY bars via Black-Scholes with a
-calibrated IV assumption — defensible for ATM SPY, and to be labelled as an
-approximation wherever it appears in results.
+**Implied vol is modelled, not observed**, and is the largest source of error
+here. It is realised vol times a risk premium, floored per instrument, because
+implied vol does not follow realised vol down: measured on this archive SPY
+realised 6.2% annualised while its options would never have been quoted near
+that. Without the floor the model prices an ATM 0DTE call at $0.86 against a
+real $2-4 and manufactures free money. There is no smile and no intraday term
+structure; both omissions flatter the results.
 
-The consequent gate: a directional signal must clear 2.3bp on SPY *stock*
-before it is worth expressing in options, since 353x leverage amplifies errors
-as readily as edges.
+### The hurdle grows with holding time
+
+Breakeven underlying move for an ATM 0DTE SPY call entered at the open, after
+theta and both spreads:
+
+| Hold | 0DTE | Stock |
+|------|------|-------|
+| 15 min | 1.3 bps | 2.28 bps |
+| 30 min | 2.3 bps | 2.28 bps |
+| 60 min | 4.3 bps | 2.28 bps |
+| 240 min | 17.1 bps | 2.28 bps |
+
+The stock's cost is flat in holding time; theta is not. This is deterministic
+arithmetic, not an observation about any trade.
+
+### Risk has to be managed in the option's own terms
+
+Keeping the stock's stops destroyed the results. Option winners averaged +27.6%
+while losers averaged -53.7% - a win/loss magnitude ratio of **0.51**, which
+cannot be profitable at any hit rate near 50%. Three causes:
+
+**Holding time.** One trade held 152 minutes on a +33bp underlying move returned
++11.7%; another held 21 minutes on a *smaller* +24bp move returned +54.4%.
+
+**Losses running.** Underlying stops sat 13-21bp away, already 60-70% of premium
+by the time they trigger at this leverage. The cap belongs in premium terms.
+
+**Strike choice.** An ATM 0DTE contract is 100% extrinsic value - a pure bet on
+theta not happening. At delta 0.87, decay over 45 minutes falls from 7.3% of
+premium to 1.4% and the payoff turns near-symmetric.
+
+| Strategy | Stock | ATM + stock exits | Native option risk |
+|----------|-------|-------------------|--------------------|
+| SPY / orb | +0.04% | -9.50% (W/L 0.53) | +4.65% (W/L 1.86) |
+| SPY / vwap_reversion | -0.11% | -3.39% | -1.36% |
+| TQQQ / orb | -0.92% | -33.91% (W/L 0.77) | -7.14% (W/L 2.71) |
+| TQQQ / vwap_reversion | -0.58% | -8.14% | -1.98% |
+
+### What is fitted, and what is not
+
+The risk parameters were chosen after examining these failures, so they are
+in-sample by construction. Sweeping them separates mechanism from coordinate:
+
+- `target_delta` is positive at 6 of 6 settings (sd 1.28) - a broad plateau.
+- `premium_stop_pct` (sd 0.06) and `premium_target_pct` (sd 0.19) are nearly
+  **inert**; they rarely trigger. Two of the four fixes do almost nothing here.
+- `max_hold_minutes` is an **inverted U, not monotonic decay**:
+
+  | hold | SPY/orb | SPY/vwap | TQQQ/orb | TQQQ/vwap |
+  |------|---------|----------|----------|-----------|
+  | 5m   | -0.26%  | -2.64%   | -0.27%   | **-1.34%** |
+  | 10m  | +1.00%  | -2.85%   | **+0.22%** | -1.68%  |
+  | 30m  | **+5.33%** | -1.02% | -4.31%  | -1.98%    |
+  | 40m  | +5.06%  | **-1.02%** | -6.54% | -1.98%    |
+  | 240m | -0.68%  | -2.21%   | -10.09%  | -1.98%    |
+
+  Very short holds do *worse*, because they cut winners before the move
+  happens. Theta grows with holding time while a signal needs time to work, and
+  the optimum sits between them - but it lands at 5, 10, 30 and 40 minutes
+  across the four combinations, so its LOCATION is not identifiable here.
+  SPY/orb's 30-minute peak is a fitted coordinate.
+
+**None of this demonstrates an edge.** SPY/orb returns +0.04% on stock,
+indistinguishable from zero, so the option result is leverage applied to noise
+across 9 trades. Managing options natively stops the machinery destroying
+value; it cannot manufacture an edge, which is why TQQQ/orb still loses after
+the fix. The gate stands: a signal must clear 2.28bp on stock before options
+are worth considering.
 
 ## What is not done
 
