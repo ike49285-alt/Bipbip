@@ -42,8 +42,15 @@ FEATURE_COLUMNS = [
 ]
 
 
-def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
-    """Return the causal feature frame aligned to `bars.index`."""
+def build_features(bars: pd.DataFrame, or_minutes: int = 30,
+                   daily: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Return the causal feature frame aligned to `bars.index`.
+
+    Passing `daily` appends lagged daily regime context - where this market sits
+    in decades of its own volatility, which no intraday bar can know. The daily
+    frame is lagged by a session inside `attach_to_intraday`, so a session never
+    sees its own daily bar.
+    """
     key = np.asarray([ts.date() for ts in bars.index])
     close, high, low = bars["close"], bars["high"], bars["low"]
 
@@ -116,9 +123,19 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
         t30.abs().fillna(0.0), 0.0,
     )
 
+    columns = list(FEATURE_COLUMNS)
+    if daily is not None and not daily.empty:
+        from ..data.regime import (REGIME_COLUMNS, attach_to_intraday,
+                                   session_open_prices)
+
+        ctx = attach_to_intraday(bars.index, session_open_prices(bars), daily)
+        for col in REGIME_COLUMNS:
+            f[col] = ctx[col]
+        columns += list(REGIME_COLUMNS)
+
     # Winsorise: a single exploding value dominates a standardised model far
     # out of proportion to the information it carries.
-    out = f[FEATURE_COLUMNS].replace([np.inf, -np.inf], np.nan)
+    out = f[columns].replace([np.inf, -np.inf], np.nan)
     return out.clip(lower=-20.0, upper=1000.0)
 
 

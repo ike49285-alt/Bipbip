@@ -41,6 +41,7 @@ class MLStrategy(Strategy):
         stop_atr: float = 1.0,
         or_minutes: int = 30,
         warmup: int = 60,
+        daily: pd.DataFrame | None = None,
     ):
         """`exit_threshold` closes the position when the model's confidence
         decays below it. Set below `threshold` on purpose: without that
@@ -57,6 +58,8 @@ class MLStrategy(Strategy):
         self.stop_atr = stop_atr
         self.or_minutes = or_minutes
         self.warmup_bars = warmup
+        # Must match whatever the model was trained with.
+        self.daily = daily
 
     def prepare(self, bars: pd.DataFrame) -> pd.DataFrame:
         """Compute features and score every bar in one pass.
@@ -65,7 +68,7 @@ class MLStrategy(Strategy):
         shortcut: `build_features` is causal, so the score at bar i depends
         only on bars <= i either way. The lookahead suite verifies this.
         """
-        feats = build_features(bars, or_minutes=self.or_minutes)
+        feats = build_features(bars, or_minutes=self.or_minutes, daily=self.daily)
         out = feats.copy()
         out["atr"] = ind.atr(bars, 30)
 

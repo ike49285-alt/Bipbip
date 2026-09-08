@@ -169,5 +169,31 @@ def format_report(result, metrics: dict, strategy_name: str = "") -> str:
     if m.get("exit_breakdown"):
         parts = ", ".join(f"{k}={v}" for k, v in sorted(m["exit_breakdown"].items()))
         lines.append(f"  Exits               {parts}")
+    if m.get("regime_note"):
+        lines += ["", "  " + m["regime_note"]]
     lines += ["", "  " + confidence_note(m), "=" * 62]
     return "\n".join(lines)
+
+
+def regime_note(daily, sessions_tested: int, window: int = 21) -> str:
+    """One line describing the market the result was measured in.
+
+    A backtest is a statement about the tape it ran on. Attaching the regime to
+    the report keeps that caveat from being separated from the number it
+    qualifies.
+    """
+    if daily is None or daily.empty:
+        return ""
+    close = daily["close"]
+    rets = np.log(close / close.shift(1)).dropna()
+    rv = (rets.rolling(window).std() * np.sqrt(TRADING_DAYS)).dropna()
+    if rv.empty:
+        return ""
+    current, pct = float(rv.iloc[-1]), float((rv < rv.iloc[-1]).mean() * 100)
+    note = (f"Regime: {current:.1%} vol, {pct:.0f}th percentile of "
+            f"{len(close) / 252:.0f}y history")
+    if pct < 25:
+        note += f" - unusually CALM; {100 - pct:.0f}% of history was wilder."
+    elif pct > 75:
+        note += f" - unusually VOLATILE; {pct:.0f}% of history was calmer."
+    return note

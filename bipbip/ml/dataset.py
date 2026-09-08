@@ -42,6 +42,7 @@ def build_dataset(
     cost_bps: float = 2.3,
     or_minutes: int = 30,
     warmup_bars: int = 60,
+    daily: pd.DataFrame | None = None,
 ) -> Dataset:
     """Build features and labels, dropping warmup and unresolved rows.
 
@@ -51,7 +52,7 @@ def build_dataset(
     different barriers, and the mismatch shows up as unexplained live
     underperformance.
     """
-    features = build_features(bars, or_minutes=or_minutes)
+    features = build_features(bars, or_minutes=or_minutes, daily=daily)
     atr = ind.atr(bars, 30)
     labels = triple_barrier_labels(
         bars, atr, target_atr=target_atr, stop_atr=stop_atr,
