@@ -112,15 +112,25 @@ def build_features(panel: Panel, market: pd.Series | None = None) -> dict:
         m = market.reindex(c.index).ffill()
         m_sma = m.rolling(200, min_periods=200).mean()
         m_vol = np.log(m / m.shift(1)).rolling(21, min_periods=21).std() * np.sqrt(252)
-        # Broadcast market state onto every symbol column.
-        f["mkt_above_sma"] = pd.DataFrame(
-            np.repeat((m > m_sma).to_numpy()[:, None], len(c.columns), axis=1),
-            index=c.index, columns=c.columns).astype("float64")
-        f["mkt_vol_pct"] = pd.DataFrame(
-            np.repeat(m_vol.expanding(min_periods=252).apply(
-                lambda w: (w[:-1] < w[-1]).mean(), raw=True).to_numpy()[:, None],
-                len(c.columns), axis=1),
-            index=c.index, columns=c.columns)
+
+        # A comparison against NaN yields False, not NaN. Left alone, that made
+        # "market is below its 200-day average" assert itself confidently for
+        # every date before the market series existed - thirty years of a
+        # feature stating something unknown as though it were known. Missing
+        # context has to stay missing.
+        above = (m > m_sma).astype("float64")
+        above[m.isna() | m_sma.isna()] = np.nan
+
+        vol_pct = m_vol.expanding(min_periods=252).apply(
+            lambda w: (w[:-1] < w[-1]).mean(), raw=True)
+
+        def _broadcast(series):
+            return pd.DataFrame(
+                np.repeat(series.to_numpy(dtype="float64")[:, None], len(c.columns), axis=1),
+                index=c.index, columns=c.columns)
+
+        f["mkt_above_sma"] = _broadcast(above)
+        f["mkt_vol_pct"] = _broadcast(vol_pct)
     return f
 
 

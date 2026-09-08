@@ -132,3 +132,31 @@ def test_meta_model_can_only_decline_a_trade():
     assert prep_yes["signals"].equals(sig)
     assert prep_no["signals"].equals(sig)
     assert (prep_no["proba"].fillna(0) < 0.5).all().all()
+
+
+def test_missing_market_context_stays_missing():
+    """A comparison against NaN yields False, not NaN.
+
+    Left alone that made "the market is below its 200-day average" assert
+    itself for every date before the market series began - on the real panel,
+    thirty years of a feature stating an unknown as a known False.
+    """
+    panel = _panel(600, 4)
+    # Market data that only exists for the second half of the panel.
+    market = pd.Series(np.nan, index=panel.dates, dtype="float64")
+    rng = np.random.default_rng(9)
+    tail = 100 * np.exp(np.cumsum(rng.normal(0.0004, 0.01, 300)))
+    market.iloc[300:] = tail
+
+    f = build_features(panel, market)
+    early = f["mkt_above_sma"].iloc[:250]
+    assert early.isna().all().all(), "unknown market state must be NaN, not False"
+
+
+def test_market_features_are_present_once_context_exists():
+    panel = _panel(900, 4)
+    rng = np.random.default_rng(10)
+    market = pd.Series(100 * np.exp(np.cumsum(rng.normal(0.0004, 0.01, 900))),
+                       index=panel.dates)
+    f = build_features(panel, market)
+    assert f["mkt_above_sma"].iloc[400:].notna().all().all()
