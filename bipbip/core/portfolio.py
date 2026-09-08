@@ -199,6 +199,7 @@ class PortfolioEngine:
 
     def _rebalance(self, target, shares, cash, settled, opens, tradeable,
                    equity, i, pending_settlement, trades, ts):
+        """Returns updated cash, settled cash, positions, and any shortfall."""
         """Sells first, then buys limited by SETTLED cash.
 
         The ordering is not a convenience: in a cash account a sale's proceeds
@@ -223,7 +224,15 @@ class PortfolioEngine:
             fees = self.costs.fees(SELL, sell_shares, fill)
             proceeds = sell_shares * fill - fees
             cash += proceeds
-            pending_settlement.append((i + self.settle_days, proceeds))
+            if self.settle_days <= 0:
+                # Margin settles instantly, so proceeds fund a purchase in the
+                # SAME rebalance. Routing them through the pending queue meant
+                # they matured only at the next bar's start, which silently
+                # imposed T+1 even when the caller asked for none - and made a
+                # rotation strategy permanently unable to fund its own switch.
+                settled += proceeds
+            else:
+                pending_settlement.append((i + self.settle_days, proceeds))
             shares[sym] -= sell_shares
             trades.append({"date": ts, "symbol": sym, "side": "sell",
                            "shares": sell_shares, "price": fill, "fees": fees})

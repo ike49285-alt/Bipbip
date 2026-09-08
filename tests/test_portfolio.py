@@ -115,3 +115,32 @@ def test_panel_does_not_forward_fill_across_gaps():
     """Filling would let a strategy trade a price that never existed."""
     panel = _panel(gap=(100, 150))
     assert panel.closes["CCC"].iloc[100:150].isna().all()
+
+
+def test_instant_settlement_funds_a_switch_in_the_same_rebalance():
+    """Regression: settle_days=0 was not instant.
+
+    Sale proceeds were routed through a pending queue drained at the START of a
+    bar, so a sale at bar i could not fund a purchase at bar i even with zero
+    settlement days. A rotation strategy was therefore permanently unable to
+    fund its own switch, and margin behaviour was never actually modelled -
+    both account types produced identical, crippled results.
+    """
+    class Rotate(PortfolioStrategy):
+        name = "rotate"
+        warmup_bars = 1
+
+        def target_weights(self, ctx):
+            pick = "AAA" if (ctx.i // 20) % 2 == 0 else "BBB"
+            return {pick: 0.98}
+
+    panel = _panel()
+    cash = PortfolioEngine(CostModel(), starting_equity=50.0,
+                           rebalance_band=0.10, settle_days=1).run(panel, Rotate())
+    margin = PortfolioEngine(CostModel(), starting_equity=50.0,
+                             rebalance_band=0.10, settle_days=0).run(panel, Rotate())
+
+    assert len(margin.unfunded) < len(cash.unfunded), (
+        "instant settlement must fund switches the cash account cannot")
+    # And the margin book should actually reach its target weight.
+    assert margin.weights.sum(axis=1).max() > 0.9

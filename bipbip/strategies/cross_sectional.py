@@ -113,8 +113,11 @@ class MeanReversionBasket(PortfolioStrategy):
         return {s: 1.0 / len(picks) for s in picks} if picks else {}
 
 
+from .turn_of_month import TurnOfMonthRotation  # noqa: E402
+
 REGISTRY = {
     "equal_weight": EqualWeightBuyHold,
+    "turn_of_month": TurnOfMonthRotation,
     "momentum": MomentumRanking,
     "reversion_basket": MeanReversionBasket,
 }
