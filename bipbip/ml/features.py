@@ -36,6 +36,9 @@ FEATURE_COLUMNS = [
     "dist_from_low_sigma",
     "bar_of_day",
     "vol_of_vol",
+    "trend_z_30",
+    "trend_z_60",
+    "pullback_vs_trend",
 ]
 
 
@@ -95,6 +98,23 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
 
     # Volatility of volatility - regime instability.
     f["vol_of_vol"] = f["atr_pct"].rolling(60, min_periods=30).std()
+
+    # Higher-timeframe drive, normalised so one threshold is portable across
+    # instruments and across the session.
+    from ..strategies.exit_filter import trend_zscore
+
+    t30 = trend_zscore(close, 30)
+    t60 = trend_zscore(close, 60)
+    f["trend_z_30"] = t30
+    f["trend_z_60"] = t60
+    # The state the exit filter encodes by hand: a short-term move running
+    # against a driving higher timeframe. Given as a feature so the model can
+    # weigh it rather than inherit someone's assumption about it.
+    short = f["ret_5"]
+    f["pullback_vs_trend"] = np.where(
+        np.sign(short.fillna(0.0)) != np.sign(t30.fillna(0.0)),
+        t30.abs().fillna(0.0), 0.0,
+    )
 
     # Winsorise: a single exploding value dominates a standardised model far
     # out of proportion to the information it carries.

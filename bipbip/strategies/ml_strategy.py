@@ -36,13 +36,23 @@ class MLStrategy(Strategy):
         self,
         model,
         threshold: float = 0.6,
+        exit_threshold: float | None = None,
         target_atr: float = 1.5,
         stop_atr: float = 1.0,
         or_minutes: int = 30,
         warmup: int = 60,
     ):
+        """`exit_threshold` closes the position when the model's confidence
+        decays below it. Set below `threshold` on purpose: without that
+        hysteresis a probability hovering at the entry level would enter and
+        exit on alternate bars, paying a round trip each time.
+
+        None disables the signal exit entirely, leaving stops and the closing
+        bell as the only ways out.
+        """
         self.model = model
         self.threshold = threshold
+        self.exit_threshold = exit_threshold
         self.target_atr = target_atr
         self.stop_atr = stop_atr
         self.or_minutes = or_minutes
@@ -68,11 +78,16 @@ class MLStrategy(Strategy):
         return out
 
     def on_bar(self, ctx: Context) -> Intent:
+        row = ctx.ind
+
         # Account rules are the engine's business; see opening_range.py.
         if ctx.in_position:
+            if self.exit_threshold is None:
+                return HOLD
+            p = float(row["proba"])
+            if np.isfinite(p) and p < self.exit_threshold:
+                return Intent(action="exit", reason=f"ml_decayed_p={p:.2f}")
             return HOLD
-
-        row = ctx.ind
         p, atr_v = float(row["proba"]), float(row["atr"])
         if not np.isfinite(p) or not np.isfinite(atr_v) or atr_v <= 0:
             return HOLD

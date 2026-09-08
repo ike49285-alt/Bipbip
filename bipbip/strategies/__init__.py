@@ -1,6 +1,7 @@
 """Strategy registry."""
 from ..core.strategy import Strategy
 from .baseline import NeverTrade, SessionBuyHold
+from .exit_filter import HTFExitFilter, trend_zscore
 from .opening_range import OpeningRangeBreakout
 from .vwap_reversion import VWAPReversion
 
@@ -19,4 +20,4 @@ def get_strategy(name: str, **kwargs) -> Strategy:
 
 
 __all__ = ["REGISTRY", "get_strategy", "Strategy", "SessionBuyHold", "NeverTrade",
-           "OpeningRangeBreakout", "VWAPReversion"]
+           "OpeningRangeBreakout", "VWAPReversion", "HTFExitFilter", "trend_zscore"]
