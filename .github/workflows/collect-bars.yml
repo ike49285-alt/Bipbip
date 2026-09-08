@@ -75,6 +75,16 @@ jobs:
         run: |
           python -m bipbip.cli fetch --universe full --bar-size 1d
 
+      - name: Fetch non-price data
+        if: always()
+        # Earnings dates and sector membership are information the price series
+        # cannot encode. The news step is a PROBE rather than a fetch: it
+        # reports what is actually retrievable, because historical per-ticker
+        # news is widely assumed to be free and is not.
+        run: |
+          python -m bipbip.cli fundamentals --universe largecap250 --what all \
+            || echo "fundamentals fetch incomplete"
+
       - name: Report coverage
         if: always()
         # --require-data fails the run when the archive is still empty. A

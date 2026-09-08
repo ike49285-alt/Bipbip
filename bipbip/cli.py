@@ -519,6 +519,50 @@ def cmd_regime(args, cfg) -> int:
     return 0
 
 
+def cmd_fundamentals(args, cfg) -> int:
+    """Fetch non-price data, and report honestly on what is unavailable."""
+    import json
+
+    from .data.fundamentals import (FundamentalsStore, fetch_earnings_dates,
+                                    fetch_sectors, probe_news)
+
+    symbols = get_universe(args.universe)
+    store = FundamentalsStore()
+
+    if args.what in ("all", "sectors"):
+        sectors = fetch_sectors(symbols)
+        store.save_json("sectors.json", sectors)
+        by = {}
+        for v in sectors.values():
+            by[v["sector"]] = by.get(v["sector"], 0) + 1
+        print(f"sectors: {len(sectors)}/{len(symbols)} symbols classified")
+        for k, v in sorted(by.items(), key=lambda kv: -kv[1]):
+            print(f"    {k:<26}{v:>4}")
+
+    if args.what in ("all", "earnings"):
+        df = fetch_earnings_dates(symbols, limit=args.earnings_limit)
+        if df.empty:
+            print("earnings: nothing returned", file=sys.stderr)
+        else:
+            store.save_frame("earnings_dates.parquet", df)
+            print(f"\nearnings: {len(df):,} dates for "
+                  f"{df['symbol'].nunique()} symbols")
+            print(f"    range {df['earnings_date'].min().date()} to "
+                  f"{df['earnings_date'].max().date()}")
+            per = df.groupby("symbol").size()
+            print(f"    per symbol: median {per.median():.0f}, max {per.max()}")
+
+    if args.what in ("all", "news"):
+        report = probe_news(symbols, sample=args.news_sample)
+        store.save_json("news_probe.json", report)
+        print(f"\nnews probe: {report['total_items']} items across "
+              f"{len(report['checked'])} symbols")
+        print(f"    oldest {report.get('oldest')}   newest {report.get('newest')}")
+        for row in report["checked"]:
+            print(f"    {row}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -601,6 +645,13 @@ def main(argv=None) -> int:
     g2.add_argument("--symbols", nargs="*", default=None)
     g2.add_argument("--window", type=int, default=21)
     g2.set_defaults(func=cmd_regime)
+
+    fu = sub.add_parser("fundamentals", help="fetch earnings dates, sectors, and probe news")
+    fu.add_argument("--universe", default="largecap250", choices=sorted(UNIVERSES))
+    fu.add_argument("--what", default="all", choices=["all", "sectors", "earnings", "news"])
+    fu.add_argument("--earnings-limit", type=int, default=60)
+    fu.add_argument("--news-sample", type=int, default=5)
+    fu.set_defaults(func=cmd_fundamentals)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))
