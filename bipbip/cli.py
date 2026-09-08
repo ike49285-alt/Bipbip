@@ -381,6 +381,76 @@ def cmd_sensitivity(args, cfg) -> int:
     return 0
 
 
+def cmd_options(args, cfg) -> int:
+    """Re-express a strategy's signals as long 0DTE options.
+
+    Prints the honest breakeven hurdle, the stock-versus-options comparison,
+    and a sweep over the volatility assumption - which is modelled rather than
+    observed and is the largest single source of error here.
+    """
+    import numpy as np
+
+    from .options.overlay import breakeven_move_bps, express_in_options
+
+    bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
+    strategy = get_strategy(args.strategy)
+    res = _engine(cfg).run(args.symbol, bars, strategy)
+    m = M.compute(res, bars)
+    if not res.trades:
+        print(f"{strategy.name} took no trades on {args.symbol}; nothing to express.")
+        return 0
+
+    spot = float(bars["close"].iloc[-1])
+    costs = CostModel.from_config(cfg)
+    stock_hurdle = costs.round_trip_cost_bps(args.symbol, spot)
+
+    print(f"\n{args.symbol} / {strategy.name}: 0DTE option expression")
+    print("\nBreakeven underlying move, entered at the open (ATM, modelled IV):")
+    print(f"{'hold':>10}{'0DTE':>12}{'stock':>12}")
+    for h in (15, 30, 60, 120, 240):
+        be = breakeven_move_bps(spot, spot, 390.0, args.iv_floor or 0.10, float(h))
+        print(f"{h:>8}m{be:>11.1f}b{stock_hurdle:>11.2f}b")
+    print("  Theta makes the option hurdle grow with holding time; the stock's\n"
+          "  does not. Options only win on short holds.")
+
+    opts, summ = express_in_options(
+        bars, res.trades, args.symbol, kind=args.kind,
+        premium_pct=args.premium_pct, iv_premium=args.iv_premium, iv_floor=args.iv_floor,
+    )
+    moves = [abs(t.underlying_move_bps) for t in opts]
+    print(f"\n  stock    {m['trades']:3d} trades  {m['total_return_pct']:+8.2f}%  "
+          f"avg hold {m.get('avg_hold_min', 0):.0f}min")
+    print(f"  0DTE     {summ['trades']:3d} trades  {summ['total_return_pct']:+8.2f}%  "
+          f"win {summ['win_rate_pct']:.0f}%  expired worthless {summ['expired_worthless']}")
+    if moves:
+        print(f"  median |underlying move| per trade: {np.median(moves):.1f} bps")
+
+    print(f"\n  Sensitivity to the volatility assumption (it is modelled, not observed):")
+    print(f"{'IV premium':>12}{'mean IV':>12}{'0DTE return':>14}")
+    for prem in [0.85, 1.0, 1.15, 1.35, 1.6]:
+        _, sw = express_in_options(bars, res.trades, args.symbol, kind=args.kind,
+                                   premium_pct=args.premium_pct, iv_premium=prem,
+                                   iv_floor=args.iv_floor)
+        from .options.iv import implied_vol
+        # Mean, not median: the floor binds on most bars in a quiet sample, so
+        # the median reads identically across premiums and hides why the
+        # returns differ.
+        series = implied_vol(bars["close"], premium=prem, symbol=args.symbol,
+                             floor=args.iv_floor)
+        print(f"{prem:>12.2f}{float(series.mean()):>11.1%}{sw['total_return_pct']:>13.2f}%")
+    print("  If the sign flips across this range, the result is an artefact of the\n"
+          "  vol assumption rather than anything about the market.")
+
+    if summ["trades"] < 30:
+        print(f"\n  Only {summ['trades']} option trades. Indicative at best.")
+    print("\n  Every option price above is Black-Scholes on a MODELLED vol surface,\n"
+          "  not a quote. No smile and no intraday term structure, both of which\n"
+          "  flatter these numbers.")
+    if synthetic:
+        print("\n  Synthetic underlying data on top of that. Nothing here is evidence.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -438,6 +508,17 @@ def main(argv=None) -> int:
     v.add_argument("--values", nargs="*", type=float, default=None)
     v.add_argument("--synthetic", action="store_true")
     v.set_defaults(func=cmd_sensitivity)
+
+    o = sub.add_parser("options", help="express a strategy's signals as 0DTE options")
+    o.add_argument("--symbol", default="SPY")
+    o.add_argument("--strategy", default="orb", choices=sorted(REGISTRY))
+    o.add_argument("--kind", default="call", choices=["call", "put"])
+    o.add_argument("--premium-pct", type=float, default=0.10,
+                   help="fraction of equity spent on premium per trade")
+    o.add_argument("--iv-premium", type=float, default=1.15)
+    o.add_argument("--iv-floor", type=float, default=None)
+    o.add_argument("--synthetic", action="store_true")
+    o.set_defaults(func=cmd_options)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))
