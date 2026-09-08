@@ -54,7 +54,7 @@ class VWAPReversion(Strategy):
         out = pd.DataFrame(index=bars.index)
         bands = ind.session_vwap_bands(bars)
         out["vwap"] = bands["vwap"]
-        out["vwap_z"] = ind.vwap_zscore(bars)
+        out["vwap_z"] = ind.zscore_from_bands(bars["close"], bands)
         out["rsi"] = ind.rsi(bars["close"], self.rsi_window)
         # Floor the risk unit at a multiple of the round trip, so a stop can
         # never sit inside the cost of the trade that sets it.

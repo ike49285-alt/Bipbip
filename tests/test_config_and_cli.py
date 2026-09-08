@@ -143,3 +143,46 @@ def test_collector_works_without_scikit_learn(tmp_path):
     """)
     proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
     assert proc.returncode == 0, f"collector broke without sklearn:\n{proc.stderr}"
+
+
+def test_sensitivity_sweeps_a_parameter(tmp_path, capsys):
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", make_intraday_bars(n_sessions=25, seed=71))
+    cfg = _config_file(tmp_path, store_dir)
+
+    rc = main(["--config", cfg, "sensitivity", "--symbol", "SPY",
+               "--strategy", "vwap_reversion", "--param", "stretch_z"])
+    out = capsys.readouterr().out
+    assert rc == 0
+    assert "sweeping stretch_z" in out
+    for v in ["1.0", "2.0", "3.0"]:
+        assert v in out
+
+
+def test_sensitivity_warns_when_the_sweep_is_underpowered(tmp_path, capsys):
+    """A shape read off a handful of trades is noise, and must say so."""
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", make_intraday_bars(n_sessions=12, seed=72))
+    cfg = _config_file(tmp_path, store_dir)
+
+    main(["--config", cfg, "sensitivity", "--symbol", "SPY",
+          "--strategy", "vwap_reversion", "--param", "stretch_z"])
+    out = capsys.readouterr().out
+    assert "UNDERPOWERED" in out or "No trades at any setting" in out
+
+
+def test_sensitivity_rejects_an_unknown_parameter(tmp_path, capsys):
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", make_intraday_bars(n_sessions=10, seed=73))
+    cfg = _config_file(tmp_path, store_dir)
+
+    rc = main(["--config", cfg, "sensitivity", "--symbol", "SPY",
+               "--strategy", "vwap_reversion", "--param", "stop_atr",
+               "--values", "1.0", "2.0"])
+    assert rc == 0  # stop_atr is a real parameter
+
+    rc = main(["--config", cfg, "sensitivity", "--symbol", "SPY",
+               "--strategy", "vwap_reversion", "--param", "not_a_param",
+               "--values", "1.0"])
+    assert rc == 2
+    assert "no parameter" in capsys.readouterr().err

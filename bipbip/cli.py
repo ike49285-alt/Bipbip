@@ -285,6 +285,102 @@ def cmd_significance(args, cfg) -> int:
     return 0
 
 
+#: Sensible sweep ranges for the hand-chosen parameters, so a sensitivity run
+#: does not require guessing sane values for each one.
+PARAM_SWEEPS = {
+    "stretch_z": [1.0, 1.5, 2.0, 2.5, 3.0],
+    "max_rsi": [25.0, 30.0, 35.0, 40.0, 45.0],
+    "stop_atr": [0.8, 1.0, 1.2, 1.5, 2.0],
+    "confirm_bars": [1, 2, 3, 4],
+    "min_rvol": [1.0, 1.2, 1.5, 2.0],
+    "min_range_bps": [5.0, 10.0, 15.0, 20.0, 30.0],
+    "stop_frac": [0.25, 0.5, 0.75, 1.0],
+    "target_r": [1.0, 1.5, 2.0, 3.0],
+    "or_minutes": [15, 30, 45, 60],
+    "min_risk_multiple": [1.0, 1.5, 2.0, 3.0],
+}
+
+
+def cmd_sensitivity(args, cfg) -> int:
+    """Sweep one hand-chosen parameter and show the shape of the result.
+
+    Every threshold in this project was picked by judgement, not fitted, and a
+    single backtest at one setting cannot distinguish a robust effect from a
+    lucky coordinate. Sweeping shows which: a real edge degrades gently either
+    side of the chosen value, while an artefact is an isolated spike among
+    neighbours that lose money.
+
+    This is emphatically NOT a tuner. Picking the best cell on a 20-session
+    sample is precisely the overfitting the rest of the project exists to
+    avoid, so the peak is reported as a warning sign rather than a
+    recommendation.
+    """
+    import numpy as np
+
+    bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
+    values = args.values if args.values else PARAM_SWEEPS.get(args.param)
+    if not values:
+        print(f"No default sweep for {args.param!r}; pass --values.", file=sys.stderr)
+        return 2
+
+    rows = []
+    for v in values:
+        typed = type(PARAM_SWEEPS.get(args.param, [1.0])[0])(v)
+        try:
+            strategy = get_strategy(args.strategy, **{args.param: typed})
+        except TypeError:
+            print(f"{args.strategy} has no parameter {args.param!r}.", file=sys.stderr)
+            return 2
+        res = _engine(cfg).run(args.symbol, bars, strategy)
+        m = M.compute(res, bars)
+        rows.append({"value": typed, "trades": m["trades"],
+                     "return_pct": m["total_return_pct"],
+                     "win_pct": m["win_rate_pct"],
+                     "sharpe": m.get("sharpe", float("nan"))})
+
+    print(f"\n{args.symbol} / {args.strategy} - sweeping {args.param}")
+    print(f"{'value':>10}{'trades':>9}{'return %':>11}{'win %':>8}{'sharpe':>9}")
+    print("-" * 47)
+    for r in rows:
+        print(f"{r['value']:>10}{r['trades']:>9}{r['return_pct']:>11.2f}"
+              f"{r['win_pct']:>8.1f}{r['sharpe']:>9.2f}")
+
+    rets = np.array([r["return_pct"] for r in rows], dtype="float64")
+    best = int(np.argmax(rets))
+    neighbours = [rets[i] for i in (best - 1, best + 1) if 0 <= i < len(rets)]
+    total_trades = sum(r["trades"] for r in rows)
+
+    print()
+    busiest = max((r["trades"] for r in rows), default=0)
+    if total_trades == 0:
+        print("  No trades at any setting. Nothing to say about robustness.")
+    elif not neighbours:
+        print("  Peak sits at the edge of the sweep; widen --values to see its shape.")
+    else:
+        nb = float(np.mean(neighbours))
+        print(f"  peak {rets[best]:+.2f}% at {rows[best]['value']}, "
+              f"neighbours average {nb:+.2f}%")
+        if rets[best] > 0 and nb <= 0:
+            print("  SHAPE: isolated spike. The settings either side average a loss, so the\n"
+                  "  peak is a lucky coordinate rather than an effect. Do not adopt it.")
+        elif float(np.std(rets)) < 0.25:
+            print("  SHAPE: flat. The parameter barely matters here - usually because there\n"
+                  "  is no signal for it to modulate.")
+        else:
+            print("  SHAPE: plateau. Results degrade gently either side, which is what a\n"
+                  "  real effect looks like. Still needs far more data to believe.")
+
+    if 0 < busiest < 30:
+        print(f"\n  UNDERPOWERED: the busiest setting took only {busiest} trades. The shape\n"
+              "  above is mostly sampling noise; re-run once the archive is deeper.")
+
+    print("\n  Reminder: this diagnoses robustness, it does not select a value.\n"
+          "  Adopting the best cell on a short sample is exactly how backtests lie.")
+    if synthetic:
+        print("\n  Synthetic data. Nothing here is evidence.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -334,6 +430,14 @@ def main(argv=None) -> int:
     g.add_argument("--trials", type=int, default=300)
     g.add_argument("--synthetic", action="store_true")
     g.set_defaults(func=cmd_significance)
+
+    v = sub.add_parser("sensitivity", help="sweep a hand-chosen parameter to test robustness")
+    v.add_argument("--symbol", default="SPY")
+    v.add_argument("--strategy", default="vwap_reversion", choices=sorted(REGISTRY))
+    v.add_argument("--param", required=True)
+    v.add_argument("--values", nargs="*", type=float, default=None)
+    v.add_argument("--synthetic", action="store_true")
+    v.set_defaults(func=cmd_sensitivity)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))

@@ -68,17 +68,23 @@ def session_vwap_bands(df: pd.DataFrame, min_bars: int = 15) -> pd.DataFrame:
     return out
 
 
-def vwap_zscore(df: pd.DataFrame, min_bars: int = 15, min_sigma_bps: float = 1.0) -> pd.Series:
-    """Signed z-score of price relative to session VWAP.
+def zscore_from_bands(close: pd.Series, bands: pd.DataFrame,
+                      min_sigma_bps: float = 1.0) -> pd.Series:
+    """Z-score from bands already computed, so callers holding them do not
+    recompute - and cannot drift from the flooring rule below.
 
-    `min_sigma_bps` floors sigma so that a near-motionless stretch of tape
-    cannot blow the ratio up; a dispersion below a basis point of price is not
-    a tradeable dislocation whatever the arithmetic says.
+    `min_sigma_bps` floors sigma so a near-motionless stretch of tape cannot
+    blow the ratio up; a dispersion below a basis point of price is not a
+    tradeable dislocation whatever the arithmetic says.
     """
-    bands = session_vwap_bands(df, min_bars=min_bars)
-    floor = df["close"] * (min_sigma_bps / 10_000.0)
-    sigma = bands["vwap_sigma"].clip(lower=floor)
-    return ((df["close"] - bands["vwap"]) / sigma).rename("vwap_z")
+    sigma = bands["vwap_sigma"].clip(lower=close * (min_sigma_bps / 10_000.0))
+    return ((close - bands["vwap"]) / sigma).rename("vwap_z")
+
+
+def vwap_zscore(df: pd.DataFrame, min_bars: int = 15, min_sigma_bps: float = 1.0) -> pd.Series:
+    """Signed z-score of price relative to session VWAP."""
+    return zscore_from_bands(df["close"], session_vwap_bands(df, min_bars=min_bars),
+                             min_sigma_bps=min_sigma_bps)
 
 
 def cost_floored_risk(close: pd.Series, atr_series: pd.Series, hurdle_bps: float,

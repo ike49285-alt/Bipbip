@@ -53,12 +53,11 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30) -> pd.DataFrame:
     sigma = bands["vwap_sigma"].clip(lower=bars["close"] * 1e-4)
     atr = ind.atr(bars, 30)
     orng = ind.opening_range(bars, or_minutes)
-    atr_safe = atr.replace(0, np.nan)
 
     f = pd.DataFrame(index=bars.index)
 
     # Where price sits relative to the institutional benchmark, as a z-score.
-    f["vwap_z"] = (close - vwap) / sigma
+    f["vwap_z"] = ind.zscore_from_bands(close, bands)
     f["rsi"] = ind.rsi(close, 14)
     f["atr_pct"] = atr / close
     f["rvol"] = ind.relative_volume(bars, 20)

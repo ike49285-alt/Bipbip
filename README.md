@@ -151,6 +151,43 @@ percentile against matched random entries, p=0.000 - but a single trade was
 105% of that P&L, and with a correct threshold the strategy fires 3 times
 instead of 12 and returns -0.58%.
 
+## Hand-chosen parameters
+
+Every threshold here was chosen by judgement, not fitted. That is the correct
+state for a 20-session archive - fitting them now would produce a beautiful
+backtest and lose money live - but it does mean they carry different weights of
+justification, so the table says which is which.
+
+| Parameter | Value | Basis |
+|-----------|-------|-------|
+| `stretch_z` | 2.0 | Principled. Two standard deviations, firing on ~9% of bars. |
+| `min_risk_multiple` | 2.0 | Principled. A stop must clear the round trip to be meaningful. |
+| `target_r` | 2.0 | Conventional. Standard 2:1 reward-to-risk. |
+| `or_minutes` | 30 | Conventional. The usual opening range. |
+| `stop_frac` | 0.5 | Weak. Half the range is tidy, not derived. |
+| `max_rsi` | 35 | **Arbitrary.** Inherited from convention, untested. |
+| `confirm_bars` | 2 | **Arbitrary.** |
+| `min_rvol` | 1.2 | **Arbitrary.** |
+| `min_range_bps` | 15 | **Weak.** Roughly 7x the SPY cost hurdle, not derived. |
+
+`sensitivity` sweeps any of them and reports the SHAPE of the result rather
+than the best cell:
+
+```bash
+python -m bipbip.cli sensitivity --symbol SPY --strategy vwap_reversion --param stretch_z
+```
+
+A real effect degrades gently either side of the chosen value. An artefact is
+an isolated spike whose neighbours lose money. Deliberately **not a tuner** -
+adopting the best cell on a short sample is exactly the overfitting the rest of
+the project exists to prevent, so the peak is reported as a warning rather than
+a recommendation, and any sweep whose busiest setting takes fewer than 30
+trades is labelled underpowered.
+
+Swept across both symbols at 20 sessions, every setting of every parameter
+takes at most 11 trades, so no shape in the current data is interpretable. That
+is the honest answer, and it will stay the answer for some months.
+
 ## The ML layer
 
 Hand-crafted signals are **features**, not labels. Training a net to imitate
