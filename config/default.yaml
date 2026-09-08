@@ -1,0 +1,41 @@
+# Bipbip default configuration.
+# Copy to config/local.yaml and edit; local.yaml overrides these and is gitignored.
+
+account:
+  # "cash" enforces T+1 settlement and one round-trip per session (no shorting).
+  # "margin_pdt" enforces 3 day-trades per rolling 5 sessions.
+  # "margin_full" applies no turnover limit.
+  type: cash
+  starting_equity: 10000.0
+  # Fraction of settled cash committed to a single trade.
+  max_position_pct: 0.95
+
+session:
+  timezone: America/New_York
+  open: "09:30"
+  close: "16:00"
+  # Refuse to open new positions after this time; the day's edge is gone and
+  # a position opened here cannot reach its target hold before the close.
+  no_new_entries_after: "15:00"
+  # Force-flat every position at this bar. Non-negotiable for an intraday system.
+  force_flat_at: "15:55"
+
+costs:
+  # Webull charges no commission on US stocks/ETFs.
+  commission_per_trade: 0.0
+  # Regulatory fees are charged on SELLS only.
+  # NOTE: the SEC rate is reset annually - verify before trusting live P&L.
+  sec_fee_per_million: 27.80
+  finra_taf_per_share: 0.000166
+  finra_taf_max: 8.30
+  # Modelled execution friction, in basis points, applied to every fill.
+  # Half the quoted spread plus expected adverse movement during order latency.
+  slippage_bps:
+    SPY: 1.0
+    TQQQ: 2.5
+    default: 3.0
+
+data:
+  store_dir: data/bars
+  symbols: [SPY, TQQQ]
+  bar_size: 1m

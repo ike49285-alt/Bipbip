@@ -1,0 +1,20 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local market data archive (can be large; rebuild with `python -m bipbip.cli fetch`)
+data/bars/*.parquet
+data/bars/*.csv
+
+# Backtest output
+out/
+*.log
+
+# Never commit broker credentials
+secrets.yaml
+credentials.json
