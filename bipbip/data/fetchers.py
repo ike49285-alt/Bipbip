@@ -10,7 +10,11 @@ from __future__ import annotations
 import pandas as pd
 
 # yfinance's own hard limits on intraday history, in calendar days.
-YF_MAX_DAYS = {"1m": 30, "2m": 60, "5m": 60, "15m": 60, "30m": 60, "60m": 730}
+# One minute is capped at 29 rather than 30 on purpose: Yahoo rejects a
+# request whose start is exactly 30 days back ("must be within the last 30
+# days"), which silently drops the oldest chunk and costs about a week of
+# history on every run.
+YF_MAX_DAYS = {"1m": 29, "2m": 59, "5m": 59, "15m": 59, "30m": 59, "60m": 729}
 
 
 class FetchError(RuntimeError):

@@ -110,3 +110,42 @@ def test_zero_volume_padding_bars_are_dropped(tmp_path):
     bars.iloc[10:20, bars.columns.get_loc("volume")] = 0.0
     store.append("SPY", bars)
     assert len(store.load("SPY")) == len(bars) - 10
+
+
+def test_git_diff_does_not_see_untracked_files(tmp_path):
+    """Documents the trap that made the collector discard its own archive.
+
+    `git diff --quiet -- <path>` reports NO changes for brand-new untracked
+    files, so a "commit if changed" guard written that way silently skips the
+    very first run - exactly when every file is new. Staging first and checking
+    the index catches new files and modifications alike.
+    """
+    import subprocess
+
+    def git(*args):
+        return subprocess.run(["git", *args], cwd=tmp_path, capture_output=True, text=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "seed.txt").write_text("seed")
+    git("add", "seed.txt")
+    git("commit", "-qm", "seed")
+
+    bars_dir = tmp_path / "data" / "bars"
+    bars_dir.mkdir(parents=True)
+    (bars_dir / "SPY_1m.parquet").write_bytes(b"not really parquet, but untracked")
+
+    # The buggy check: sees nothing, so the archive would be thrown away.
+    assert git("diff", "--quiet", "--", "data/bars").returncode == 0
+
+    # The fix: stage, then inspect the index.
+    git("add", "data/bars")
+    assert git("diff", "--cached", "--quiet", "--", "data/bars").returncode != 0
+
+
+def test_one_minute_lookback_stays_inside_yahoo_limit():
+    """Requesting exactly 30 days back is rejected and costs a week of history."""
+    from bipbip.data.fetchers import YF_MAX_DAYS
+
+    assert YF_MAX_DAYS["1m"] < 30
