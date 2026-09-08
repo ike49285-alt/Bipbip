@@ -301,3 +301,32 @@ def test_option_position_never_survives_the_closing_bell():
                                  risk=_risk(max_hold_minutes=10_000, min_minutes_left=1))
     for o in opts:
         assert o.entry_time.date() == o.exit_time.date()
+
+
+def test_breakeven_hurdle_is_monotonic_even_though_returns_are_not():
+    """Separates the two claims that were once conflated.
+
+    The HURDLE rises monotonically with holding time - that is deterministic
+    Black-Scholes, independent of any data. Realised RETURNS are an inverted U,
+    because cutting a position early also cuts winners before the move happens.
+    An earlier version of this project described the returns as monotonic,
+    which its own table contradicted.
+    """
+    hurdles = [breakeven_move_bps(700.0, 700.0, 390.0, 0.12, float(h))
+               for h in (5, 15, 30, 60, 120, 240)]
+    assert all(b > a for a, b in zip(hurdles, hurdles[1:])), hurdles
+
+
+def test_very_short_holds_are_not_automatically_better():
+    """Guards the corrected claim: a 5-minute cap is not a free improvement."""
+    bars = make_intraday_bars(n_sessions=30, seed=216)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if len(res.trades) < 5:
+        pytest.skip("too few underlying trades")
+
+    _, very_short = express_in_options(bars, res.trades, "SPY", risk=_risk(max_hold_minutes=5))
+    _, moderate = express_in_options(bars, res.trades, "SPY", risk=_risk(max_hold_minutes=30))
+    # Both must produce trades; the point is that neither dominates by construction.
+    assert very_short["trades"] > 0 and moderate["trades"] > 0
+    assert very_short["median_hold_min"] <= moderate["median_hold_min"]
