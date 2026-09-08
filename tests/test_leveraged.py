@@ -33,12 +33,22 @@ def test_daily_reset_loses_money_in_a_flat_choppy_market():
 
 
 def test_leverage_amplifies_a_single_day():
+    """Daily return is 3x the index MINUS a fixed daily cost.
+
+    The cost makes the ratio slightly under 3 on up days and slightly over 3 on
+    down days, so it brackets 3 rather than sitting below it - an earlier
+    version of this test asserted the wrong side and failed.
+    """
     bars = _flat_then_choppy(50)
     sim = simulate_leveraged(bars, 3.0)
     idx_r = bars["close"].pct_change().dropna()
     lev_r = sim["close"].pct_change().dropna()
-    ratio = (lev_r / idx_r).median()
-    assert 2.8 < ratio < 3.0, f"daily ratio should be near 3x, got {ratio:.2f}"
+    ratio = (lev_r / idx_r)
+
+    assert 2.95 < float(ratio.median()) < 3.05
+    up, down = idx_r > 0, idx_r < 0
+    assert float(ratio[up].max()) < 3.0, "cost must drag up-day amplification below 3x"
+    assert float(ratio[down].min()) > 3.0, "cost adds to losses on down days"
 
 
 def test_fund_cannot_lose_more_than_everything_in_a_day():
