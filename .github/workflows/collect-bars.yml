@@ -1,0 +1,76 @@
+name: Collect intraday bars
+
+# Free providers only serve a trailing ~30-day window of one-minute bars, which
+# is far too short to validate a one-trade-per-day system. This job runs after
+# the close and merges each fetch into the committed archive, so history
+# accumulates without needing a machine left switched on.
+
+on:
+  schedule:
+    # 22:30 UTC on weekdays: comfortably after the close in both EST (17:30
+    # local) and EDT (18:30 local), so the session's final bars have settled.
+    - cron: "30 22 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Space-separated symbols to fetch"
+        required: false
+        default: "SPY TQQQ"
+
+permissions:
+  contents: write
+
+concurrency:
+  # Never let two runs race to commit the same archive.
+  group: collect-bars
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Fetch bars
+        id: fetch
+        # Always request the full 30-day window rather than just yesterday. It
+        # costs a few extra requests and makes the job self-healing: a run that
+        # is skipped, delayed, or fails leaves no permanent hole in the archive.
+        run: |
+          python -m bipbip.cli fetch \
+            --symbols ${{ github.event.inputs.symbols || 'SPY TQQQ' }} \
+            --lookback 30
+
+      - name: Report coverage
+        if: always()
+        run: python -m bipbip.cli coverage || true
+
+      - name: Commit new bars
+        run: |
+          if git diff --quiet -- data/bars; then
+            echo "No new bars - nothing to commit."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/bars
+          git commit -m "Archive intraday bars for $(date -u +%Y-%m-%d)"
+          # Rebase onto any concurrent push before writing back.
+          for attempt in 1 2 3; do
+            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && \
+              git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            echo "Push attempt ${attempt} failed; retrying."
+            sleep $((attempt * 5))
+          done
+          echo "Could not push the archive after 3 attempts." >&2
+          exit 1

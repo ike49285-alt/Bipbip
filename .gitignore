@@ -7,8 +7,10 @@ venv/
 .pytest_cache/
 .ipynb_checkpoints/
 
-# Local market data archive (can be large; rebuild with `python -m bipbip.cli fetch`)
-data/bars/*.parquet
+# The bar archive IS committed on purpose. Free providers serve only a
+# trailing ~30-day window, so the scheduled collector accumulating history in
+# git is the whole mechanism by which this project ever gets a usable sample.
+# Parquet keeps it small: roughly 20KB per symbol per session.
 data/bars/*.csv
 
 # Backtest output
