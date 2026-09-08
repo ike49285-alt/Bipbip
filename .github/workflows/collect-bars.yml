@@ -95,6 +95,43 @@ jobs:
           python -m bipbip.cli coverage --bar-size 1d || true
           python -m bipbip.cli coverage --bar-size 1h || true
 
+      - name: Verify the daily archive is total-return
+        if: always()
+        # The daily bars were stored price-only for the whole life of this
+        # project: dividends were discarded, so SHY read 81.01 -> 81.66 across
+        # 24 years and every backtest measured strategies against a benchmark
+        # missing its own yield. Nothing failed - the data simply looked
+        # plausible and was wrong. This asserts the property directly, so a
+        # revert to unadjusted prices breaks the job instead of the research.
+        run: |
+          python - <<'EOF'
+          import sys
+          from bipbip.data.store import BarStore
+
+          store = BarStore("data/bars")
+          # Short Treasuries: almost all return arrives as coupons, so the
+          # price-only series is nearly flat and the adjusted one is not.
+          bad = []
+          for sym, floor in (("SHY", 0.15), ("TLT", 0.40), ("AGG", 0.40)):
+              bars = store.load(sym, "1d")
+              if bars.empty:
+                  print(f"{sym}: not in the archive, skipping")
+                  continue
+              first, last = float(bars["close"].iloc[0]), float(bars["close"].iloc[-1])
+              total = last / first - 1.0
+              years = (bars.index[-1] - bars.index[0]).days / 365.25
+              print(f"{sym}: {first:.2f} -> {last:.2f} over {years:.1f}y = {total:+.1%}")
+              if total < floor:
+                  bad.append(f"{sym} returned {total:+.1%} over {years:.1f}y, "
+                             f"below the {floor:.0%} a coupon-paying fund must clear")
+          if bad:
+              print("\nDaily bars look price-only, not total-return:", file=sys.stderr)
+              for b in bad:
+                  print(f"  - {b}", file=sys.stderr)
+              print("Check auto_adjust on the daily fetch path.", file=sys.stderr)
+              sys.exit(1)
+          EOF
+
       - name: Commit new bars
         run: |
           git config user.name "github-actions[bot]"
@@ -109,10 +146,31 @@ jobs:
             exit 0
           fi
           git commit -m "Archive market data for $(date -u +%Y-%m-%d)"
-          # Rebase onto any concurrent push before writing back.
+          data_commit="$(git rev-parse HEAD)"
+
+          # Replay this run's archive onto the remote tip rather than rebasing
+          # onto it. Parquet files cannot be three-way merged, so a rebase
+          # conflicts on EVERY file the other side also touched: one run lost a
+          # complete refetch of 309 symbols to 300 simultaneous binary
+          # conflicts. There is no meaningful merge of two versions of a bar
+          # archive anyway - the fresher fetch is simply the better one, since
+          # every daily fetch pulls the instrument's full history.
           for attempt in 1 2 3; do
-            git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && \
-              git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            if ! git fetch origin "${GITHUB_REF_NAME}"; then
+              echo "Fetch attempt ${attempt} failed; retrying."
+              sleep $((attempt * 5))
+              continue
+            fi
+            git reset --hard "origin/${GITHUB_REF_NAME}"
+            # The commit object survives the reset; take the data back out of it.
+            git checkout "${data_commit}" -- data/bars data/fundamentals
+            git add data/bars data/fundamentals
+            if git diff --cached --quiet; then
+              echo "Remote already holds this archive."
+              exit 0
+            fi
+            git commit -m "Archive market data for $(date -u +%Y-%m-%d)"
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
             echo "Push attempt ${attempt} failed; retrying."
             sleep $((attempt * 5))
           done
