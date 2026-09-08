@@ -16,6 +16,7 @@ from .config import build_account, load_config
 from .core import BacktestEngine, CostModel
 from .core import metrics as M
 from .data import BarStore, FetchError, get_fetcher, make_intraday_bars
+from .data.universe import UNIVERSES, get_universe, survivorship_warning
 from .strategies import REGISTRY, get_strategy
 
 
@@ -37,7 +38,12 @@ def cmd_fetch(args, cfg) -> int:
     """Pull the provider's trailing window and merge it into the archive."""
     store = _store(cfg)
     fetcher = get_fetcher(args.provider)
-    symbols = args.symbols or cfg.get("data", {}).get("symbols", ["SPY"])
+    if getattr(args, "universe", None):
+        symbols = get_universe(args.universe)
+        print(f"  universe {args.universe}: {len(symbols)} symbols")
+        print(f"  {survivorship_warning(args.universe)}")
+    else:
+        symbols = args.symbols or cfg.get("data", {}).get("symbols", ["SPY"])
     bar_size = args.bar_size or cfg.get("data", {}).get("bar_size", "1m")
 
     failures = 0
@@ -55,7 +61,7 @@ def cmd_fetch(args, cfg) -> int:
         )
 
     # Non-zero exit makes a silently failing scheduled job visible.
-    return 1 if failures == len(symbols) else 0
+    return 1 if symbols and failures == len(symbols) else 0
 
 
 def cmd_coverage(args, cfg) -> int:
@@ -521,6 +527,8 @@ def main(argv=None) -> int:
 
     f = sub.add_parser("fetch", help="fetch bars and merge into the archive")
     f.add_argument("--symbols", nargs="*", default=None)
+    f.add_argument("--universe", default=None, choices=sorted(UNIVERSES),
+                   help="fetch a named universe instead of individual symbols")
     f.add_argument("--bar-size", default=None)
     f.add_argument("--lookback", type=int, default=None, help="calendar days to request")
     f.add_argument("--provider", default="yfinance")

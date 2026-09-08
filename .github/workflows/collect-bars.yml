@@ -67,6 +67,14 @@ jobs:
             --symbols ${{ github.event.inputs.symbols || 'SPY TQQQ' }} \
             --bar-size 1h
 
+      - name: Fetch the daily universe
+        if: always()
+        # Daily bars for the whole universe. Unlike minute data this needs no
+        # accumulating - the full history is re-fetchable at any time - but it
+        # is committed so backtests can run without a network round trip.
+        run: |
+          python -m bipbip.cli fetch --universe everything --bar-size 1d
+
       - name: Report coverage
         if: always()
         # --require-data fails the run when the archive is still empty. A
