@@ -67,15 +67,26 @@ def cmd_coverage(args, cfg) -> int:
 
     print(f"{'symbol':<8}{'bars':>10}{'sessions':>10}  range")
     print("-" * 64)
+    empty = []
     for symbol in symbols:
         c = store.coverage(symbol, bar_size)
         if not c["bars"]:
             print(f"{symbol:<8}{'-':>10}{'-':>10}  (empty - run `fetch`)")
+            empty.append(symbol)
             continue
         print(f"{symbol:<8}{c['bars']:>10,}{c['sessions']:>10}  {c['start'][:16]} -> {c['end'][:16]}")
         if c["sessions"] < 60:
             print(f"{'':8}{'':20}  ^ {c['sessions']} sessions is too few to validate a "
                   "one-trade-a-day system; keep the collector running.")
+
+    if empty and args.require_data:
+        # A scheduled collector whose provider is blocked otherwise reports
+        # "no new bars" and exits green - a silently broken job is worse than
+        # a failing one, because nobody investigates it.
+        print(f"\nERROR: no archived bars for {', '.join(empty)}.", file=sys.stderr)
+        print("The provider returned nothing. Check whether it is blocking "
+              "the runner's IP or has changed its API.", file=sys.stderr)
+        return 1
     return 0
 
 
@@ -215,6 +226,8 @@ def main(argv=None) -> int:
 
     c = sub.add_parser("coverage", help="show archived history")
     c.add_argument("--symbols", nargs="*", default=None)
+    c.add_argument("--require-data", action="store_true",
+                   help="exit non-zero if any symbol has no archived bars")
     c.set_defaults(func=cmd_coverage)
 
     b = sub.add_parser("backtest", help="run one strategy")

@@ -53,7 +53,11 @@ jobs:
 
       - name: Report coverage
         if: always()
-        run: python -m bipbip.cli coverage || true
+        # --require-data fails the run when the archive is still empty. A
+        # collector whose provider blocks the runner would otherwise report
+        # "no new bars" and exit green, and a silently broken scheduled job is
+        # worse than a failing one because nobody goes looking for it.
+        run: python -m bipbip.cli coverage --require-data
 
       - name: Commit new bars
         run: |

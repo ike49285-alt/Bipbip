@@ -88,6 +88,22 @@ def test_compare_runs_every_registered_strategy(tmp_path, capsys):
         assert name in out
 
 
+def test_coverage_can_fail_loudly_on_an_empty_archive(tmp_path, capsys):
+    """A scheduled collector whose provider is blocked would otherwise report
+    'no new bars' and exit green. Silent breakage is worse than loud failure."""
+    cfg = _config_file(tmp_path, tmp_path / "empty")
+    assert main(["--config", cfg, "coverage", "--symbols", "SPY"]) == 0
+    assert main(["--config", cfg, "coverage", "--symbols", "SPY", "--require-data"]) == 1
+    assert "no archived bars" in capsys.readouterr().err
+
+
+def test_require_data_passes_when_the_archive_has_bars(tmp_path):
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", make_intraday_bars(n_sessions=3, seed=47))
+    cfg = _config_file(tmp_path, store_dir)
+    assert main(["--config", cfg, "coverage", "--symbols", "SPY", "--require-data"]) == 0
+
+
 def test_fetch_reports_failure_so_a_scheduled_job_cannot_fail_silently(tmp_path, capsys):
     """A collector that exits 0 while fetching nothing is worse than useless."""
     cfg = _config_file(tmp_path, tmp_path / "bars")
