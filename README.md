@@ -340,12 +340,17 @@ are worth considering.
 
 ## Effects tested, and why none of them pay
 
-Every result below is measured on this repository's own data. The pattern is
-consistent: the effects are real historically, and gone by the time you could
-have traded them.
+Every result below is measured on this repository's own data, on
+dividend-adjusted daily bars. That qualifier is load-bearing: the archive held
+price-only history until it was caught, under which SHY compounded at 0.03% a
+year and SPY's benchmark was understated by its whole yield, and every figure
+in this section moved when it was fixed.
 
-**Overnight versus intraday.** SPY has returned 8.09% annually overnight
-against 0.74% intraday over 34 years - 91% of the equity premium arrives while
+The pattern is consistent: the effects are real historically, and gone by the
+time you could have traded them.
+
+**Overnight versus intraday.** SPY has returned 10.03% annually overnight
+against 0.73% intraday over 34 years - 91% of the equity premium arrives while
 the market is closed, and QQQ's intraday component is negative. The effect is
 large and undisputed. It is not harvestable: isolating it needs 252 round trips
 a year, costing 5.7% annually, which exceeds the entire gap being captured.
@@ -354,9 +359,9 @@ a year, costing 5.7% annually, which exceeds the entire gap being captured.
 sessions around each month boundary against 2.5 bps elsewhere, and unlike
 everything else it has NOT decayed - 9.36, 7.24, 8.52 and 7.98 bps across four
 decades. Eight assets not used to find it all confirm it. But rotating into
-short Treasuries between windows returns 5.34% at a Sharpe of 0.53 against
-buying and holding at 9.25% and 0.56: being out of the market two thirds of the
-time costs more compounding than the concentrated days provide.
+short Treasuries between windows returns 6.33% at a Sharpe of 0.53 against
+buying and holding at 10.84% and 0.65: being out of the market two thirds of
+the time costs more compounding than the concentrated days provide.
 
 **Post-earnings drift.** The classic long-short version is dead, with t-stats
 near zero. Long-only winners looked alive at +1.17% over 40 days, t=5.2 - until
@@ -376,39 +381,79 @@ that is survivorship in its purest form: a large cap trading under $10 in the
 are unobtainable.
 
 **Leveraged trend following.** The one construction that could plausibly turn
-$50 into real money, and the most instructive failure here. Holding a simulated
-3x SPY while the index is above its 200-day average returns 11.38% against
-8.80% for buying and holding, which looks like the answer until it is priced
-properly. A 3x fund finances two dollars of exposure for every dollar of
-equity, so its cost moves with the borrowing rate, and the rate is the whole
-result:
+$50 into real money. Holding a simulated 3x SPY while the index is above its
+200-day average beats buying and holding on total return - and loses on every
+risk measure, at every financing cost. A 3x fund borrows two dollars for each
+dollar of equity, so the borrowing rate is a first-order input:
 
-| borrowing rate | $50 becomes | CAGR | Sharpe |
-|---|---|---|---|
-| 0.0% | $4,923 | 14.63% | 0.57 |
-| 2.0% | $1,872 | 11.38% | 0.49 |
-| 3.5% | $906 | 9.00% | 0.42 |
-| 5.0% | $439 | 6.68% | 0.36 |
-| *buy and hold SPY* | *$851* | *8.80%* | *0.55* |
+| borrowing rate | $50 becomes | CAGR | Sharpe | max drawdown |
+|---|---|---|---|---|
+| 0.0% | $16,707 | 18.88% | 0.67 | 67.1% |
+| 2.0% | $6,154 | 15.40% | 0.58 | 68.6% |
+| 3.5% | $2,911 | 12.85% | 0.52 | 69.7% |
+| 5.0% | $1,377 | 10.37% | 0.46 | 72.3% |
+| *buy and hold SPY* | *$1,547* | *10.75%* | *0.65* | *54.9%* |
 
-Average short rates over the period were near 3%, which puts the strategy at
-roughly a tie on total return and clearly behind on Sharpe at every rate above
-zero. It is a bet on cheap money wearing the costume of a trading edge.
+At 3.5% - roughly the average short rate over the period - it turns $50 into
+$2,911 against $1,547, which is a real difference in dollars. It gets there by
+taking more risk rather than by being better at anything: Sharpe falls to 0.52
+against 0.65, and the worst drawdown is 70% against 55%. Only the free-money
+row clears buy-and-hold on Sharpe, and it clears it by 0.02. Leverage is not an
+edge, it is a dial, and this is what the dial costs.
 
-Parameter sensitivity says the same thing from another direction. Three nearly
-identical versions of the rule - signal read daily, read monthly, or requiring
-three days of confirmation - returned -1.5%, +9.7% and -7.6% during 2000-2009.
-Seventeen points of spread across a choice that should not matter is noise, and
-picking the best of the three is picking a coordinate.
+Parameter sensitivity is the disqualifying part. Reading the same signal daily,
+monthly, or with three days of confirmation returned -0.6%, +13.5% and -1.0%
+during 2000-2009. Fourteen points of spread across a choice that should not
+matter is noise, and the monthly variant that produced +13.5% is the one a
+search over variants would have selected.
 
-**Moving-average timing.** SMA(200) on SPY, evaluated monthly, is the closest
-thing to a positive result in this repository, and it is not a way to make more
-money. It returns 6.72% against 8.80% for buying and holding, at a Sharpe of
-0.56 against 0.55 and a maximum drawdown of 37.4% against 56.1%. The decade
-split shows exactly what it is buying: +5.6% during 2000-2009 when holding lost
-2.6%, and less than buy-and-hold in every other decade. It is insurance. The
-premium is paid in the good decades and the payout arrives in the bad one, and
-over 34 years those very nearly cancel.
+**Moving-average timing.** SMA(200) on SPY, evaluated monthly, has the best
+risk-adjusted record of any single-asset rule here and is still not a way to
+make more money. It returns 8.80% against 10.75% for buying and holding, at a
+Sharpe of 0.70 against 0.65 and a maximum drawdown of 35.6% against 54.9%. The
+decade split shows exactly what it buys: +7.0% during 2000-2009 when holding
+lost 0.9%, and less than buy-and-hold in every other decade. It is insurance.
+The premium is paid in the good decades, the payout arrives in the bad one, and
+over 34 years the two very nearly cancel.
+
+**Levered risk parity.** The only idea tested here with a structural argument
+behind it rather than a pattern spotted in a backtest: investors who want
+return but will not borrow bid up risky assets instead, so a stock/bond blend
+carries a better Sharpe ratio than stocks alone, and borrowing converts the
+better ratio into more money. It produced the first result in this project to
+beat buying and holding on return, Sharpe and drawdown at once - and it does
+not survive being split by period.
+
+Measured from 2004, when all three sleeves exist, weighting SPY, TLT and GLD by
+inverse volatility and levering 2.09x to match SPY's volatility returns 13.44%
+against 10.91%, at a Sharpe of 0.77 against 0.65 and a 45% drawdown against
+54%. Split into five-year blocks, financed at 3.5%:
+
+| | 2005-2010 | 2011-2015 | 2016-2020 | 2021-2026 |
+|---|---|---|---|---|
+| buy & hold SPY | 2.7% | 12.1% | 15.3% | 15.2% |
+| risk parity + gold, 2.09x | 16.3% | 8.2% | 20.3% | **9.7%** |
+| risk parity, no gold, 2.03x | 5.5% | 19.4% | 20.0% | **1.2%** |
+| *GLD alone* | *21.6%* | *-6.0%* | *11.7%* | *14.8%* |
+
+Two things kill it. The advantage over the whole sample is carried by
+2005-2010, and the sleeve responsible is gold, which returned 21.6% a year
+through the financial crisis - so the strategy is a bet on one asset's one
+historic move, chosen after seeing it. Without gold the same construction
+returns 1.2% a year since 2021 against 15.2% for holding SPY, and draws down
+52% where SPY draws down 24%.
+
+The mechanism is not mysterious, which is what makes it disqualifying rather
+than unlucky. The premise is that bonds diversify stocks. When rates rise both
+fall together - TLT returned -7.8% a year over 2021-2026 - and leverage
+applied to a blend that has stopped diversifying doubles the loss instead of
+smoothing it. That is the regime the money would be going in today.
+
+Starting the same test in 1993 instead reports a Sharpe of 0.74 and looks far
+better. That number is an artefact: bond ETFs do not exist in the archive
+before 2002 or gold before 2004, so for the first nine years - the strongest
+bull run in the sample - the strategy is 92% SPY and simply inherits its
+results. The harness now begins where every sleeve exists.
 
 
 ## What is not done

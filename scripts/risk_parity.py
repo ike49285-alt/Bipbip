@@ -22,7 +22,7 @@ import numpy as np, pandas as pd
 
 from swing_compare import stats, HDR, show, START
 from bipbip.core.costs import CostModel
-from bipbip.core.panel import load_panel
+from bipbip.core.panel import build_panel, load_panel
 from bipbip.core.portfolio import PortfolioEngine, PortfolioStrategy
 from bipbip.data.store import BarStore
 
@@ -101,15 +101,22 @@ def lever(curve, mult, borrow_rate, start=START):
 
 def main():
     store = BarStore("data/bars")
-    syms = ["SPY", "TLT", "IEF", "SHY", "GLD", "AGG"]
-    panel = load_panel(store, syms, "1d")
-    have = [s for s in syms if s in panel.closes.columns]
-    print(f"symbols: {have}")
+    syms = ["SPY", "TLT", "GLD"]
+    bars = {s: store.load(s, "1d") for s in syms}
+    bars = {s: b for s, b in bars.items() if not b.empty}
+    # Start where every sleeve exists. Running from 1993 instead inflates the
+    # result badly: bonds are absent until 2002 and gold until 2004, so the
+    # strategy is 92% SPY through the best bull run in the sample and inherits
+    # its numbers, which is not a test of diversification.
+    first = max(b.index[0] for b in bars.values())
+    panel = build_panel({s: b[b.index >= first] for s, b in bars.items()})
+    have = list(panel.closes.columns)
+    print(f"symbols: {have}  (window starts where all of them exist)")
     print(f"window: {panel.dates[0].date()} -> {panel.dates[-1].date()} "
           f"({len(panel)} sessions)\n")
 
     stock = "SPY"
-    bond = "TLT" if "TLT" in have else "IEF"
+    bond = "TLT"
     cands = [
         ("buy & hold SPY", HoldOne(stock)),
         (f"hold {bond}", HoldOne(bond)),
@@ -117,6 +124,10 @@ def main():
         ("risk parity (2 sleeve)", RiskParity([stock, bond])),
         ("risk parity (+gold)", RiskParity([s for s in (stock, bond, "GLD") if s in have],
                                            label="rp3")),
+    ] if "GLD" in have else [
+        ("buy & hold SPY", HoldOne(stock)),
+        ("60/40", FixedBlend({stock: 0.6, bond: 0.4}, "60_40")),
+        ("risk parity (2 sleeve)", RiskParity([stock, bond])),
     ]
 
     print(HDR)
@@ -149,6 +160,60 @@ def main():
     sb = stats(bh, [], start=float(bh.iloc[0]))
     print(f"\n  buy & hold SPY for reference: ${sb['final']:,.0f}  "
           f"{sb['cagr']*100:.2f}%  Sharpe {sb['sharpe']:.2f}  maxDD {sb['mdd']*100:.1f}%")
+
+    subperiods(panel, curves, target_vol)
+
+
+def subperiods(panel, curves, target_vol, rate=0.035):
+    """The test that decides it.
+
+    A full-sample number is an average over regimes, and an average can be
+    carried entirely by one of them. Risk parity's premise is that bonds
+    diversify stocks; the question a headline Sharpe cannot answer is whether
+    that held recently, because there is a regime - rates rising - in which
+    both fall together and leverage doubles the damage rather than smoothing
+    it.
+    """
+    print("\n\nCAGR / Sharpe / maxDD within each sub-period"
+          f" (levered rows financed at {rate:.1%})\n")
+    periods = [("2005-2010", "2005", "2010"), ("2011-2015", "2011", "2015"),
+               ("2016-2020", "2016", "2020"), ("2021-2026", "2021", "2026")]
+
+    def seg(c, a, b):
+        x = c[a:b].dropna()
+        if len(x) < 200:
+            return None
+        y = (x.index[-1] - x.index[0]).days / 365.25
+        r = x.pct_change().dropna()
+        return ((float(x.iloc[-1]) / float(x.iloc[0])) ** (1 / y) - 1,
+                r.mean() / r.std() * np.sqrt(252),
+                abs(float((x / x.cummax() - 1).min())))
+
+    print(f"{'':<26}" + "".join(f"{n:>24}" for n, _, _ in periods))
+    for label, c in curves.items():
+        mult = 1.0 if label == "buy & hold SPY" else target_vol / c.pct_change().std()
+        cc = c if mult == 1.0 else lever(c, mult, rate, start=float(c.iloc[0]))
+        tag = label if mult == 1.0 else f"{label} {mult:.2f}x"
+        line = f"{tag:<26}"
+        for _, a, b in periods:
+            s = seg(cc, a, b)
+            line += f"{'-':>24}" if s is None else \
+                f"{s[0]*100:>10.1f}% {s[1]:>5.2f} {s[2]*100:>5.0f}%"
+        print(line)
+
+    print("\nAnd the sleeves themselves, so it is visible which one is doing it:")
+    for sym in ("SPY", "TLT", "GLD"):
+        if sym not in panel.closes.columns:
+            continue
+        px = panel.closes[sym].dropna()
+        line = f"{sym:<26}"
+        for _, a, b in periods:
+            x = px[a:b]
+            if len(x) < 200:
+                line += f"{'-':>24}"; continue
+            y = (x.index[-1] - x.index[0]).days / 365.25
+            line += f"{((float(x.iloc[-1])/float(x.iloc[0]))**(1/y)-1)*100:>23.1f}%"
+        print(line)
 
 
 if __name__ == "__main__":
