@@ -1,0 +1,32 @@
+{
+  "checked": [
+    {
+      "dated": 10,
+      "items": 10,
+      "symbol": "AAPL"
+    },
+    {
+      "dated": 10,
+      "items": 10,
+      "symbol": "ABBV"
+    },
+    {
+      "dated": 10,
+      "items": 10,
+      "symbol": "ABT"
+    },
+    {
+      "dated": 10,
+      "items": 10,
+      "symbol": "ACN"
+    },
+    {
+      "dated": 10,
+      "items": 10,
+      "symbol": "ADBE"
+    }
+  ],
+  "newest": "2026-09-08 18:27:23",
+  "oldest": "2026-09-01 04:01:00",
+  "total_items": 50
+}
