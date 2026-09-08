@@ -338,6 +338,43 @@ value; it cannot manufacture an edge, which is why TQQQ/orb still loses after
 the fix. The gate stands: a signal must clear 2.28bp on stock before options
 are worth considering.
 
+## Effects tested, and why none of them pay
+
+Every result below is measured on this repository's own data. The pattern is
+consistent: the effects are real historically, and gone by the time you could
+have traded them.
+
+**Overnight versus intraday.** SPY has returned 8.09% annually overnight
+against 0.74% intraday over 34 years - 91% of the equity premium arrives while
+the market is closed, and QQQ's intraday component is negative. The effect is
+large and undisputed. It is not harvestable: isolating it needs 252 round trips
+a year, costing 5.7% annually, which exceeds the entire gap being captured.
+
+**Turn of month.** The best-evidenced finding here. SPY returns 8.20 bps on the
+sessions around each month boundary against 2.5 bps elsewhere, and unlike
+everything else it has NOT decayed - 9.36, 7.24, 8.52 and 7.98 bps across four
+decades. Eight assets not used to find it all confirm it. But rotating into
+short Treasuries between windows returns 5.34% at a Sharpe of 0.53 against
+buying and holding at 9.25% and 0.56: being out of the market two thirds of the
+time costs more compounding than the concentrated days provide.
+
+**Post-earnings drift.** The classic long-short version is dead, with t-stats
+near zero. Long-only winners looked alive at +1.17% over 40 days, t=5.2 - until
+split by era: +3.88%, +1.82%, +0.57%, +1.12%, and -0.25% in 2020-2027. The
+losing decile drifts up as well in every pre-2020 era, which is the signature
+of survivorship rather than signal, since stocks that crashed and never
+recovered are absent from a 2026 membership list.
+
+**Low-priced shares.** With fractional trading, share price is cosmetic: $50
+buys 0.064 shares of a $777 stock or 10 shares of a $5 one, and the percentage
+return is identical. What is not cosmetic is the spread. A one-cent spread
+costs 0.3 bps round trip on SPY and 40 bps on a $5 stock - over a hundred times
+more - and sub-$10 names rarely quote a penny wide. Cheap stocks in this
+universe do show higher forward returns, 1.93% against 0.79% over 20 days, but
+that is survivorship in its purest form: a large cap trading under $10 in the
+2026 index is one that fell a long way and CAME BACK, and the ones that did not
+are unobtainable.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
