@@ -38,8 +38,18 @@ class YFinanceFetcher:
             raise FetchError("yfinance is not installed; run `pip install -r requirements.txt`") from exc
 
         if bar_size in UNLIMITED_INTERVALS:
+            # auto_adjust=True gives a TOTAL-RETURN series: OHLC back-adjusted
+            # for splits and dividends. Without it a bond ETF looks like it
+            # returned nothing for twenty years, because its entire return
+            # arrives as coupons. SHY read 81.01 -> 81.67 across 24 years on
+            # unadjusted data, which made "does the risk asset beat cash?"
+            # compare against a cash proxy earning zero.
+            #
+            # Every daily fetch pulls period="max", so the whole series is
+            # re-adjusted on each run and the archive stays internally
+            # consistent as new dividends are paid.
             df = yf.download(symbol, period="max", interval=bar_size,
-                             progress=False, auto_adjust=False, threads=False)
+                             progress=False, auto_adjust=True, threads=False)
             if df is None or df.empty:
                 raise FetchError(f"no {bar_size} bars returned for {symbol}")
             return df
@@ -60,6 +70,11 @@ class YFinanceFetcher:
                 start=(pd.Timestamp.utcnow() - pd.Timedelta(days=days - start)).date(),
                 end=(pd.Timestamp.utcnow() - pd.Timedelta(days=days - end)).date() + pd.Timedelta(days=1),
                 progress=False,
+                # Deliberately unadjusted, unlike the daily path: the intraday
+                # archive is stitched from many partial fetches that are never
+                # rewritten, so back-adjusting new bars would leave a seam at
+                # every dividend. Over a trailing window the distortion is
+                # under 0.5%, and it is the price you would actually trade at.
                 auto_adjust=False,
                 prepost=False,
                 threads=False,
