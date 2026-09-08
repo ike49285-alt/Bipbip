@@ -196,3 +196,57 @@ def test_is_intraday_classification():
         assert is_intraday(size)
     for size in ("1d", "1wk", "1mo"):
         assert not is_intraday(size)
+
+
+def test_daily_bars_keep_their_own_session_date(tmp_path):
+    """Regression for silent lookahead bias.
+
+    Providers stamp daily bars naive, and the naive value already IS the
+    session date. Localising to UTC and converting to exchange time moved every
+    bar onto the previous calendar day: the bar labelled 2026-09-01 held the
+    2026-09-02 session. Joining that to intraday bars by date pairs each
+    session with TOMORROW's daily bar - lookahead bias that is invisible and
+    flatters every result built on it.
+    """
+    import pandas as pd
+
+    dates = pd.to_datetime(["2026-09-01", "2026-09-02", "2026-09-03"])
+    daily = pd.DataFrame({"open": [1.0, 2.0, 3.0], "high": [1.5, 2.5, 3.5],
+                          "low": [0.5, 1.5, 2.5], "close": [1.2, 2.2, 3.2],
+                          "volume": [10.0, 20.0, 30.0]}, index=dates)
+
+    store = BarStore(tmp_path)
+    store.append("SPY", daily, bar_size="1d")
+    stored = store.load("SPY", "1d")
+
+    assert [t.date().isoformat() for t in stored.index] == [
+        "2026-09-01", "2026-09-02", "2026-09-03"]
+    # The close on each date must be the one the provider gave for that date.
+    assert float(stored["close"].iloc[0]) == pytest.approx(1.2)
+    assert float(stored["close"].iloc[2]) == pytest.approx(3.2)
+
+
+def test_daily_and_intraday_agree_on_the_same_date(tmp_path):
+    """The join that the date shift would have silently corrupted."""
+    import pandas as pd
+
+    intraday = make_intraday_bars(n_sessions=5, seed=91)
+    sessions = sorted({t.date() for t in intraday.index})
+    closes = [float(intraday[[t.date() == d for t in intraday.index]]["close"].iloc[-1])
+              for d in sessions]
+    daily = pd.DataFrame(
+        {"open": closes, "high": closes, "low": closes, "close": closes,
+         "volume": [1e6] * len(closes)},
+        index=pd.to_datetime([str(d) for d in sessions]),
+    )
+
+    store = BarStore(tmp_path)
+    store.append("SPY", intraday, bar_size="1m")
+    store.append("SPY", daily, bar_size="1d")
+
+    d = store.load("SPY", "1d")
+    m = store.load("SPY", "1m")
+    for day, expected in zip(sessions, closes):
+        row = d[[t.date() == day for t in d.index]]
+        assert len(row) == 1, f"no daily bar on {day}"
+        assert float(row["close"].iloc[0]) == pytest.approx(expected)

@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from .sessions import is_intraday, restrict_to_rth, to_exchange_tz
+from .sessions import is_intraday, restrict_to_rth, to_exchange_tz, to_session_dates
 
 OHLCV = ["open", "high", "low", "close", "volume"]
 
@@ -80,11 +80,13 @@ class BarStore:
             raise ValueError(f"bars are missing required columns: {missing}")
 
         df = df[OHLCV].astype("float64")
-        df = to_exchange_tz(df)
-        # Daily and weekly bars are stamped at midnight; applying the RTH
-        # window to them discards the entire frame.
         if is_intraday(bar_size):
+            df = to_exchange_tz(df)
             df = restrict_to_rth(df)
+        else:
+            # Daily bars carry a session DATE, not a moment. Converting them
+            # through UTC shifts every one onto the previous calendar day.
+            df = to_session_dates(df)
         df = df[~df.index.duplicated(keep="last")].sort_index()
         df.index.name = "timestamp"
         # A zero-volume bar is a provider gap-fill, not a tradeable minute.

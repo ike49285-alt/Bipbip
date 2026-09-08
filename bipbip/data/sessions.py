@@ -27,6 +27,34 @@ RTH_OPEN = dt.time(9, 30)
 RTH_CLOSE = dt.time(16, 0)
 
 
+def to_session_dates(df: pd.DataFrame, tz: str = EXCHANGE_TZ) -> pd.DataFrame:
+    """Stamp daily-or-coarser bars at midnight on their own session date.
+
+    Providers return daily bars with a NAIVE timestamp that already IS the
+    session date. Localising that to UTC and converting to exchange time lands
+    it at 19:00 or 20:00 on the PREVIOUS calendar day, so every bar ends up
+    labelled with the wrong date - the bar stamped 2026-09-01 actually held the
+    2026-09-02 session.
+
+    That is not a cosmetic problem. Joining such an index to intraday bars by
+    date silently pairs each session with TOMORROW's daily bar, which is
+    lookahead bias of the worst kind: invisible, and flattering.
+    """
+    if not isinstance(df.index, pd.DatetimeIndex):
+        raise TypeError(f"expected a DatetimeIndex, got {type(df.index).__name__}")
+
+    idx = df.index
+    # A naive stamp is already the session date. A tz-aware one is normalised in
+    # UTC first, since that is the convention providers use for daily data.
+    dates = idx.date if idx.tz is None else idx.tz_convert("UTC").date
+
+    out = df.copy()
+    out.index = pd.DatetimeIndex(
+        [pd.Timestamp(d).tz_localize(tz) for d in dates], name=df.index.name
+    )
+    return out
+
+
 def to_exchange_tz(df: pd.DataFrame, tz: str = EXCHANGE_TZ) -> pd.DataFrame:
     """Return `df` with a tz-aware DatetimeIndex in the exchange timezone."""
     if not isinstance(df.index, pd.DatetimeIndex):
