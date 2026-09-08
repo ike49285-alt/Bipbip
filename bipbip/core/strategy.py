@@ -21,8 +21,10 @@ class Context:
     """Everything a strategy is permitted to know at the current bar."""
 
     symbol: str
-    bars: pd.DataFrame  # session bars up to and including the current one
-    indicators: pd.DataFrame  # precomputed causal indicators, same index
+    # Full session frame. Never index past `i` - `bars` and `indicators` below
+    # expose exactly the visible window and are what strategies should use.
+    session_bars: pd.DataFrame
+    session_indicators: pd.DataFrame
     i: int  # positional index of the current bar within the session
     in_position: bool
     entry_price: float
@@ -36,16 +38,32 @@ class Context:
     prior_session_close: float = float("nan")
 
     @property
+    def bars(self) -> pd.DataFrame:
+        """Session bars up to and including the current one.
+
+        Sliced lazily. Materialising this for every bar cost a DataFrame copy
+        per call - millions of them across a significance run - while most
+        strategies only need `ind` and `price`. Strategies that do need
+        history pay for it; the rest no longer do.
+        """
+        return self.session_bars.iloc[: self.i + 1]
+
+    @property
+    def indicators(self) -> pd.DataFrame:
+        """Indicator rows up to and including the current bar. Lazy, as above."""
+        return self.session_indicators.iloc[: self.i + 1]
+
+    @property
     def bar(self) -> pd.Series:
-        return self.bars.iloc[self.i]
+        return self.session_bars.iloc[self.i]
 
     @property
     def ind(self) -> pd.Series:
-        return self.indicators.iloc[self.i]
+        return self.session_indicators.iloc[self.i]
 
     @property
     def price(self) -> float:
-        return float(self.bars["close"].iloc[self.i])
+        return float(self.session_bars["close"].iat[self.i])
 
 
 class Strategy:

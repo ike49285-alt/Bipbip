@@ -214,6 +214,77 @@ def cmd_train(args, cfg) -> int:
     return 0
 
 
+def _matched_null(strategy, seed, entry_rate):
+    """Build a random-entry null with the SAME risk geometry as `strategy`.
+
+    Matching matters. A null trading different stops and targets is a different
+    strategy, not the same strategy with random timing, and comparing against it
+    measures the wrong thing.
+    """
+    from .strategies.random_entry import RandomEntry
+    from .strategies.opening_range import OpeningRangeBreakout
+    from .strategies.vwap_reversion import VWAPReversion
+
+    common = dict(seed=seed, entry_rate=entry_rate)
+    if isinstance(strategy, OpeningRangeBreakout):
+        return RandomEntry(risk_unit="or_width", stop_frac=strategy.stop_frac,
+                           target_r=strategy.target_r, **common)
+    if isinstance(strategy, VWAPReversion):
+        # The target is session VWAP, which sits roughly `stretch_atr` ATRs
+        # away at entry, so that is the honest target distance to match.
+        return RandomEntry(risk_unit="atr", stop_atr=strategy.stop_atr,
+                           target_atr=strategy.stretch_atr, **common)
+    return RandomEntry(risk_unit="atr", stop_atr=1.0, target_atr=2.0, **common)
+
+
+def cmd_significance(args, cfg) -> int:
+    """Test a strategy against random entries with matched frequency and risk.
+
+    In a falling market any strategy that trades less loses less, which reads
+    as skill and is not. Holding everything constant except WHEN the entry
+    happens isolates timing from exposure.
+    """
+    import numpy as np
+
+    bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
+    strategy = get_strategy(args.strategy)
+
+    res = _engine(cfg).run(args.symbol, bars, strategy)
+    m = M.compute(res, bars)
+    real, n_real, sessions = m["total_return_pct"], m["trades"], m["sessions"]
+    if n_real == 0:
+        print(f"{strategy.name} took no trades on {args.symbol}; nothing to test.")
+        return 0
+
+    rate = n_real / sessions
+    null = []
+    for seed in range(args.trials):
+        r = _engine(cfg).run(args.symbol, bars, _matched_null(strategy, seed, rate))
+        null.append(M.compute(r, bars)["total_return_pct"])
+    null = np.array(null)
+
+    beat = float((null >= real).mean())
+    print(f"\n{args.symbol} / {strategy.name}   ({sessions} sessions)")
+    print(f"  strategy         {real:+.2f}%   on {n_real} trades")
+    print(f"  random entries   {null.mean():+.2f}% mean, {null.std():.2f}% sd, "
+          f"best {null.max():+.2f}%, worst {null.min():+.2f}%")
+    print(f"  matched null     {rate:.2f} trades/session, same stop/target geometry")
+    print(f"  percentile       {(null < real).mean() * 100:.0f}th")
+    print(f"  p-value          {beat:.3f} of random runs did as well or better")
+
+    if n_real < 30:
+        print(f"\n  VERDICT: inconclusive. {n_real} trades cannot separate skill from "
+              f"luck\n  whatever the p-value says. Keep collecting.")
+    elif beat > 0.05:
+        print("\n  VERDICT: no evidence of timing skill.")
+    else:
+        print(f"\n  VERDICT: beats matched random entry (p={beat:.3f}). Necessary, not\n"
+              "  sufficient - confirm on data collected AFTER today.")
+    if synthetic:
+        print("\n  Synthetic data. Nothing here is evidence.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -256,6 +327,13 @@ def main(argv=None) -> int:
     t.add_argument("--permutations", type=int, default=20)
     t.add_argument("--synthetic", action="store_true")
     t.set_defaults(func=cmd_train)
+
+    g = sub.add_parser("significance", help="test a strategy against matched random entries")
+    g.add_argument("--symbol", default="SPY")
+    g.add_argument("--strategy", default="orb", choices=sorted(REGISTRY))
+    g.add_argument("--trials", type=int, default=300)
+    g.add_argument("--synthetic", action="store_true")
+    g.set_defaults(func=cmd_significance)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))

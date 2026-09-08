@@ -151,3 +151,54 @@ def test_misaligned_indicator_frame_is_rejected():
 
     with pytest.raises(ValueError, match="misaligned"):
         _engine().run("SPY", make_intraday_bars(n_sessions=2), Broken())
+
+
+def test_random_entry_null_respects_the_same_account_rules():
+    """The null must be subject to identical constraints, or the comparison
+    measures rule differences rather than timing."""
+    from bipbip.strategies.random_entry import RandomEntry
+
+    bars = make_intraday_bars(n_sessions=15, seed=61)
+    acct = CashAccount(starting_equity=10_000.0)
+    res = BacktestEngine(acct, CostModel()).run("SPY", bars, RandomEntry(seed=3))
+
+    per_day = {}
+    for t in res.trades:
+        assert t.entry_time.date() == t.exit_time.date()
+        per_day[t.entry_time.date()] = per_day.get(t.entry_time.date(), 0) + 1
+    assert not per_day or max(per_day.values()) <= 1
+    assert acct.position.shares >= 0
+
+
+def test_random_entry_is_reproducible_and_varies_by_seed():
+    """Seeds must be stable, or a significance run is not reproducible."""
+    from bipbip.strategies.random_entry import RandomEntry
+
+    bars = make_intraday_bars(n_sessions=10, seed=62)
+
+    def run(seed):
+        return BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+            "SPY", bars, RandomEntry(seed=seed)).equity_curve.iloc[-1]
+
+    assert run(1) == run(1)
+    assert len({run(s) for s in range(6)}) > 1
+
+
+def test_context_lazy_slice_matches_eager_slice():
+    """The lazy `bars` property must expose exactly the visible window - no
+    more. This is the guarantee that made the optimisation safe."""
+    seen = []
+
+    class Recorder(Strategy):
+        name = "recorder"
+
+        def on_bar(self, ctx):
+            seen.append((len(ctx.bars), ctx.i, ctx.bars.index[-1] == ctx.session_bars.index[ctx.i]))
+            return HOLD
+
+    bars = make_intraday_bars(n_sessions=2, seed=63)
+    _engine().run("SPY", bars, Recorder())
+    assert seen
+    for n, i, last_is_current in seen:
+        assert n == i + 1, "visible window must end at the current bar"
+        assert last_is_current

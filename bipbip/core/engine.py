@@ -148,8 +148,8 @@ class BacktestEngine:
                     can_open = self.account.can_open() and ts.time() < self.no_new_entries_after
                     ctx = Context(
                         symbol=symbol,
-                        bars=session.iloc[: i + 1],
-                        indicators=sess_ind.iloc[: i + 1],
+                        session_bars=session,
+                        session_indicators=sess_ind,
                         i=i,
                         in_position=self.account.position.is_open,
                         entry_price=entry_price if self.account.position.is_open else float("nan"),
