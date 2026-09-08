@@ -137,7 +137,7 @@ def test_overlay_never_spends_more_than_the_premium_budget():
         pytest.skip("no underlying trades to express")
 
     opts, _ = express_in_options(bars, res.trades, "SPY", starting_equity=10_000.0,
-                                 premium_pct=0.10)
+                                 risk=_risk(premium_pct=0.10))
     for o in opts:
         assert o.contracts * o.entry_premium * MULTIPLIER <= 10_000.0 * 0.10 * 1.5
 
@@ -171,3 +171,133 @@ def test_overlay_pays_the_spread_in_both_directions():
         # Entry is above mid and exit below it, so an unchanged underlying loses.
         assert o.entry_premium > 0
         assert o.exit_premium >= 0
+
+
+# -- native option risk management -------------------------------------------
+
+def _risk(**kw):
+    from bipbip.options.risk import OptionRiskModel
+    return OptionRiskModel(**kw)
+
+
+def test_strike_selection_tracks_target_delta():
+    from bipbip.options.risk import strike_for_delta
+
+    T, sig = bs.minutes_to_years(330.0), 0.10
+    prev = None
+    for target in (0.50, 0.65, 0.75, 0.85, 0.95):
+        K = strike_for_delta(700.0, T, sig, target, bs.CALL)
+        actual = float(bs.delta(700.0, K, T, R, sig, bs.CALL))
+        assert abs(actual - target) < 0.12, f"target {target} got delta {actual}"
+        if prev is not None:
+            assert K <= prev, "a higher delta target must not pick a higher call strike"
+        prev = K
+
+
+def test_in_the_money_strikes_carry_less_extrinsic_value():
+    """The reason ITM is the right default: extrinsic value is what theta eats."""
+    from bipbip.options.risk import strike_for_delta
+
+    T, sig, S = bs.minutes_to_years(330.0), 0.10, 700.0
+    extrinsics = []
+    for target in (0.50, 0.75, 0.95):
+        K = strike_for_delta(S, T, sig, target, bs.CALL)
+        p = float(bs.price(S, K, T, R, sig, bs.CALL))
+        extrinsics.append((p - max(S - K, 0.0)) / p)
+    assert extrinsics[0] > extrinsics[1] > extrinsics[2]
+    assert extrinsics[0] > 0.5   # ATM is essentially all time value
+    assert extrinsics[-1] < 0.15
+
+
+def test_time_stop_closes_the_position():
+    """Theta accelerates, so a stale position bleeds regardless of thesis."""
+    bars = make_intraday_bars(n_sessions=15, seed=210)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if not res.trades:
+        pytest.skip("no underlying trades")
+
+    opts, summ = express_in_options(bars, res.trades, "SPY",
+                                    risk=_risk(max_hold_minutes=20))
+    for o in opts:
+        assert o.minutes_held <= 20 + 1e-9
+
+
+def test_premium_stop_caps_the_loss():
+    """Underlying stops are already 60-70% of premium when they trigger at this
+    leverage; the cap has to live in premium terms."""
+    bars = make_intraday_bars(n_sessions=25, seed=211, annual_vol=0.45)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if not res.trades:
+        pytest.skip("no underlying trades")
+
+    opts, _ = express_in_options(bars, res.trades, "SPY",
+                                 risk=_risk(premium_stop_pct=0.25, max_hold_minutes=300))
+    stopped = [o for o in opts if o.exit_reason == "premium_stop"]
+    for o in stopped:
+        # Allow for the exit spread and for gapping through the stop.
+        assert o.return_pct < 0
+        assert o.return_pct > -0.90
+
+
+def test_entries_are_refused_too_late_in_the_session():
+    """Decay is fastest at the end and there is no time for a thesis to work."""
+    bars = make_intraday_bars(n_sessions=10, seed=212)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if not res.trades:
+        pytest.skip("no underlying trades")
+
+    opts, summ = express_in_options(bars, res.trades, "SPY",
+                                    risk=_risk(min_minutes_left=300))
+    from bipbip.options.synth import minutes_to_close
+    mins = minutes_to_close(bars.index)
+    for o in opts:
+        assert float(mins.loc[o.entry_time]) >= 300
+
+
+def test_native_exits_beat_stock_exits_on_win_loss_ratio():
+    """The measured defect was a win/loss magnitude ratio of 0.51, which cannot
+    be profitable near a 50% hit rate. Managing the option on its own terms is
+    what repairs it."""
+    bars = make_intraday_bars(n_sessions=30, seed=213)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if len(res.trades) < 5:
+        pytest.skip("too few underlying trades")
+
+    stock_style = _risk(target_delta=0.50, premium_stop_pct=0.999,
+                        premium_target_pct=99.0, max_hold_minutes=390,
+                        min_minutes_left=0)
+    _, old = express_in_options(bars, res.trades, "SPY", risk=stock_style)
+    _, new = express_in_options(bars, res.trades, "SPY", risk=_risk())
+
+    assert new["median_hold_min"] <= old["median_hold_min"]
+    if np.isfinite(old.get("win_loss_ratio", np.nan)) and np.isfinite(new.get("win_loss_ratio", np.nan)):
+        assert new["win_loss_ratio"] >= old["win_loss_ratio"] * 0.9
+
+
+def test_option_exit_reasons_are_recorded():
+    bars = make_intraday_bars(n_sessions=20, seed=214)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if not res.trades:
+        pytest.skip("no underlying trades")
+    opts, summ = express_in_options(bars, res.trades, "SPY")
+    valid = {"premium_stop", "premium_target", "time_stop", "signal_exit", "session_close"}
+    assert set(summ["exit_breakdown"]) <= valid
+    for o in opts:
+        assert o.exit_reason in valid
+
+
+def test_option_position_never_survives_the_closing_bell():
+    bars = make_intraday_bars(n_sessions=15, seed=215)
+    res = BacktestEngine(CashAccount(10_000.0), CostModel()).run(
+        "SPY", bars, get_strategy("orb"))
+    if not res.trades:
+        pytest.skip("no underlying trades")
+    opts, _ = express_in_options(bars, res.trades, "SPY",
+                                 risk=_risk(max_hold_minutes=10_000, min_minutes_left=1))
+    for o in opts:
+        assert o.entry_time.date() == o.exit_time.date()

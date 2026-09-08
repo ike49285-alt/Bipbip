@@ -391,6 +391,7 @@ def cmd_options(args, cfg) -> int:
     import numpy as np
 
     from .options.overlay import breakeven_move_bps, express_in_options
+    from .options.risk import OptionRiskModel
 
     bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
     strategy = get_strategy(args.strategy)
@@ -413,15 +414,27 @@ def cmd_options(args, cfg) -> int:
     print("  Theta makes the option hurdle grow with holding time; the stock's\n"
           "  does not. Options only win on short holds.")
 
+    risk = OptionRiskModel(
+        target_delta=args.delta, premium_stop_pct=args.premium_stop,
+        premium_target_pct=args.premium_target, max_hold_minutes=args.max_hold,
+        premium_pct=args.premium_pct,
+    )
+    print(f"\n  risk model: {risk.describe()}")
     opts, summ = express_in_options(
-        bars, res.trades, args.symbol, kind=args.kind,
-        premium_pct=args.premium_pct, iv_premium=args.iv_premium, iv_floor=args.iv_floor,
+        bars, res.trades, args.symbol, kind=args.kind, risk=risk,
+        iv_premium=args.iv_premium, iv_floor=args.iv_floor,
     )
     moves = [abs(t.underlying_move_bps) for t in opts]
     print(f"\n  stock    {m['trades']:3d} trades  {m['total_return_pct']:+8.2f}%  "
           f"avg hold {m.get('avg_hold_min', 0):.0f}min")
     print(f"  0DTE     {summ['trades']:3d} trades  {summ['total_return_pct']:+8.2f}%  "
           f"win {summ['win_rate_pct']:.0f}%  expired worthless {summ['expired_worthless']}")
+    if summ["trades"]:
+        print(f"           mean win {summ['mean_win_pct']:+.0f}% / mean loss "
+              f"{summ['mean_loss_pct']:+.0f}%  ratio {summ['win_loss_ratio']:.2f}  "
+              f"(needs >1.0 near a 50% hit rate)")
+        print(f"           median hold {summ['median_hold_min']:.0f}m  "
+              f"exits {summ['exit_breakdown']}")
     if moves:
         print(f"  median |underlying move| per trade: {np.median(moves):.1f} bps")
 
@@ -429,8 +442,7 @@ def cmd_options(args, cfg) -> int:
     print(f"{'IV premium':>12}{'mean IV':>12}{'0DTE return':>14}")
     for prem in [0.85, 1.0, 1.15, 1.35, 1.6]:
         _, sw = express_in_options(bars, res.trades, args.symbol, kind=args.kind,
-                                   premium_pct=args.premium_pct, iv_premium=prem,
-                                   iv_floor=args.iv_floor)
+                                   risk=risk, iv_premium=prem, iv_floor=args.iv_floor)
         from .options.iv import implied_vol
         # Mean, not median: the floor binds on most bars in a quiet sample, so
         # the median reads identically across premiums and hides why the
@@ -515,6 +527,12 @@ def main(argv=None) -> int:
     o.add_argument("--kind", default="call", choices=["call", "put"])
     o.add_argument("--premium-pct", type=float, default=0.10,
                    help="fraction of equity spent on premium per trade")
+    o.add_argument("--delta", type=float, default=0.75,
+                   help="target strike delta; higher is further in-the-money")
+    o.add_argument("--premium-stop", type=float, default=0.30)
+    o.add_argument("--premium-target", type=float, default=0.50)
+    o.add_argument("--max-hold", type=int, default=45,
+                   help="hard time stop in minutes")
     o.add_argument("--iv-premium", type=float, default=1.15)
     o.add_argument("--iv-floor", type=float, default=None)
     o.add_argument("--synthetic", action="store_true")

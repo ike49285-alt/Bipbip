@@ -23,6 +23,7 @@ import pandas as pd
 
 from . import pricing as bs
 from .iv import implied_vol
+from .risk import strike_for_delta
 from .synth import atm_strike, minutes_to_close, option_series, quote_spread
 
 #: Regulatory pass-through per contract, each way. Webull charges no commission
@@ -63,81 +64,161 @@ class OptionTrade:
         return (self.underlying_exit / self.underlying_entry - 1.0) * 10_000.0
 
 
+def _option_px(S, K, T, r, sigma, kind):
+    return float(bs.price(S, K, T, r, sigma, kind))
+
+
+def simulate_option_trade(
+    bars: pd.DataFrame, entry_time, underlying_exit_time, kind: str,
+    iv: pd.Series, mins_left: pd.Series, risk, equity: float,
+    r: float = 0.04, spread_frac: float = 0.005,
+    min_premium: float = bs.MIN_TRADEABLE_PREMIUM,
+):
+    """Walk the option's own price path, exiting on whichever comes first.
+
+    Exits considered each bar, in this order:
+      1. premium stop   - the loss cap, checked first so an ambiguous bar
+                          resolves against the trader
+      2. premium target
+      3. time stop      - theta accelerates; a stale position bleeds
+      4. the underlying signal's own exit
+      5. the closing bell
+
+    Intrabar extremes are approximated by pricing the option at the bar's low
+    and high, mirroring how the equity engine treats stops, and a gap through
+    the stop fills at the gapped price rather than the stop.
+    """
+    idx = bars.index
+    if entry_time not in idx:
+        return None, "entry_bar_missing"
+
+    start = idx.get_loc(entry_time)
+    minutes_at_entry = float(mins_left.iloc[start])
+    if minutes_at_entry < risk.min_minutes_left:
+        return None, "too_late_in_session"
+
+    S_in = float(bars["close"].iloc[start])
+    sig_in = float(iv.iloc[start])
+    T_in = bs.minutes_to_years(minutes_at_entry)
+    K = strike_for_delta(S_in, T_in, sig_in, risk.target_delta, kind, r,
+                         risk.strike_increment)
+
+    mid_in = _option_px(S_in, K, T_in, r, sig_in, kind)
+    if mid_in < min_premium:
+        return None, "too_cheap"
+
+    half_in = float(quote_spread(np.array([mid_in]), frac=spread_frac)[0]) / 2.0
+    entry_px = mid_in + half_in
+    contracts = int((equity * risk.premium_pct) // (entry_px * MULTIPLIER))
+    if contracts < 1:
+        return None, "no_size"
+
+    stop_px = entry_px * (1.0 - risk.premium_stop_pct)
+    target_px = entry_px * (1.0 + risk.premium_target_pct)
+
+    # The bar the position must be closed by, whatever else happens.
+    session = idx[start].date()
+    last = start
+    while last + 1 < len(idx) and idx[last + 1].date() == session:
+        last += 1
+    signal_exit = idx.get_loc(underlying_exit_time) if underlying_exit_time in idx else last
+    time_stop = start + int(risk.max_hold_minutes)
+    hard_stop = min(last, signal_exit, time_stop)
+
+    for j in range(start + 1, hard_stop + 1):
+        T_j = bs.minutes_to_years(float(mins_left.iloc[j]))
+        sig_j = float(iv.iloc[j])
+        o_open = _option_px(float(bars["open"].iloc[j]), K, T_j, r, sig_j, kind)
+        lo_u, hi_u = float(bars["low"].iloc[j]), float(bars["high"].iloc[j])
+        # A call is worth least at the underlying's low; a put at its high.
+        o_low = _option_px(lo_u if kind == bs.CALL else hi_u, K, T_j, r, sig_j, kind)
+        o_high = _option_px(hi_u if kind == bs.CALL else lo_u, K, T_j, r, sig_j, kind)
+
+        if o_low <= stop_px:
+            # Gapping through the stop fills at the gap, not at the stop.
+            fill = min(stop_px, o_open)
+            return _close(bars, idx, start, j, K, kind, contracts, entry_px, fill,
+                          spread_frac, "premium_stop", min_premium), None
+        if o_high >= target_px:
+            fill = max(target_px, o_open)
+            return _close(bars, idx, start, j, K, kind, contracts, entry_px, fill,
+                          spread_frac, "premium_target", min_premium), None
+
+    j = hard_stop
+    T_j = bs.minutes_to_years(float(mins_left.iloc[j]))
+    fill = _option_px(float(bars["close"].iloc[j]), K, T_j, r, float(iv.iloc[j]), kind)
+    reason = ("time_stop" if j == time_stop else
+              "signal_exit" if j == signal_exit else "session_close")
+    return _close(bars, idx, start, j, K, kind, contracts, entry_px, fill,
+                  spread_frac, reason, min_premium), None
+
+
+def _close(bars, idx, start, j, K, kind, contracts, entry_px, mid_out,
+           spread_frac, reason, min_premium):
+    """Build the completed trade, paying the spread on the way out."""
+    expired = mid_out < min_premium
+    if expired:
+        exit_px = 0.0  # nobody buys back a worthless contract
+    else:
+        half = float(quote_spread(np.array([mid_out]), frac=spread_frac)[0]) / 2.0
+        exit_px = max(mid_out - half, 0.0)
+
+    fees = FEE_PER_CONTRACT * contracts * (1 if expired else 2)
+    pnl = (exit_px - entry_px) * contracts * MULTIPLIER - fees
+    return OptionTrade(
+        entry_time=idx[start], exit_time=idx[j], kind=kind, strike=K,
+        contracts=contracts, entry_premium=entry_px, exit_premium=exit_px,
+        underlying_entry=float(bars["close"].iloc[start]),
+        underlying_exit=float(bars["close"].iloc[j]),
+        pnl=pnl, fees=fees, expired_worthless=expired, exit_reason=reason,
+    )
+
+
 def express_in_options(
     bars: pd.DataFrame,
     trades: list,
     symbol: str,
     kind: str = bs.CALL,
     starting_equity: float = 10_000.0,
-    premium_pct: float = 0.10,
+    risk=None,
     iv_premium: float = 1.15,
     iv_floor: float | None = None,
     r: float = 0.04,
     min_premium: float = bs.MIN_TRADEABLE_PREMIUM,
     spread_frac: float = 0.005,
 ) -> tuple:
-    """Re-express each underlying trade as a long 0DTE option.
+    """Re-express each underlying signal as a long option, managed natively.
 
-    `premium_pct` is the fraction of equity spent on premium per trade. It
-    defaults low on purpose: at 200x leverage, sizing like a stock position
-    turns one wrong session into a catastrophe.
-
-    Returns ``(option_trades, summary)``.
+    The underlying strategy supplies only the ENTRY. Exits are the risk model's,
+    because stops sized in the underlying's ATRs are already 60-70% of premium
+    by the time they trigger at this leverage.
     """
+    from .risk import OptionRiskModel
+
+    risk = risk or OptionRiskModel()
     iv = implied_vol(bars["close"], premium=iv_premium, symbol=symbol, floor=iv_floor)
     mins_left = minutes_to_close(bars.index)
 
     equity = starting_equity
     out: list = []
-    skipped = {"too_cheap": 0, "no_size": 0, "expired_before_exit": 0}
+    skipped: dict = {}
 
     for t in trades:
-        if t.entry_time not in bars.index or t.exit_time not in bars.index:
+        trade, why = simulate_option_trade(
+            bars, t.entry_time, t.exit_time, kind, iv, mins_left, risk,
+            equity, r, spread_frac, min_premium,
+        )
+        if trade is None:
+            skipped[why] = skipped.get(why, 0) + 1
             continue
+        equity += trade.pnl
+        out.append(trade)
 
-        S_in = float(bars["close"].loc[t.entry_time])
-        S_out = float(bars["close"].loc[t.exit_time])
-        K = atm_strike(S_in)
-
-        T_in = bs.minutes_to_years(float(mins_left.loc[t.entry_time]))
-        T_out = bs.minutes_to_years(float(mins_left.loc[t.exit_time]))
-        sig_in = float(iv.loc[t.entry_time])
-        sig_out = float(iv.loc[t.exit_time])
-
-        mid_in = float(bs.price(S_in, K, T_in, r, sig_in, kind))
-        mid_out = float(bs.price(S_out, K, T_out, r, sig_out, kind))
-
-        # A contract this cheap cannot be traded profitably: one tick of spread
-        # is already a large fraction of it.
-        if mid_in < min_premium:
-            skipped["too_cheap"] += 1
-            continue
-
-        half_in = float(quote_spread(np.array([mid_in]), frac=spread_frac)[0]) / 2.0
-        half_out = float(quote_spread(np.array([mid_out]), frac=spread_frac)[0]) / 2.0
-
-        entry_px = mid_in + half_in           # cross the spread to buy
-        exit_px = max(mid_out - half_out, 0.0)  # and again to sell
-        expired = mid_out < min_premium
-        if expired:
-            # Nobody buys a worthless contract back; it simply expires.
-            exit_px = 0.0
-
-        contracts = int((equity * premium_pct) // (entry_px * MULTIPLIER))
-        if contracts < 1:
-            skipped["no_size"] += 1
-            continue
-
-        fees = FEE_PER_CONTRACT * contracts * (1 if expired else 2)
-        pnl = (exit_px - entry_px) * contracts * MULTIPLIER - fees
-        equity += pnl
-
-        out.append(OptionTrade(
-            entry_time=t.entry_time, exit_time=t.exit_time, kind=kind, strike=K,
-            contracts=contracts, entry_premium=entry_px, exit_premium=exit_px,
-            underlying_entry=S_in, underlying_exit=S_out, pnl=pnl, fees=fees,
-            expired_worthless=expired, exit_reason=t.exit_reason,
-        ))
+    exits: dict = {}
+    for o in out:
+        exits[o.exit_reason] = exits.get(o.exit_reason, 0) + 1
+    rets = np.array([o.return_pct for o in out]) if out else np.array([])
+    wins, losses = rets[rets > 0], rets[rets <= 0]
 
     summary = {
         "trades": len(out),
@@ -145,13 +226,16 @@ def express_in_options(
         "total_return_pct": (equity / starting_equity - 1.0) * 100.0,
         "skipped": skipped,
         "expired_worthless": sum(1 for o in out if o.expired_worthless),
-        "win_rate_pct": (100.0 * np.mean([o.pnl > 0 for o in out])) if out else 0.0,
+        "win_rate_pct": float(100.0 * np.mean(rets > 0)) if out else 0.0,
         "total_fees": sum(o.fees for o in out),
         "median_entry_premium": float(np.median([o.entry_premium for o in out])) if out else 0.0,
+        "mean_win_pct": float(wins.mean() * 100) if len(wins) else 0.0,
+        "mean_loss_pct": float(losses.mean() * 100) if len(losses) else 0.0,
+        "win_loss_ratio": float(abs(wins.mean() / losses.mean())) if len(wins) and len(losses) and losses.mean() else float("nan"),
+        "median_hold_min": float(np.median([o.minutes_held for o in out])) if out else 0.0,
+        "exit_breakdown": exits,
     }
     return out, summary
-
-
 def breakeven_move_bps(
     S: float, K: float, minutes_left: float, sigma: float, hold_minutes: float,
     r: float = 0.04, kind: str = bs.CALL, spread_frac: float = 0.005,
