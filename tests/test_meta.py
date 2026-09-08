@@ -160,3 +160,42 @@ def test_market_features_are_present_once_context_exists():
                        index=panel.dates)
     f = build_features(panel, market)
     assert f["mkt_above_sma"].iloc[400:].notna().all().all()
+
+
+def test_winsorisation_does_not_flatten_features_onto_one_scale():
+    """Regression: a shared clip destroyed every feature with a wide range.
+
+    Clipping all columns to a fixed +/-20 turned RSI - which spans 0-100 and
+    sits high on breakout signals - into the constant 20, with zero variance
+    and no information. Days-to-earnings lost every distinction beyond 20 days
+    the same way. Winsorising per column at its own quantiles preserves scale.
+    """
+    panel = _panel(900, 6)
+    feats = build_features(panel)
+    ds = label_signals(panel, breakout_signals(panel), feats)
+
+    for col in ("rsi2", "rsi14"):
+        values = ds.X[col].dropna()
+        assert values.std() > 1.0, f"{col} collapsed to a constant"
+        assert values.max() > 20.0, f"{col} was clipped to the old fixed range"
+
+
+def test_wide_range_context_features_survive_winsorisation():
+    import pandas as pd
+    from bipbip.ml.context_features import build_context
+
+    panel = _panel(900, 6)
+    dates = panel.dates
+    # Earnings roughly quarterly for each symbol.
+    rows = []
+    for i, sym in enumerate(panel.symbols):
+        for d in dates[::63][i % 3:]:
+            rows.append({"symbol": sym, "earnings_date": pd.Timestamp(d)})
+    earnings = pd.DataFrame(rows)
+
+    ctx = build_context(panel.closes, panel.symbols, earnings, None)
+    feats = {**build_features(panel), **ctx}
+    ds = label_signals(panel, breakout_signals(panel), feats)
+
+    days = ds.X["days_to_earnings"].dropna()
+    assert days.max() > 20.0, "days-to-earnings was flattened by the old clip"

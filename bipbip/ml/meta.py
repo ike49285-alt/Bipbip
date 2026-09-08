@@ -193,7 +193,16 @@ def label_signals(panel: Panel, signals: pd.DataFrame, features: dict,
         raise ValueError("the primary rule produced no usable signals")
 
     X = pd.DataFrame(rows, columns=feat_names)
-    X = X.replace([np.inf, -np.inf], np.nan).clip(lower=-20.0, upper=20.0)
+    X = X.replace([np.inf, -np.inf], np.nan)
+    # Winsorise per column at its own extreme quantiles, NOT at a fixed range.
+    # A shared +/-20 clip assumes every feature lives on the same scale, which
+    # is false and destructive: RSI spans 0-100, so on breakout signals - where
+    # it is always high - every value collapsed to exactly 20 and the feature
+    # became a constant with no variance at all. Days-to-earnings, capped at
+    # 60, lost every distinction beyond 20 days the same way.
+    lo = X.quantile(0.001)
+    hi = X.quantile(0.999)
+    X = X.clip(lower=lo, upper=hi, axis=1)
 
     order = np.argsort(np.asarray(when))
     X = X.iloc[order].reset_index(drop=True)
