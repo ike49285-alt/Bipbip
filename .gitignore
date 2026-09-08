@@ -13,6 +13,10 @@ venv/
 # Parquet keeps it small: roughly 20KB per symbol per session.
 data/bars/*.csv
 
+# Earnings dates and sector labels are committed for the same reason as
+# the bar archive: so backtests run without a network round trip.
+!data/fundamentals/
+
 # Backtest output
 out/
 *.log

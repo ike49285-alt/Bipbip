@@ -82,8 +82,7 @@ jobs:
         # reports what is actually retrievable, because historical per-ticker
         # news is widely assumed to be free and is not.
         run: |
-          python -m bipbip.cli fundamentals --universe largecap250 --what all \
-            || echo "fundamentals fetch incomplete"
+          python -m bipbip.cli fundamentals --universe largecap250 --what all
 
       - name: Report coverage
         if: always()
@@ -104,12 +103,12 @@ jobs:
           # first run - when every parquet file is new - it reports no changes
           # and the whole archive is discarded when the runner is destroyed.
           # Checking the index instead sees new files and modifications alike.
-          git add data/bars
-          if git diff --cached --quiet -- data/bars; then
-            echo "No new bars - nothing to commit."
+          git add data/bars data/fundamentals
+          if git diff --cached --quiet -- data/bars data/fundamentals; then
+            echo "Nothing new to commit."
             exit 0
           fi
-          git commit -m "Archive intraday bars for $(date -u +%Y-%m-%d)"
+          git commit -m "Archive market data for $(date -u +%Y-%m-%d)"
           # Rebase onto any concurrent push before writing back.
           for attempt in 1 2 3; do
             git pull --rebase --autostash origin "${GITHUB_REF_NAME}" && \
