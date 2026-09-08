@@ -186,3 +186,39 @@ def test_sensitivity_rejects_an_unknown_parameter(tmp_path, capsys):
                "--values", "1.0"])
     assert rc == 2
     assert "no parameter" in capsys.readouterr().err
+
+
+def test_regime_flags_an_unusually_quiet_window(tmp_path, capsys):
+    """A result measured in the calmest decile is not evidence about the rest.
+
+    The project's own 21-session test window sat at SPY's 12th volatility
+    percentile over 34 years, where a typical day moves twice as far. Reporting
+    that is the difference between a backtest and a claim about markets.
+    """
+    import numpy as np
+    import pandas as pd
+    from bipbip.data.sessions import EXCHANGE_TZ
+
+    rng = np.random.default_rng(3)
+    n = 800
+    # A long noisy history, then a conspicuously calm recent stretch.
+    steps = np.concatenate([rng.normal(0, 0.012, n - 40), rng.normal(0, 0.001, 40)])
+    close = 400 * np.exp(np.cumsum(steps))
+    idx = pd.to_datetime(pd.bdate_range("2022-01-03", periods=n))
+    daily = pd.DataFrame({"open": close, "high": close * 1.004, "low": close * 0.996,
+                          "close": close, "volume": 1e7}, index=idx)
+
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", daily, bar_size="1d")
+    cfg = _config_file(tmp_path, store_dir)
+
+    assert main(["--config", cfg, "regime", "--symbols", "SPY"]) == 0
+    out = capsys.readouterr().out
+    assert "percentile" in out
+    assert "unusually quiet" in out
+
+
+def test_regime_requires_daily_bars(tmp_path, capsys):
+    cfg = _config_file(tmp_path, tmp_path / "empty")
+    assert main(["--config", cfg, "regime", "--symbols", "SPY"]) == 0
+    assert "no daily bars" in capsys.readouterr().err

@@ -466,6 +466,53 @@ def cmd_options(args, cfg) -> int:
     return 0
 
 
+def cmd_regime(args, cfg) -> int:
+    """Locate the recent window in the instrument's own volatility history.
+
+    A backtest measures a strategy against the market it was run on. Knowing
+    WHICH market that was decides whether the result travels: a mean-reversion
+    edge found in the calmest decile is not evidence about the other nine.
+    Daily bars answer this in one request, where the 30-day minute archive
+    never can.
+    """
+    import numpy as np
+
+    store = _store(cfg)
+    symbols = args.symbols or cfg.get("data", {}).get("symbols", ["SPY"])
+
+    for symbol in symbols:
+        daily = store.load(symbol, "1d")
+        if daily.empty:
+            print(f"{symbol}: no daily bars. Run `fetch --bar-size 1d`.", file=sys.stderr)
+            continue
+
+        close = daily["close"]
+        rets = np.log(close / close.shift(1)).dropna()
+        rv = (rets.rolling(args.window).std() * np.sqrt(252)).dropna()
+        if rv.empty:
+            continue
+
+        current = float(rv.iloc[-1])
+        pct = float((rv < current).mean() * 100)
+        years = len(close) / 252
+
+        print(f"\n{symbol}: {len(close):,} sessions ({years:.1f} years)")
+        print(f"  last {args.window} sessions realised {current:.1%} annualised vol")
+        print(f"  -> {pct:.0f}th percentile of its own history")
+        print(f"  {'calmest 5%':<14}{rv.quantile(0.05):>7.1%}")
+        print(f"  {'median':<14}{rv.quantile(0.50):>7.1%}")
+        print(f"  {'wildest 5%':<14}{rv.quantile(0.95):>7.1%}")
+
+        if pct < 25:
+            print(f"  WARNING: unusually quiet. {100 - pct:.0f}% of history was more")
+            print("  volatile, so results measured here should not be assumed to")
+            print("  hold in a normal market - stops and thresholds calibrated on")
+            print("  this window are sized for a market that mostly does not exist.")
+        elif pct > 75:
+            print(f"  WARNING: unusually volatile. {pct:.0f}% of history was calmer.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -541,6 +588,11 @@ def main(argv=None) -> int:
     o.add_argument("--iv-floor", type=float, default=None)
     o.add_argument("--synthetic", action="store_true")
     o.set_defaults(func=cmd_options)
+
+    g2 = sub.add_parser("regime", help="where the recent window sits in its own volatility history")
+    g2.add_argument("--symbols", nargs="*", default=None)
+    g2.add_argument("--window", type=int, default=21)
+    g2.set_defaults(func=cmd_regime)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))
