@@ -110,3 +110,36 @@ def test_fetch_reports_failure_so_a_scheduled_job_cannot_fail_silently(tmp_path,
     rc = main(["--config", cfg, "fetch", "--symbols", "SPY", "--provider", "alpaca"])
     assert rc == 1
     assert "FAILED" in capsys.readouterr().err
+
+
+def test_collector_works_without_scikit_learn(tmp_path):
+    """The collector must not depend on the ML stack.
+
+    Regression test for a real failure: `cli.py` imported MLStrategy at module
+    scope, so a missing scikit-learn crashed `fetch` and `coverage` - taking
+    down the one job that has to run every day, for a library it never uses.
+    """
+    import subprocess
+    import sys
+    import textwrap
+
+    store_dir = tmp_path / "bars"
+    BarStore(store_dir).append("SPY", make_intraday_bars(n_sessions=3, seed=48))
+    cfg = _config_file(tmp_path, store_dir)
+
+    script = textwrap.dedent(f"""
+        import sys
+
+        class Blocker:
+            def find_spec(self, name, path=None, target=None):
+                if name == "sklearn" or name.startswith("sklearn."):
+                    raise ImportError("sklearn deliberately blocked")
+                return None
+
+        sys.meta_path.insert(0, Blocker())
+        from bipbip.cli import main
+        sys.exit(main(["--config", {str(cfg)!r}, "coverage",
+                       "--symbols", "SPY", "--require-data"]))
+    """)
+    proc = subprocess.run([sys.executable, "-c", script], capture_output=True, text=True)
+    assert proc.returncode == 0, f"collector broke without sklearn:\n{proc.stderr}"

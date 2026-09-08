@@ -17,7 +17,6 @@ from .core import BacktestEngine, CostModel
 from .core import metrics as M
 from .data import BarStore, FetchError, get_fetcher, make_intraday_bars
 from .strategies import REGISTRY, get_strategy
-from .strategies.ml_strategy import MLStrategy
 
 
 def _store(cfg) -> BarStore:
@@ -159,7 +158,11 @@ def cmd_train(args, cfg) -> int:
     """
     import numpy as np
 
+    # Imported here, not at module scope: `fetch` and `coverage` must keep
+    # working when scikit-learn is absent, so a missing ML dependency can
+    # never stop the collector from archiving bars.
     from .ml import MODELS, build_dataset, permutation_test, walk_forward_evaluate
+    from .strategies.ml_strategy import MLStrategy
 
     bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
     costs = CostModel.from_config(cfg)
