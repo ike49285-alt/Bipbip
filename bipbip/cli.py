@@ -17,6 +17,7 @@ from .core import BacktestEngine, CostModel
 from .core import metrics as M
 from .data import BarStore, FetchError, get_fetcher, make_intraday_bars
 from .strategies import REGISTRY, get_strategy
+from .strategies.ml_strategy import MLStrategy
 
 
 def _store(cfg) -> BarStore:
@@ -138,6 +139,67 @@ def cmd_compare(args, cfg) -> int:
     return 0
 
 
+def cmd_train(args, cfg) -> int:
+    """Train and validate a model, then run it through the real engine.
+
+    The sklearn metrics are diagnostics. The number that decides anything is
+    the backtest at the bottom, because only that one has paid a spread and
+    obeyed the settlement rules.
+    """
+    import numpy as np
+
+    from .ml import MODELS, build_dataset, permutation_test, walk_forward_evaluate
+
+    bars, synthetic = _load_bars(cfg, args.symbol, args.synthetic)
+    costs = CostModel.from_config(cfg)
+    hurdle = costs.round_trip_cost_bps(args.symbol, float(bars["close"].iloc[-1]))
+
+    ds = build_dataset(bars, target_atr=args.target_atr, stop_atr=args.stop_atr,
+                       cost_bps=hurdle)
+    print(f"\nDataset: {ds.summary()}")
+    print(f"Cost hurdle: {hurdle:.2f} bps (baked into the labels)\n")
+
+    if ds.sessions < 60:
+        print("!" * 64)
+        print(f"! Only {ds.sessions} sessions. Any model fitted here is fitting noise.")
+        print("! Keep the collector running; this run proves plumbing, not edge.")
+        print("!" * 64 + "\n")
+
+    kw = dict(n_splits=args.splits, min_train=args.min_train, threshold=args.threshold)
+    print(f"{'model':<16}{'AUC':>8}{'trades':>8}{'hit%':>8}{'mean bps':>11}")
+    print("-" * 51)
+    for name in ["base_rate", "always_enter", "logistic", "mlp"]:
+        r = walk_forward_evaluate(MODELS[name], ds.X, ds.y, ds.rets, ds.event_end, **kw)
+        if not r.get("folds"):
+            print(f"{name:<16}  {r.get('note', 'no folds')}")
+            continue
+        o = r["overall"]
+        auc = o.get("auc", float("nan"))
+        hit = o["hit_rate"] * 100 if o["n_trades"] else float("nan")
+        print(f"{name:<16}{auc:>8.3f}{o['n_trades']:>8}{hit:>8.1f}{o['mean_ret_bps']:>11.2f}")
+
+    print(f"\nPermutation test on `{args.model}` ({args.permutations} shuffles)")
+    perm = permutation_test(MODELS[args.model], ds.X, ds.y, ds.rets, ds.event_end,
+                            n_permutations=args.permutations, **kw)
+    if "verdict" in perm:
+        print(f"  observed {perm['observed_mean_ret_bps']:+.2f} bps on {perm['n_trades']} trades")
+        print(f"  luck alone reached {perm['null_best_bps']:+.2f} bps (p={perm['p_value']:.3f})")
+        print(f"  -> {perm['verdict']}")
+
+    # Fit on all history and run through the engine, where costs are real.
+    model = MODELS[args.model]().fit(ds.X.to_numpy(dtype="float64"), ds.y)
+    strategy = MLStrategy(model, threshold=args.threshold,
+                          target_atr=args.target_atr, stop_atr=args.stop_atr)
+    result = _engine(cfg).run(args.symbol, bars, strategy)
+    result.metrics = M.compute(result, bars)
+    print("\nIn-sample backtest through the engine (NOT evidence - the model saw this data):")
+    print(M.format_report(result, result.metrics, f"ml:{args.model}"))
+
+    if synthetic:
+        print("\nSynthetic data throughout. Nothing above is evidence of edge.")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="bipbip", description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -166,6 +228,18 @@ def main(argv=None) -> int:
     k.add_argument("--symbol", default="SPY")
     k.add_argument("--synthetic", action="store_true")
     k.set_defaults(func=cmd_compare)
+
+    t = sub.add_parser("train", help="train and validate a model")
+    t.add_argument("--symbol", default="SPY")
+    t.add_argument("--model", default="logistic", choices=["logistic", "mlp"])
+    t.add_argument("--threshold", type=float, default=0.55)
+    t.add_argument("--target-atr", type=float, default=1.5)
+    t.add_argument("--stop-atr", type=float, default=1.0)
+    t.add_argument("--splits", type=int, default=4)
+    t.add_argument("--min-train", type=int, default=2000)
+    t.add_argument("--permutations", type=int, default=20)
+    t.add_argument("--synthetic", action="store_true")
+    t.set_defaults(func=cmd_train)
 
     args = p.parse_args(argv)
     return args.func(args, load_config(args.config))

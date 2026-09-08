@@ -115,6 +115,57 @@ never be mistaken for evidence.
 Settings live in `config/default.yaml`. Copy it to `config/local.yaml` for
 machine-specific overrides; that file is gitignored.
 
+## The ML layer
+
+Hand-crafted signals are **features**, not labels. Training a net to imitate
+ORB or VWAP-reversion is behavioural cloning: it can only reproduce a strategy
+that already exists, and on synthetic data both of those lose money. There is
+no edge to distil. So the model instead sees "1.4 ATR below VWAP, RSI 28,
+opening range broke twenty minutes ago on 1.8x volume, 11:15am" and learns
+*when those setups pay*.
+
+Labels are **cost-aware** and use triple barriers. A model trained on "did
+price rise" learns to predict moves smaller than the spread and then loses
+money being technically correct, so the target barrier must clear the
+round-trip hurdle. Barriers match how the engine actually exits — stop, target,
+or the closing bell, whichever comes first — because training on fixed-horizon
+returns while deploying stops answers a question nobody asked.
+
+### Why the validation machinery is the real deliverable
+
+The net is twenty lines. Knowing whether to believe it is the hard part.
+
+Ordinary k-fold cross-validation is catastrophically wrong here: it shuffles,
+so the model trains on the future. Even chronological splits leak, because a
+label at bar `i` is resolved by bars out to `event_end[i]`. So splits are
+purged — training samples whose label window reaches into the validation fold
+are dropped, plus an embargo for serial correlation.
+
+`permutation_test` is the other half: it shuffles the labels and re-runs the
+entire pipeline, showing what the *procedure* scores on data with no signal.
+
+This is not theoretical. On synthetic random-walk bars, which contain no
+exploitable structure by construction, the first run reported:
+
+```
+model               AUC  trades    hit%  mean bps
+logistic          0.512      13    61.5     +5.52
+mlp               0.487      25    52.0     +2.25
+always_enter      0.500   17799    39.6     -2.46
+```
+
+Both models look profitable on data known to have none. The tells are AUC at
+0.50 — no discrimination whatsoever — and trade counts of 13 out of 17,799:
+the models were not predicting but *selecting* a few lucky samples. The
+permutation test found that shuffled labels reached +20.72 bps by luck alone,
+comfortably beating the observed +5.52.
+
+The verdict logic now refuses this in three ways, each added because its
+absence produced that false positive: results are withheld below 30
+out-of-sample trades, an observed score at or under the null's best is called
+noise outright, and p-values from too few permutations are reported as
+unresolvable rather than significant.
+
 ## On 0DTE options
 
 The intended direction is an ML price target for 0DTE SPY options. Three
