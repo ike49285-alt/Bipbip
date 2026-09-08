@@ -9,6 +9,9 @@ account:
   starting_equity: 10000.0
   # Fraction of settled cash committed to a single trade.
   max_position_pct: 0.95
+  # Webull supports fractional shares on most US stocks and ETFs. Whole-share
+  # sizing leaves the remainder idle - $176 of a $9,500 budget at SPY's price.
+  allow_fractional: true
 
 session:
   timezone: America/New_York
@@ -23,8 +26,16 @@ session:
 costs:
   # Webull charges no commission on US stocks/ETFs.
   commission_per_trade: 0.0
-  # Regulatory fees are charged on SELLS only.
-  # NOTE: the SEC rate is reset annually - verify before trusting live P&L.
+  # Regulatory fees, charged on SELLS only and passed through by the broker
+  # rather than earned by it. They are small: about $0.26 per round trip on a
+  # $9,500 position, or 12% of SPY's total trading cost. Set both to 0.0 if
+  # your statements genuinely show none.
+  #
+  # They are NOT the main cost. The spread is - 88% of the total - and it is
+  # not a fee: you buy at the ask and sell at the bid whoever your broker is.
+  # A commission-free broker does not make trading free.
+  #
+  # NOTE: the SEC rate is reset annually; verify before trusting live P&L.
   sec_fee_per_million: 27.80
   finra_taf_per_share: 0.000166
   finra_taf_max: 8.30

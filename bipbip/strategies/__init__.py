@@ -3,6 +3,7 @@ from ..core.strategy import Strategy
 from .baseline import NeverTrade, SessionBuyHold
 from .exit_filter import HTFExitFilter, trend_zscore
 from .opening_range import OpeningRangeBreakout
+from .swing import BuyAndHoldSwing, RSI2Reversion, SMATrend
 from .vwap_reversion import VWAPReversion
 
 REGISTRY = {
@@ -10,6 +11,9 @@ REGISTRY = {
     "never_trade": NeverTrade,
     "orb": OpeningRangeBreakout,
     "vwap_reversion": VWAPReversion,
+    "sma_trend": SMATrend,
+    "rsi2": RSI2Reversion,
+    "buy_and_hold": BuyAndHoldSwing,
 }
 
 

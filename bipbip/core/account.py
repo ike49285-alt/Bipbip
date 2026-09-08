@@ -46,6 +46,10 @@ class CashAccount:
 
     starting_equity: float = 10_000.0
     max_position_pct: float = 0.95
+    #: Webull supports fractional shares on most US stocks and ETFs. Whole-share
+    #: sizing strands the remainder: at $777 a share, a $9,500 budget buys 12
+    #: shares and leaves $176 (1.85%) uninvested on every trade.
+    allow_fractional: bool = True
 
     cash: float = field(init=False)
     settled_cash: float = field(init=False)
@@ -84,12 +88,20 @@ class CashAccount:
             return False
         return self.settled_cash > 0
 
-    def affordable_shares(self, price: float) -> int:
-        """Whole shares purchasable with settled cash, after the position cap."""
+    def affordable_shares(self, price: float) -> float:
+        """Shares purchasable with settled cash, after the position cap.
+
+        Fractional quantities are rounded DOWN to five decimals rather than
+        nearest, so rounding can never manufacture buying power the account
+        does not have.
+        """
         if price <= 0:
-            return 0
+            return 0.0
         budget = self.settled_cash * self.max_position_pct
-        return int(budget // price)
+        if not self.allow_fractional:
+            return float(int(budget // price))
+        import math
+        return math.floor((budget / price) * 1e5) / 1e5
 
     def blocked_reason(self) -> str | None:
         """Why an entry is currently disallowed, for logging and diagnostics."""

@@ -44,14 +44,17 @@ def build_account(cfg: dict):
     kind = str(acct.get("type", "cash")).lower()
     equity = float(acct.get("starting_equity", 10_000.0))
     cap = float(acct.get("max_position_pct", 0.95))
+    frac = bool(acct.get("allow_fractional", True))
 
     if kind == "cash":
-        return CashAccount(starting_equity=equity, max_position_pct=cap)
+        return CashAccount(starting_equity=equity, max_position_pct=cap,
+                           allow_fractional=frac)
     if kind == "margin_pdt":
         # PDT allows three day trades per rolling five sessions. Modelling that
         # as a per-session budget is a simplification, and a conservative one.
         return MarginAccount(starting_equity=equity, max_position_pct=cap,
-                             max_round_trips_per_session=1)
+                             allow_fractional=frac, max_round_trips_per_session=1)
     if kind == "margin_full":
-        return MarginAccount(starting_equity=equity, max_position_pct=cap)
+        return MarginAccount(starting_equity=equity, max_position_pct=cap,
+                             allow_fractional=frac)
     raise ValueError(f"unknown account type {kind!r}")
