@@ -375,6 +375,42 @@ that is survivorship in its purest form: a large cap trading under $10 in the
 2026 index is one that fell a long way and CAME BACK, and the ones that did not
 are unobtainable.
 
+**Leveraged trend following.** The one construction that could plausibly turn
+$50 into real money, and the most instructive failure here. Holding a simulated
+3x SPY while the index is above its 200-day average returns 11.38% against
+8.80% for buying and holding, which looks like the answer until it is priced
+properly. A 3x fund finances two dollars of exposure for every dollar of
+equity, so its cost moves with the borrowing rate, and the rate is the whole
+result:
+
+| borrowing rate | $50 becomes | CAGR | Sharpe |
+|---|---|---|---|
+| 0.0% | $4,923 | 14.63% | 0.57 |
+| 2.0% | $1,872 | 11.38% | 0.49 |
+| 3.5% | $906 | 9.00% | 0.42 |
+| 5.0% | $439 | 6.68% | 0.36 |
+| *buy and hold SPY* | *$851* | *8.80%* | *0.55* |
+
+Average short rates over the period were near 3%, which puts the strategy at
+roughly a tie on total return and clearly behind on Sharpe at every rate above
+zero. It is a bet on cheap money wearing the costume of a trading edge.
+
+Parameter sensitivity says the same thing from another direction. Three nearly
+identical versions of the rule - signal read daily, read monthly, or requiring
+three days of confirmation - returned -1.5%, +9.7% and -7.6% during 2000-2009.
+Seventeen points of spread across a choice that should not matter is noise, and
+picking the best of the three is picking a coordinate.
+
+**Moving-average timing.** SMA(200) on SPY, evaluated monthly, is the closest
+thing to a positive result in this repository, and it is not a way to make more
+money. It returns 6.72% against 8.80% for buying and holding, at a Sharpe of
+0.56 against 0.55 and a maximum drawdown of 37.4% against 56.1%. The decade
+split shows exactly what it is buying: +5.6% during 2000-2009 when holding lost
+2.6%, and less than buy-and-hold in every other decade. It is insurance. The
+premium is paid in the good decades and the payout arrives in the bad one, and
+over 34 years those very nearly cancel.
+
+
 ## What is not done
 
 - No broker connection. Nothing places an order.

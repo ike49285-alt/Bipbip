@@ -218,3 +218,66 @@ def test_realised_weight_drifts_past_the_cap_between_rebalances():
 def test_both_strategies_are_registered():
     assert REGISTRY["dual_momentum"] is DualMomentum
     assert REGISTRY["vol_target_trend"] is VolTargetTrend
+
+
+# --------------------------------------------------------------------------
+# The README's leverage table, recomputed.
+# --------------------------------------------------------------------------
+
+def test_readme_leverage_table_is_monotonic_in_the_borrowing_rate():
+    """The table's claim is that the whole result is a bet on cheap money.
+
+    Two commits in this project have already claimed a README update that
+    silently did nothing, so numbers published there are checked against the
+    code rather than trusted. This does not re-run the 34-year backtest - that
+    needs the archive - but it does assert the shape the argument rests on:
+    every column strictly worsens as borrowing gets more expensive, and the
+    crossover with buy-and-hold sits between the 2% and 3.5% rows.
+    """
+    import pathlib
+    import re
+
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README not present")
+    text = readme.read_text()
+
+    section = text.split("**Leveraged trend following.**")
+    assert len(section) == 2, "leverage section missing from README"
+
+    rows = re.findall(r"^\| (\d\.\d)% \| \$([\d,]+) \| (\d+\.\d+)% \| (\d\.\d+) \|$",
+                      section[1], re.M)
+    assert len(rows) == 4, f"expected 4 rate rows, parsed {len(rows)}"
+
+    rates = [float(r[0]) for r in rows]
+    finals = [float(r[1].replace(",", "")) for r in rows]
+    cagrs = [float(r[2]) for r in rows]
+    sharpes = [float(r[3]) for r in rows]
+
+    assert rates == sorted(rates), "rate rows are out of order"
+    for name, col in (("final", finals), ("CAGR", cagrs), ("Sharpe", sharpes)):
+        assert col == sorted(col, reverse=True), \
+            f"{name} does not fall monotonically with the borrowing rate: {col}"
+
+    bh = re.search(r"\*buy and hold SPY\* \| \*\$([\d,]+)\* \| \*(\d+\.\d+)%\*", section[1])
+    assert bh, "buy-and-hold reference row missing"
+    bh_final = float(bh.group(1).replace(",", ""))
+    # The claim in the prose: leverage wins at 2%, loses by 3.5%.
+    assert finals[1] > bh_final > finals[3], \
+        "the stated crossover with buy-and-hold is not where the table puts it"
+
+
+def test_readme_leverage_sharpe_never_beats_holding_meaningfully():
+    """The point of the section: leverage buys return, not risk-adjusted return."""
+    import pathlib
+    import re
+
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README not present")
+    section = readme.read_text().split("**Leveraged trend following.**")[1]
+    sharpes = [float(m) for m in re.findall(r"^\| \d\.\d% \| \$[\d,]+ \| \d+\.\d+% \| (\d\.\d+) \|$",
+                                            section, re.M)]
+    # 0.55 is buy-and-hold. Only the free-money row clears it, and barely.
+    assert max(sharpes) < 0.60
+    assert sum(s < 0.55 for s in sharpes) >= 3
