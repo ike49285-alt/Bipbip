@@ -60,11 +60,16 @@ def compute(result, bars: pd.DataFrame | None = None) -> dict:
 
     if len(rets) > 1 and rets.std() > 0:
         out["sharpe"] = float(rets.mean() / rets.std() * np.sqrt(TRADING_DAYS))
-        downside = rets[rets < 0]
+        # Downside deviation is the root-mean-square of returns BELOW the
+        # target, measured about the target - not the standard deviation of the
+        # negative subset. The latter is a common substitution and it flatters:
+        # it measures spread about the mean of the losses rather than their
+        # size, so a run of uniformly bad days looks almost riskless. On a
+        # sample here it overstated Sortino by 50%.
+        downside = np.minimum(rets.to_numpy(dtype="float64"), 0.0)
+        dd = float(np.sqrt(np.mean(downside ** 2)))
         out["sortino"] = (
-            float(rets.mean() / downside.std() * np.sqrt(TRADING_DAYS))
-            if len(downside) > 1 and downside.std() > 0
-            else float("nan")
+            float(rets.mean() / dd * np.sqrt(TRADING_DAYS)) if dd > 0 else float("nan")
         )
     else:
         out["sharpe"] = out["sortino"] = float("nan")

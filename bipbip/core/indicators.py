@@ -123,13 +123,40 @@ def atr(df: pd.DataFrame, window: int = 14) -> pd.Series:
 
 
 def rsi(series: pd.Series, window: int = 14) -> pd.Series:
+    """Relative strength index, with the undefined cases stated honestly.
+
+    The obvious implementation divides average gain by average loss and fills
+    whatever comes back NaN with 50. That is wrong in an ASYMMETRIC way, which
+    is worse than being wrong evenly: a window containing no losses at all -
+    every bar up, the most overbought a tape can be - divides by zero, and the
+    fill reports 50, dead neutral. The same window with no GAINS correctly
+    reports 0. So the indicator was accurate at the oversold extreme and
+    inverted at the overbought one, and RSI(2) meets that case constantly
+    because two up bars in a row are ordinary.
+
+    That fed a mean-reversion rule holding positions while RSI stayed under 60,
+    which therefore never sold into the strongest advances, and an ML feature
+    in which every maximally-overbought sample was stamped with the same value
+    as every genuinely neutral one.
+
+    Now: no losses and some gains is 100, no gains and some losses is 0, a tape
+    that did not move at all is NaN because there is no reading to give, and
+    the first bar is NaN because a difference needs two prices.
+    """
     delta = series.diff()
     gain = delta.clip(lower=0.0)
     loss = -delta.clip(upper=0.0)
     avg_gain = gain.ewm(alpha=1.0 / window, adjust=False).mean()
     avg_loss = loss.ewm(alpha=1.0 / window, adjust=False).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    return (100.0 - 100.0 / (1.0 + rs)).fillna(50.0).rename("rsi")
+
+    out = 100.0 - 100.0 / (1.0 + avg_gain / avg_loss.where(avg_loss > 0))
+    # avg_loss == 0: fully overbought if anything was gained, undefined if not.
+    no_loss = (avg_loss <= 0) & avg_loss.notna()
+    out = out.mask(no_loss & (avg_gain > 0), 100.0)
+    out = out.mask(no_loss & (avg_gain <= 0), np.nan)
+    # A difference needs two prices, so the first bar has no reading.
+    out.iloc[:1] = np.nan
+    return out.rename("rsi")
 
 
 def opening_range(df: pd.DataFrame, minutes: int = 30) -> pd.DataFrame:

@@ -75,6 +75,15 @@ def restrict_to_rth(df: pd.DataFrame) -> pd.DataFrame:
     """
     if df.empty:
         return df
+    if df.index.tz is None:
+        # A naive index would be filtered against whatever clock the stamps
+        # happen to be in. UTC bars would lose the entire session and keep
+        # nothing, or keep the wrong four hours - either way silently, since
+        # the result is still a valid-looking frame of bars.
+        raise ValueError(
+            "restrict_to_rth needs a tz-aware index in exchange time; "
+            "pass the frame through to_exchange_tz first"
+        )
     t = df.index.time
     return df[(t >= RTH_OPEN) & (t < RTH_CLOSE)]
 

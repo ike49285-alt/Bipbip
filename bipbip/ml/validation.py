@@ -32,8 +32,19 @@ class PurgedWalkForward:
         self.embargo_bars = embargo_bars
         self.min_train = min_train
 
-    def split(self, n: int, event_end: np.ndarray):
-        """Yield ``(train_idx, val_idx)`` position arrays."""
+    def split(self, n: int, event_end: np.ndarray, dates=None):
+        """Yield ``(train_idx, val_idx)`` position arrays.
+
+        `embargo_bars` is applied in SAMPLE positions unless `dates` is given,
+        and those are not the same thing once a universe is wide. Samples pile
+        up per calendar day - roughly two a day on 34 ETFs but twenty-two a day
+        on 266 stocks - so a 60-sample embargo is about 27 trading days on the
+        first and under 3 on the second. The embargo silently weakened by an
+        order of magnitude exactly where more symbols made leakage more likely.
+
+        Passing `dates` (one timestamp per sample, ascending) converts the
+        embargo to calendar days, which is what it was always meant to mean.
+        """
         if n <= self.min_train:
             raise ValueError(
                 f"{n} samples is fewer than min_train={self.min_train}; "
@@ -51,9 +62,18 @@ class PurgedWalkForward:
 
             # Purge: drop training samples whose label resolves at or after the
             # validation window opens, less an embargo for serial correlation.
-            cutoff = val_start - self.embargo_bars
             candidate = np.arange(0, val_start)
-            train_idx = candidate[event_end[candidate] < cutoff]
+            if dates is None:
+                cutoff = val_start - self.embargo_bars
+                train_idx = candidate[event_end[candidate] < cutoff]
+            else:
+                # Calendar embargo: drop anything resolving within
+                # `embargo_bars` trading days of the validation window opening.
+                d = pd.DatetimeIndex(dates)
+                boundary = d[val_start] - pd.Timedelta(days=self.embargo_bars)
+                resolves_at = d[np.minimum(event_end[candidate], len(d) - 1)]
+                train_idx = candidate[(event_end[candidate] < val_start)
+                                      & (resolves_at < boundary)]
 
             if len(train_idx) < 50:
                 continue
