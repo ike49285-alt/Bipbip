@@ -259,7 +259,8 @@ def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
                     n_splits: int = 5, embargo_days: int = 5,
                     top_k: int = 5, cost_bps: float = 0.0,
                     invert: bool = False,
-                    train_window_days: int | None = None) -> dict:
+                    train_window_days: int | None = None,
+                    rebalance_every: int | None = None) -> dict:
     """Walk forward, then trade the model's ranking and measure the excess.
 
     The score is NOT accuracy. At each timestamp the model ranks the available
@@ -320,7 +321,18 @@ def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
         # Trade it: at each timestamp hold the top_k by predicted probability.
         vdates, vexcess = dates[va], ds.excess[va]
         picked = []
-        for ts in np.unique(vdates):
+        # Rebalance every `horizon` bars, NOT every bar. Holding for 70 bars
+        # while rebalancing hourly makes consecutive observations share 69 of
+        # their 70 bars - nearly the same trade counted seventy times - and a
+        # t-statistic computed on those assumes an independence they do not
+        # have. Reported t rose from 1.60 to 5.55 to 10.78 as the horizon
+        # lengthened, which is almost exactly sqrt(horizon): the growth was the
+        # overlap, not the edge. Spacing the rebalances makes each observation
+        # a distinct holding period.
+        stamps = np.unique(vdates)
+        if rebalance_every is not None and rebalance_every > 1:
+            stamps = stamps[::rebalance_every]
+        for ts in stamps:
             m = vdates == ts
             if m.sum() < top_k * 2:
                 continue

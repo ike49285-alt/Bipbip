@@ -119,3 +119,58 @@ def test_ranks_are_cross_sectional_not_time_series():
     for col in rank_cols[:5]:
         v = ds.X[col].dropna()
         assert v.min() >= 0.0 and v.max() <= 1.0
+
+
+def test_overlapping_rebalances_inflate_the_t_statistic():
+    """The flaw that made a 2-week edge look like t=10.78.
+
+    Rebalancing every bar while holding for `horizon` bars makes consecutive
+    observations share horizon-1 of their bars - nearly the same trade counted
+    `horizon` times. A t-statistic over those assumes an independence they do
+    not have, and inflates by roughly sqrt(horizon). Reported t rose 1.60,
+    5.55, 10.78 across horizons of 21, 35 and 70 bars, which is almost exactly
+    that curve rather than a strengthening edge.
+
+    This asserts the mechanism directly on a synthetic series: spacing the
+    rebalances must reduce the observation count by about the horizon.
+    """
+    from bipbip.ml.discover import evaluate_ranker
+
+    rng = np.random.default_rng(3)
+    n_days, bars, horizon = 200, 7, 35
+    panel = build_panel({
+        s: pd.DataFrame(
+            {"open": p, "high": p * 1.002, "low": p * 0.998, "close": p,
+             "volume": 1e6},
+            index=pd.DatetimeIndex(
+                [pd.Timestamp("2024-01-08", tz="America/New_York")
+                 + pd.Timedelta(days=d) + pd.Timedelta(hours=9, minutes=30)
+                 + pd.Timedelta(hours=b)
+                 for d in range(n_days) for b in range(bars)]))
+        for s, p in {
+            c: 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.004, n_days * bars)))
+            for c in "ABCDEFGHIJKLMNOPQRST"}.items()})
+
+    ds = build_cross_sectional(panel, horizon=horizon, min_symbols=10)
+    if len(ds) < 5000:
+        pytest.skip("fixture too small")
+
+    overlapped = evaluate_ranker(ds, top_k=5, n_splits=3)
+    spaced = evaluate_ranker(ds, top_k=5, n_splits=3, rebalance_every=horizon)
+    if "rebalances" not in overlapped or "rebalances" not in spaced:
+        pytest.skip("no usable folds in the fixture")
+
+    # Spacing must cut the observation count by roughly the horizon.
+    ratio = overlapped["rebalances"] / max(spaced["rebalances"], 1)
+    assert ratio > horizon * 0.5, (
+        f"spacing only reduced observations {ratio:.1f}x for a {horizon}-bar "
+        "hold; the rebalances are not actually being spaced")
+
+
+def test_spacing_is_off_by_default_so_the_change_is_explicit():
+    """A default that silently changed every earlier number would be worse."""
+    import inspect
+
+    from bipbip.ml.discover import evaluate_ranker
+    sig = inspect.signature(evaluate_ranker)
+    assert sig.parameters["rebalance_every"].default is None
