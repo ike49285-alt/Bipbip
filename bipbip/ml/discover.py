@@ -257,7 +257,8 @@ def make_gbm(seed: int = 0, **kw):
 
 def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
                     n_splits: int = 5, embargo_days: int = 5,
-                    top_k: int = 5, cost_bps: float = 0.0) -> dict:
+                    top_k: int = 5, cost_bps: float = 0.0,
+                    invert: bool = False) -> dict:
     """Walk forward, then trade the model's ranking and measure the excess.
 
     The score is NOT accuracy. At each timestamp the model ranks the available
@@ -307,7 +308,14 @@ def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
             if m.sum() < top_k * 2:
                 continue
             p = proba[m]
-            top = np.argsort(-p)[:top_k]
+            # `invert` holds the BOTTOM of the ranking instead of the top -
+            # the old joke about doing the opposite of whatever keeps losing.
+            # It is a real question and it has an exact answer: net is gross
+            # minus cost, so flipping turns -G-C into +G-C. Both sides pay the
+            # SAME spread, and a strategy losing only its costs flips into a
+            # strategy losing its costs the other way round. Inverting only
+            # wins where the gross edge is negative by MORE than the cost.
+            top = np.argsort(p if invert else -p)[:top_k]
             picked.append(np.nanmean(vexcess[m][top]))
             all_sel_dates.append(ts)
         if not picked:
