@@ -93,3 +93,54 @@ def test_a_rule_describes_itself_in_words():
     r = Rule([(0, ">", 0.8), (2, "<", 0.2)], -1, 15)
     text = r.describe(names)
     assert "SHORT" in text and "f0 > p80" in text and "f2 < p20" in text
+
+
+def test_always_trading_scores_zero_after_demeaning():
+    """The bug the first real run walked straight into.
+
+    Forward returns have a non-zero unconditional mean, so a rule firing on
+    most of the sample inherits it without predicting anything. The first GA
+    run returned a rule covering 73% of the tape and scored t=675; shuffling
+    does not change an unconditional mean, so the null scored t=560 and
+    correctly refused to call it significant. Demeaning makes that whole
+    strategy worth exactly nothing.
+    """
+    rng = np.random.default_rng(21)
+    n = 20000
+    X = rng.normal(size=(n, 5))
+    # A strong upward drift and no relationship to any feature whatsoever.
+    fwd = {5: rng.normal(40.0, 60.0, n)}
+    s = RuleSearch(X, fwd, [f"f{i}" for i in range(5)], min_trades=100,
+                   seed=21, max_fraction=1.0)
+    everything = Rule([(0, ">", 0.05)], 1, 5)
+    _, n_fired, mean_bps, _ = s.evaluate(everything)
+    assert n_fired > n * 0.8, "fixture should fire on nearly everything"
+    assert abs(mean_bps) < 3.0, (
+        f"a near-universal rule kept {mean_bps:.1f} bps of drift; demeaning "
+        "is not working")
+
+
+def test_a_rule_covering_most_of_the_tape_is_rejected():
+    """Breadth is not a strategy: cap how much a candidate may claim."""
+    rng = np.random.default_rng(22)
+    X = rng.normal(size=(10000, 4))
+    fwd = {5: rng.normal(0.0, 50.0, 10000)}
+    s = RuleSearch(X, fwd, [f"f{i}" for i in range(4)], min_trades=50,
+                   seed=22, max_fraction=0.30)
+    broad = Rule([(0, ">", 0.05)], 1, 5)
+    fit, n_fired, _, _ = s.evaluate(broad)
+    assert n_fired > 0.30 * 10000
+    assert fit == -np.inf, "a rule covering most of the sample must not score"
+
+
+def test_mean_is_returned_in_the_units_supplied():
+    """Regression: evaluate() scaled by 1e4 on inputs already in basis points,
+    and reported +82,473 bps a trade for what was +8.2."""
+    # The feature needs variance or the percentile threshold selects nothing
+    # and the rule is rejected for firing too rarely rather than evaluated.
+    X = np.column_stack([np.arange(1000.0), np.arange(1000.0)])
+    fwd = {5: np.full(1000, 25.0)}          # 25 bps, already in bps
+    s = RuleSearch(X, fwd, ["a", "b"], min_trades=10, seed=0,
+                   max_fraction=1.0, demean=False)
+    _, _, mean_bps, _ = s.evaluate(Rule([(0, ">", 0.05)], 1, 5))
+    assert mean_bps == pytest.approx(25.0), f"got {mean_bps}, expected 25 bps"

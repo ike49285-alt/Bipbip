@@ -69,13 +69,27 @@ class RuleSearch:
 
     def __init__(self, X, fwd_by_hold: dict, feature_names,
                  min_trades: int = 200, seed: int = 0,
-                 max_conditions: int = 3):
+                 max_conditions: int = 3, max_fraction: float = 0.30,
+                 demean: bool = True):
         self.X = X
-        self.fwd = fwd_by_hold
-        self.holds = sorted(fwd_by_hold)
+        # DEMEAN each holding period. Without this the search does not need a
+        # signal: forward returns have a non-zero unconditional mean, so a rule
+        # firing on most of the sample simply inherits it. The first real run
+        # returned "SHORT when vol_30 < p75 AND vol_ratio < p95", which fired
+        # on 73% of all samples - "always short" wearing two conditions - and
+        # scored t=675. Shuffling does not change an unconditional mean, so the
+        # null scored t=560 too and correctly refused to call it significant.
+        # Demeaning makes "always trade" worth exactly zero, so the only way to
+        # score is to be SELECTIVE.
+        self.fwd = ({h: v - np.nanmean(v) for h, v in fwd_by_hold.items()}
+                    if demean else dict(fwd_by_hold))
+        self.holds = sorted(self.fwd)
         self.names = list(feature_names)
         self.min_trades = min_trades
         self.max_conditions = max_conditions
+        # A rule that fires on most of the tape is not a rule. This caps how
+        # much of the sample a candidate may claim.
+        self.max_fraction = max_fraction
         self.rng = np.random.default_rng(seed)
         # Thresholds are expressed as PERCENTILES of each feature, not raw
         # values, so a gene means the same thing across features on wildly
@@ -135,6 +149,9 @@ class RuleSearch:
         n = int(m.sum())
         if n < self.min_trades:
             return -np.inf, n, 0.0, 0.0
+        if n > self.max_fraction * len(fwd):
+            # Too broad to be a rule; it is market exposure with extra steps.
+            return -np.inf, n, 0.0, 0.0
         pnl = rule.direction * fwd[m]
         mean = float(np.mean(pnl))
         sd = float(np.std(pnl))
@@ -142,7 +159,11 @@ class RuleSearch:
         # Fitness is the t-statistic, not the raw return: a rule that fires
         # nine times for a huge average is not a strategy, and selecting on
         # mean return alone breeds exactly those.
-        return t, n, mean * 1e4, t
+        #
+        # `mean` is returned in whatever units the caller supplied. An earlier
+        # version multiplied by 1e4 here while callers already passed basis
+        # points, and reported +82,473 bps a trade for what was +8.2.
+        return t, n, mean, t
 
     # -- the search --------------------------------------------------------
 

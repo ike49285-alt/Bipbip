@@ -88,13 +88,15 @@ def main():
           f"({time.time()-t0:.0f}s)")
     print(f"forward returns are NET of each symbol's own measured spread\n")
 
-    search = RuleSearch(X, fwd, names, min_trades=500, seed=7)
+    search = RuleSearch(X, fwd, names, min_trades=500, seed=7,
+                    max_fraction=0.25)
     res = evolve_with_null(search, population=60, generations=25,
                            null_runs=10, seed=7)
 
     print("Best rule found:")
     print(f"  {res.best.describe(names)}")
-    print(f"  fires {res.trades:,} times, {res.net_bps:+.2f} bps net per trade, "
+    print(f"  fires {res.trades:,} times ({res.trades/len(X):.1%} of the tape), "
+          f"{res.net_bps:+.2f} bps net per trade, "
           f"t={res.t_stat:.2f}\n")
     print("What the SAME search achieves on destroyed labels:")
     print(f"  null mean t={res.null_mean:.2f}   null best t={res.null_best:.2f}")
