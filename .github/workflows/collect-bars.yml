@@ -128,6 +128,18 @@ jobs:
           python -m bipbip.cli coverage --bar-size 1h || true
           python -m bipbip.cli coverage --bar-size 1m || true
 
+      - name: Fetch option chains
+        if: always()
+        # Chains are SNAPSHOTS. Yahoo serves what stands right now and keeps no
+        # history, so this accumulates forward from today and can never be
+        # backfilled - historical option data is not free anywhere reachable.
+        # That makes it useless for backtesting an options strategy and exactly
+        # right for the question actually asked: whether TQQQ's implied vol sits
+        # near 40% while the underlying realises 67%, which would be a real edge
+        # for a buyer and is unusual enough to want checking daily.
+        run: |
+          python -m bipbip.cli chains --symbols TQQQ SPY QQQ SOXL --expiries 6
+
       - name: Verify the daily archive is total-return
         if: always()
         # The daily bars were stored price-only for the whole life of this
@@ -173,8 +185,8 @@ jobs:
           # first run - when every parquet file is new - it reports no changes
           # and the whole archive is discarded when the runner is destroyed.
           # Checking the index instead sees new files and modifications alike.
-          git add data/bars data/fundamentals
-          if git diff --cached --quiet -- data/bars data/fundamentals; then
+          git add data/bars data/fundamentals data/chains
+          if git diff --cached --quiet -- data/bars data/fundamentals data/chains; then
             echo "Nothing new to commit."
             exit 0
           fi
@@ -196,8 +208,8 @@ jobs:
             fi
             git reset --hard "origin/${GITHUB_REF_NAME}"
             # The commit object survives the reset; take the data back out of it.
-            git checkout "${data_commit}" -- data/bars data/fundamentals
-            git add data/bars data/fundamentals
+            git checkout "${data_commit}" -- data/bars data/fundamentals data/chains
+            git add data/bars data/fundamentals data/chains
             if git diff --cached --quiet; then
               echo "Remote already holds this archive."
               exit 0

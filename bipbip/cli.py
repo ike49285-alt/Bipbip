@@ -519,6 +519,49 @@ def cmd_regime(args, cfg) -> int:
     return 0
 
 
+def cmd_chains(args, cfg) -> int:
+    """Fetch option chains and report implied vol against realised.
+
+    Chains are snapshots, not history: Yahoo serves what stands right now and
+    keeps nothing, so this accumulates forward from the first run. That answers
+    "is this contract mispriced today" within days and never answers "would
+    this have worked since 2010" - historical option data is not free.
+    """
+    import numpy as np
+
+    from .data.options_chain import ChainStore, fetch_chain, iv_vs_realised
+    from .data.store import BarStore
+
+    store = ChainStore(cfg.get("data", {}).get("chain_root", "data/chains"))
+    bars = BarStore(cfg.get("data", {}).get("root", "data/bars"))
+    failures = 0
+    for symbol in args.symbols:
+        try:
+            chain = fetch_chain(symbol, max_expiries=args.expiries)
+        except Exception as exc:
+            print(f"  {symbol:6} FAILED: {exc}", file=sys.stderr)
+            failures += 1
+            continue
+        info = store.save(symbol, chain)
+        print(f"  {symbol:6} {info['contracts']:>5} contracts "
+              f"across {chain['expiry'].nunique()} expiries -> {info['asof']}")
+
+        daily = bars.load(symbol, "1d").dropna()
+        if daily.empty:
+            continue
+        spot = float(daily["close"].iloc[-1])
+        rets = np.log(daily["close"] / daily["close"].shift(1)).dropna()
+        rv = float(rets.tail(60).std() * np.sqrt(252))
+        cmp_ = iv_vs_realised(chain, spot, rv)
+        if "near_the_money_iv" in cmp_:
+            print(f"         spot ${spot:.2f}  ATM IV {cmp_['near_the_money_iv']:.1%}  "
+                  f"realised {rv:.1%}  ratio {cmp_['ratio']:.2f}")
+            print(f"         {cmp_['verdict']}")
+        else:
+            print(f"         {cmp_.get('note')}")
+    return 1 if failures == len(args.symbols) else 0
+
+
 def cmd_fundamentals(args, cfg) -> int:
     """Fetch non-price data, and report honestly on what is unavailable."""
     import json
@@ -648,6 +691,11 @@ def main(argv=None) -> int:
 
     fu = sub.add_parser("fundamentals", help="fetch earnings dates, sectors, and probe news")
     fu.add_argument("--universe", default="largecap250", choices=sorted(UNIVERSES))
+
+    ch = sub.add_parser("chains", help="fetch option chains and compare IV to realised")
+    ch.add_argument("--symbols", nargs="+", default=["TQQQ", "SPY", "QQQ"])
+    ch.add_argument("--expiries", type=int, default=6)
+    ch.set_defaults(func=cmd_chains)
     fu.add_argument("--what", default="all", choices=["all", "sectors", "earnings", "news"])
     fu.add_argument("--earnings-limit", type=int, default=60)
     fu.add_argument("--news-sample", type=int, default=5)
