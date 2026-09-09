@@ -529,6 +529,10 @@ def cmd_chains(args, cfg) -> int:
     """
     import numpy as np
 
+    from pathlib import Path
+
+    import pandas as pd
+
     from .data.options_chain import ChainStore, fetch_chain, iv_vs_realised
     from .data.store import BarStore
 
@@ -545,6 +549,23 @@ def cmd_chains(args, cfg) -> int:
         info = store.save(symbol, chain)
         print(f"  {symbol:6} {info['contracts']:>5} contracts "
               f"across {chain['expiry'].nunique()} expiries -> {info['asof']}")
+
+        # Say out loud what actually reached disk. The first collected snapshot
+        # arrived with a date-only filename and no spot column, neither of which
+        # this code path produces - so the run reported success while writing
+        # something else, and nothing noticed until the file was read a session
+        # later. A snapshot that silently overwrites the previous one turns four
+        # observations a day into one.
+        written = pd.read_parquet(info["path"])
+        stamped = "T" in Path(info["path"]).stem.split("_", 1)[1]
+        has_spot = "spot" in written.columns and np.isfinite(
+            pd.to_numeric(written["spot"], errors="coerce")).any()
+        print(f"         file {Path(info['path']).name}  "
+              f"unique-per-snapshot {'yes' if stamped else 'NO'}  "
+              f"spot stored {'yes' if has_spot else 'NO'}")
+        if not stamped:
+            print("         WARNING: date-only filename - snapshots will "
+                  "overwrite each other", file=sys.stderr)
 
         daily = bars.load(symbol, "1d").dropna()
         if daily.empty:
