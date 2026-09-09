@@ -27,7 +27,8 @@ TZ = "America/New_York"
 
 
 #: Minutes between consecutive bars, per timeframe we ingest.
-SPACING = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "60m": 60}
+SPACING = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60,
+           "60m": 60, "1d": 1440}
 
 
 def _spacing_minutes(rows: list) -> float:
@@ -86,6 +87,14 @@ def main(symbol: str, timeframe: str) -> None:
         print(f"no dumped bars found for {symbol}")
         return
     store = BarStore("data/bars")
+    if timeframe == "1d":
+        # Webull's DAILY bars are already split- and dividend-adjusted, so there
+        # is nothing to rescale and nothing to anchor against - the anchor is
+        # what this branch is creating. Rescaling here would be circular.
+        info = store.append(symbol, raw, bar_size="1d")
+        print(f"{symbol} 1d: stored {info['rows_after']:,} adjusted bars  "
+              f"{info['start'].date()} -> {info['end'].date()}")
+        return
     daily = store.load(symbol, "1d")
     factors = robust_factors(raw, daily["close"])
     steps = verify_factors(factors)
