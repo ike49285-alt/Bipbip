@@ -554,6 +554,55 @@ bars to exist and `NaN > x` is False rather than unknown - the same bug this
 project already shipped once in a market filter that read as "below its
 average" for thirty years it had no data for.
 
+**Intraday, and the cost hurdle that defines it.** The minute archive holds 21
+sessions and grows by one a day, so no intraday strategy here can be validated
+for roughly a year. What CAN be settled now is whether one is possible at all,
+because that turns on the size of a move against the cost of capturing it, and
+a short sample estimates a move distribution far better than it estimates an
+edge.
+
+The honest bar is the break-even hit rate: the fraction of trades a system must
+get right purely to pay the spread, before earning anything. A coin flip is
+50%; the best systematic equity strategies run 52-55%. Measured on SPY, against
+three assumptions about execution quality:
+
+| holding period | quote-only (0.41 bps) | modelled (2.28 bps) | poor fills (6.28 bps) |
+|---|---|---|---|
+| 1 minute | 69.6% | impossible | impossible |
+| 5 minutes | 58.7% | 98.3% | impossible |
+| 15 minutes | 55.1% | 78.4% | impossible |
+| 60 minutes | 52.6% | 64.8% | 90.7% |
+
+"Impossible" is literal: the round trip costs more than the entire median move,
+so no hit rate pays. **81% of one-minute SPY moves are smaller than the cost of
+trading one.**
+
+That table assumes wins and losses are the same size, which understates a real
+system with a target and a stop. The general bar is (risk + cost) / (reward +
+risk), and letting winners run changes the verdict at the slower end:
+
+| SPY, modelled execution | 1:1 | 1.5:1 | 2:1 | 3:1 |
+|---|---|---|---|---|
+| 5 minutes | 98.3% | 78.7% | 65.6% | 49.2% |
+| 15 minutes | 78.4% | 62.7% | 52.2% | 39.2% |
+| 60 minutes | 64.8% | 51.8% | 43.2% | 32.4% |
+
+So the conclusion splits. Below about five minutes the cost hurdle rules the
+horizon out arithmetically, whatever the signal. From fifteen minutes upward
+with a 2:1 payoff the bar is 52%, which is ordinary for a working strategy -
+cost is no longer what stands in the way, and the open question becomes whether
+a signal exists, which 21 sessions cannot answer.
+
+Seconds are settled, and settled against. Yahoo's finest interval is one
+minute, so no sub-minute data exists here and there is no free source for it.
+The scaling is not in doubt: diffusive moves grow with the square root of time
+while the cost of trading does not, so from a measured 1-minute median of 1.04
+bps, a 1-second SPY move is 0.13 bps against a best-case round trip of 0.41 -
+**a third of the cost of capturing it.** The crossover sits near 15 seconds,
+and that is against a quote-only cost that assumes every fill lands at the
+quote with no adverse selection. There is no version of this arithmetic in
+which a retail account trades SPY profitably on a one-second horizon.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
