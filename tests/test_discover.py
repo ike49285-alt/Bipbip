@@ -137,7 +137,7 @@ def test_overlapping_rebalances_inflate_the_t_statistic():
     from bipbip.ml.discover import evaluate_ranker
 
     rng = np.random.default_rng(3)
-    n_days, bars, horizon = 200, 7, 35
+    n_days, bars, horizon = 90, 7, 35
     panel = build_panel({
         s: pd.DataFrame(
             {"open": p, "high": p * 1.002, "low": p * 0.998, "close": p,
@@ -149,14 +149,31 @@ def test_overlapping_rebalances_inflate_the_t_statistic():
                  for d in range(n_days) for b in range(bars)]))
         for s, p in {
             c: 100.0 * np.exp(np.cumsum(rng.normal(0.0, 0.004, n_days * bars)))
-            for c in "ABCDEFGHIJKLMNOPQRST"}.items()})
+            for c in "ABCDEFGHIJKL"}.items()})
 
     ds = build_cross_sectional(panel, horizon=horizon, min_symbols=10)
-    if len(ds) < 5000:
+    if len(ds) < 2000:
         pytest.skip("fixture too small")
 
-    overlapped = evaluate_ranker(ds, top_k=5, n_splits=3)
-    spaced = evaluate_ranker(ds, top_k=5, n_splits=3, rebalance_every=horizon)
+    # A trivial model, not the gradient booster. The claim under test is how
+    # many OBSERVATIONS spacing produces, which does not depend on the ranking
+    # being any good - and fitting real trees here took this file from two
+    # seconds to over two minutes, and the whole suite from 95 seconds to 31
+    #minutes. A suite that slow stops being run before commits, which is
+    # exactly when it is worth having.
+    def make_stub():
+        class _Stub:
+            def fit(self, X, y):
+                return self
+
+            def predict_proba(self, X):
+                p = np.random.default_rng(0).random(len(X))
+                return np.column_stack([1 - p, p])
+        return _Stub()
+
+    overlapped = evaluate_ranker(ds, make_model=make_stub, top_k=5, n_splits=3)
+    spaced = evaluate_ranker(ds, make_model=make_stub, top_k=5, n_splits=3,
+                             rebalance_every=horizon)
     if "rebalances" not in overlapped or "rebalances" not in spaced:
         pytest.skip("no usable folds in the fixture")
 

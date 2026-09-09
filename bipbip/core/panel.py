@@ -79,8 +79,11 @@ def _is_intraday_index(idx: pd.DatetimeIndex) -> bool:
     """True when the stamps carry a time of day, not just a session date."""
     if len(idx) == 0:
         return False
-    t = idx.time
-    return any((x.hour or x.minute or x.second) for x in t)
+    # Vectorised on purpose: `idx.time` materialises one datetime.time object
+    # per row and the generator then walks them in Python, which build_panel
+    # pays once per symbol.
+    return bool((idx.hour != 0).any() or (idx.minute != 0).any()
+                or (idx.second != 0).any())
 
 
 def build_panel(bars_by_symbol: dict) -> Panel:
