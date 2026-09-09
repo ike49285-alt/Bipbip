@@ -1,0 +1,86 @@
+name: Collect option chains
+
+# Chains are SNAPSHOTS - Yahoo serves what stands right now and keeps nothing -
+# so the only way to build option history is to take them repeatedly and never
+# throw one away. Four a session turns a feed with no memory into a panel, and
+# each row stores the UNDERLYING PRICE at that instant, which is what makes the
+# pairs usable: the change in a contract's mid against the change in spot is a
+# MEASURED delta, needing no model at all.
+#
+# Scheduling drift does not matter here for the same reason. GitHub delays
+# scheduled jobs under load, sometimes by many minutes, and a late snapshot is
+# still exact because it records where the stock actually was rather than where
+# it was supposed to be.
+
+on:
+  schedule:
+    # 14:45, 16:30, 18:30 and 20:45 UTC - roughly after the open, late morning,
+    # early afternoon, and just before the close in New York.
+    - cron: "45 14 * * 1-5"
+    - cron: "30 16 * * 1-5"
+    - cron: "30 18 * * 1-5"
+    - cron: "45 20 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Space-separated symbols"
+        required: false
+        default: "TQQQ SPY QQQ SOXL"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-chains
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Snapshot chains
+        run: |
+          python -m bipbip.cli chains \
+            --symbols ${{ github.event.inputs.symbols || 'TQQQ SPY QQQ SOXL' }} \
+            --expiries 6
+
+      - name: Commit snapshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/chains
+          if git diff --cached --quiet -- data/chains; then
+            echo "No new chain data."
+            exit 0
+          fi
+          git commit -m "Chain snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          # Replay onto the remote tip rather than rebasing: parquet cannot be
+          # three-way merged, and the bar collector may commit concurrently.
+          data_commit="$(git rev-parse HEAD)"
+          for attempt in 1 2 3; do
+            git fetch origin "${GITHUB_REF_NAME}" || { sleep $((attempt * 5)); continue; }
+            git reset --hard "origin/${GITHUB_REF_NAME}"
+            git checkout "${data_commit}" -- data/chains
+            git add data/chains
+            if git diff --cached --quiet; then
+              echo "Remote already has it."
+              exit 0
+            fi
+            git commit -m "Chain snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "Could not push chain snapshots." >&2
+          exit 1

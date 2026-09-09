@@ -130,6 +130,7 @@ jobs:
 
       - name: Fetch option chains
         if: always()
+        # One of the four daily snapshots; collect-chains.yml takes the others.
         # Chains are SNAPSHOTS. Yahoo serves what stands right now and keeps no
         # history, so this accumulates forward from today and can never be
         # backfilled - historical option data is not free anywhere reachable.
