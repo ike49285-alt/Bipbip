@@ -35,9 +35,17 @@ class HoldOne(PortfolioStrategy):
         return {self.symbol: 1.0} if self.symbol in ctx.tradeable else None
 
 
-def run_universe(name, store):
+def run_universe(name, store, start="1993-01-29"):
+    """Run one universe from a COMMON start date.
+
+    Aligning the start is not a detail. largecap250 reaches back to 1962 and
+    the ETF list only to 1993, so comparing them as loaded would attribute
+    thirty extra years of compounding to survivorship and call it a
+    measurement. Both are cut to the same window.
+    """
     syms = get_universe(name)
     panel = load_panel(store, syms, "1d")
+    panel = panel.slice_from(start)
     have = len(panel.closes.columns)
     bias = UNIVERSES[name]["survivorship"]
     print(f"\n=== {name}: {have} symbols loaded, survivorship {bias} ===")
@@ -46,15 +54,46 @@ def run_universe(name, store):
     print(f"{'strategy':<34} {'final':>9} {'CAGR':>8} {'Shrp':>6} "
           f"{'maxDD':>7} {'trd/yr':>7}")
 
-    cands = [
-        ("buy & hold SPY", HoldOne("SPY")),
-        ("equal weight, rebalanced", EqualWeightBuyHold()),
+    # SPY is the benchmark, not a member of a stock universe, so it is priced
+    # from its own series rather than required to be in the ranking list. The
+    # first run silently reported $50 and 0.00% because HoldOne("SPY") could
+    # never find SPY tradeable in largecap250.
+    spy = store.load("SPY", "1d").dropna()["close"]
+    # build_panel drops the timezone, the raw store keeps it, and comparing the
+    # two raises rather than silently misaligning - which is the better failure
+    # but still has to be handled.
+    spy = spy.copy()
+    if spy.index.tz is not None:
+        spy.index = spy.index.tz_localize(None)
+    lo, hi = panel.dates[0], panel.dates[-1]
+    if getattr(lo, "tz", None) is not None:
+        lo, hi = lo.tz_localize(None), hi.tz_localize(None)
+    spy = spy[(spy.index >= lo) & (spy.index <= hi)]
+    bh = START * spy / float(spy.iloc[0])
+    s_bh = stats(bh, [], start=START)
+    print(f"{'buy & hold SPY (benchmark)':<34} ${s_bh['final']:>8,.0f} "
+          f"{s_bh['cagr']*100:>7.2f}% {s_bh['sharpe']:>6.2f} "
+          f"{s_bh['mdd']*100:>6.1f}% {0.0:>7.1f}")
+
+    # Equal-weighting a wide universe is infeasible on $50: 266 names is 19
+    # cents each, below the engine's dust threshold, so every buy is refused
+    # and the curve sits flat at the starting balance. That is a real
+    # constraint of the account size, not a strategy result, so it is only run
+    # where the slice clears the minimum.
+    slice_value = START / max(have, 1)
+    cands = []
+    if slice_value >= 0.50:
+        cands.append(("equal weight, rebalanced", EqualWeightBuyHold()))
+    else:
+        print(f"{'equal weight, rebalanced':<34} "
+              f"{f'infeasible: ${slice_value:.2f} per name':>40}")
+    cands += [
         ("momentum top5 (abs filter)", MomentumRanking(top_n=5, abs_filter=True)),
         ("momentum top5 (no filter)", MomentumRanking(top_n=5, abs_filter=False)),
         ("momentum top10 (abs filter)", MomentumRanking(top_n=10, abs_filter=True)),
         ("reversion basket", MeanReversionBasket()),
     ]
-    out = {}
+    out = {"buy & hold SPY (benchmark)": (bh, s_bh)}
     for label, strat in cands:
         res = PortfolioEngine(CostModel(), starting_equity=START,
                               settle_days=0).run(panel, strat, universe=name)
@@ -79,9 +118,11 @@ def main():
     print("\n\n=== What survivorship is worth ===")
     print("The same strategy on a clean ETF universe and on a stock list that")
     print("is 2026 index membership. The difference is not skill.\n")
+    print("Both windows now start on the same date, so the gap is not thirty")
+    print("extra years of compounding wearing a survivorship label.\n")
     print(f"{'strategy':<34} {'etf_wide':>12} {'largecap250':>14} {'gap':>10}")
-    for label in ("momentum top5 (abs filter)", "momentum top10 (abs filter)",
-                  "reversion basket", "equal weight, rebalanced"):
+    for label in ("buy & hold SPY (benchmark)", "momentum top5 (abs filter)",
+                  "momentum top10 (abs filter)", "reversion basket"):
         a = results["etf_wide"].get(label)
         b = results["largecap250"].get(label)
         if not a or not b:

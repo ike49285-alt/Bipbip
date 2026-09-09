@@ -45,6 +45,25 @@ class Panel:
         row = self.closes.iloc[i]
         return row[row.notna() & (row > 0)].index
 
+    def slice_from(self, start) -> "Panel":
+        """A view of this panel beginning at `start`.
+
+        Comparing two universes only means something when they cover the same
+        period. The stock lists reach back to 1962 and the ETF list to 1993, so
+        running each over whatever history it happens to have would credit one
+        of them with thirty extra years of compounding and read the difference
+        as an effect.
+        """
+        ts = pd.Timestamp(start)
+        if self.dates.tz is not None and ts.tz is None:
+            ts = ts.tz_localize(self.dates.tz)
+        keep = self.dates >= ts
+        if not keep.any():
+            raise ValueError(f"no bars at or after {start}")
+        return Panel(opens=self.opens[keep], highs=self.highs[keep],
+                     lows=self.lows[keep], closes=self.closes[keep],
+                     volumes=self.volumes[keep])
+
     def __len__(self) -> int:
         return len(self.closes)
 
