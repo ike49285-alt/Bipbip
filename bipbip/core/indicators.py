@@ -365,3 +365,39 @@ def _signed_run(sign: np.ndarray, index=None) -> pd.Series:
             run = s
         out[i] = run
     return pd.Series(out, index=index)
+
+
+def assert_causal(builder, bars: "pd.DataFrame", tail: int = 60) -> "pd.DataFrame":
+    """Verify a feature builder cannot see past the bar it is describing.
+
+    Names are not evidence. Ichimoku's Chikou span is the classic trap - it is
+    price displaced *backwards*, so a column called `chikou` may or may not leak
+    depending on how it was written - and a guard that rejects the name flags
+    the safe implementation while missing an unsafe column called anything else.
+
+    The only thing that settles it is deleting the future and checking the past
+    did not move: build the features twice, once on all the bars and once with
+    the last `tail` removed, and compare the overlap. Any column whose earlier
+    values depend on later bars changes, and is named in the error.
+
+    Comparing NaN to NaN with `!=` reports every unset row as a difference,
+    which makes a rolling maximum look like a leak, so missingness is compared
+    as missingness and only rows populated in both are compared by value.
+    """
+    full, trunc = builder(bars), builder(bars.iloc[:-tail])
+    leaks = {}
+    for col in full.columns:
+        a = full[col].iloc[:-tail].reset_index(drop=True)
+        b = trunc[col].reset_index(drop=True)
+        one_missing = a.isna() ^ b.isna()
+        both_present = ~(a.isna() | b.isna())
+        changed = one_missing.copy()
+        changed[both_present] |= (a[both_present] != b[both_present])
+        n = int(changed.sum())
+        if n:
+            leaks[col] = n
+    if leaks:
+        raise AssertionError(
+            "features depend on future bars: "
+            + ", ".join(f"{k} ({v} rows)" for k, v in sorted(leaks.items())))
+    return full

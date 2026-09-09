@@ -84,8 +84,15 @@ def robust_factors(raw: pd.Series | pd.DataFrame, adjusted_daily: pd.Series,
         raise ValueError("no overlapping sessions between raw and adjusted series")
     ratio = (adj.loc[common] / last.loc[common]).sort_index()
 
-    step = np.log(ratio / ratio.shift(1)).abs()
-    segment = (step > 0.10).cumsum()          # splits only; dividends are tiny
+    # A split moves the level permanently; a corrupt close jumps and reverts the
+    # next day. Detecting on the jump alone lets a bad print open its own
+    # one-day segment, where it becomes its own median and survives untouched -
+    # so the level after the step must actually differ from the level before it.
+    half = max(window // 2, 2)
+    before = ratio.shift(1).rolling(half, min_periods=1).median()
+    after = ratio.iloc[::-1].rolling(half, min_periods=1).median().iloc[::-1]
+    persistent = (np.log(after / before).abs() > 0.10)
+    segment = persistent.fillna(False).cumsum()
     return ratio.groupby(segment).transform(
         lambda s: s.rolling(window, center=True, min_periods=1).median())
 
