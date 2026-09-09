@@ -704,6 +704,54 @@ lower-priced underlying, where an at-the-money option costs a fraction as much -
 at the cost of a wider spread on a less liquid chain, which is the trade-off to
 measure next rather than assume.
 
+**Survivorship, measured.** The archive holds 309 symbols and almost every test
+here uses one or two, which invites a fair question: why collect them if they
+are not traded? Part of the answer was an oversight - the two strategies that
+exist to RANK a universe had not been re-run since dividends were restored or
+since the engine bug that left momentum's absolute filter inoperative. The
+larger part is that 273 of those symbols cannot support the test anyone would
+want to run on them.
+
+The stock lists are 2026 index membership, so every company that failed is
+absent. Running identical code over the identical window on a clean ETF
+universe and on the contaminated stock list measures what that is worth:
+
+| 1993-2026, same window | etf_wide (clean) | largecap250 (SEVERE) | gap |
+|---|---|---|---|
+| buy and hold SPY | 10.84% | 10.84% | +0.00pp |
+| momentum, top 5 | 8.82% | 26.90% | +18.08pp |
+| momentum, top 10 | 8.93% | 23.82% | +14.89pp |
+| reversion basket | 5.89% | 26.86% | +20.97pp |
+
+The SPY row is the control and reads identically on both sides, which is what
+makes the rest readable: the windows are genuinely aligned and the benchmark is
+computed the same way, so the only thing that changed is the symbol list.
+
+**Survivorship is worth fifteen to twenty-one points of annual return here -
+two to three times the entire equity risk premium, and larger than every real
+effect measured in this repository combined.** It inverts conclusions rather
+than shading them. Momentum LOSES to buying and holding on clean data, 8.82%
+against 10.84%, and appears to nearly triple it at 26.90% on the stock list.
+The reversion basket's Sharpe goes from 0.47 to 1.15, which would make it one
+of the better-documented strategies in existence and is entirely an artifact.
+
+The contamination sits exactly where the strategy does its work. Ranking a 2026
+membership list is partly ranking "did this company survive to 2026", which
+nobody knew at the time, and the ones that cratered are not present to be picked
+and lost on. So the stock lists cannot support anything that SELECTS among
+them, which is the only reason to hold 273 of them. They remain usable for
+aggregate facts that do not choose between names - the earnings-drift work used
+them that way, and the bias still announced itself there as losing stocks
+drifting upward in every pre-2020 era. Repairing this needs point-in-time index
+membership, which is not available from any free source reachable here.
+
+One further constraint surfaced while running it, unrelated to bias and worth
+recording: equal-weighting the wide universe is INFEASIBLE on $50, not merely
+unwise. Two hundred and sixty-six names is 19 cents each, below the engine's
+dust threshold, so every purchase is correctly refused and the curve sits flat
+at the starting balance. The account size caps the holdable universe near a
+hundred names before any strategy question is asked.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
