@@ -126,3 +126,73 @@ def test_readme_intraday_tables_match_the_formulas():
     assert "a third of the cost" in body
     one_second = 1.04 * np.sqrt(1.0 / 60.0)
     assert one_second / (2 * 0.065 + 0.278) == pytest.approx(0.33, abs=0.02)
+
+
+def test_roll_estimator_is_unreliable_against_real_quotes():
+    """Recorded because it inverted a recommendation.
+
+    Roll's covariance estimator infers the spread from bid-ask bounce, which is
+    all this project could do before live quotes were available. Measured
+    against real bid/ask on 55 symbols it was off by more than 2x on 31 of
+    them, and in BOTH directions - roughly 3-5x too HIGH on the mega-liquid
+    names (TQQQ, AAPL, SPY) and up to 24x too LOW on thinner ones.
+
+    That is worse than a uniform bias, because the sign of the error tracks
+    liquidity: it flatters exactly the names that are hardest to trade. ISRG
+    and LLY were named the best candidates on Roll spreads of 0.47 and 1.13
+    bps; their real spreads are 11.36 and 13.84, which moves their 30-minute
+    break-even from ~35% to 54-55%.
+    """
+    import json
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[1] / "data/quotes/live_spreads.json"
+    if not path.exists():
+        pytest.skip("no live quote snapshot stored")
+    quotes = json.loads(path.read_text())
+    assert len(quotes) > 20, "snapshot too small to be worth checking"
+
+    for sym, (bid, ask) in quotes.items():
+        assert ask >= bid, f"{sym} has a crossed quote: {bid}/{ask}"
+        mid = (bid + ask) / 2
+        assert mid > 0
+        spread_bps = (ask - bid) / mid * 1e4
+        assert spread_bps < 200, f"{sym} spread {spread_bps:.0f} bps looks wrong"
+
+    def bps(sym):
+        b, a = quotes[sym]
+        return (a - b) / ((a + b) / 2) * 1e4
+
+    # The specific inversion: the names Roll called cheapest are among the
+    # widest actually quoted.
+    for thin in ("ISRG", "LLY"):
+        if thin in quotes and "SPY" in quotes:
+            assert bps(thin) > bps("SPY") * 10, (
+                f"{thin} should quote far wider than SPY; got "
+                f"{bps(thin):.1f} vs {bps('SPY'):.1f} bps")
+
+
+def test_tqqq_is_cheap_to_trade_relative_to_how_far_it_moves():
+    """The correction that went the other way.
+
+    TQQQ was charged 5.28 bps a round trip from the cost model's assumption
+    and 6.70 from Roll. It quotes a penny wide on $72 - 1.39 bps - against a
+    28 bps typical thirty-minute move. Roughly 17:1 opportunity to cost, which
+    makes it one of the better instruments available rather than one of the
+    worst.
+    """
+    import json
+    import pathlib
+
+    path = pathlib.Path(__file__).resolve().parents[1] / "data/quotes/live_spreads.json"
+    if not path.exists():
+        pytest.skip("no live quote snapshot stored")
+    quotes = json.loads(path.read_text())
+    if "TQQQ" not in quotes:
+        pytest.skip("no TQQQ quote in the snapshot")
+
+    bid, ask = quotes["TQQQ"]
+    spread_bps = (ask - bid) / ((ask + bid) / 2) * 1e4
+    assert spread_bps < 3.0, f"TQQQ quoted {spread_bps:.2f} bps, expected under 3"
+    # Against the old assumed 5.28 bps round trip.
+    assert spread_bps + 0.278 < 5.28
