@@ -89,15 +89,23 @@ jobs:
         run: |
           python -m bipbip.cli fetch --universe full --bar-size 1h
 
-      - name: Fetch minute bars for the tradeable universe
+      - name: Fetch minute bars for the whole universe
         if: always()
         # Minute history IS trailing-window-limited, so this one accumulates and
-        # only time makes it deep. Scoped to the ETF universe rather than all
-        # 305 symbols: those are the names without severe survivorship bias,
-        # so they are the only ones a selection strategy could honestly use,
-        # and 34 symbols keeps the request count survivable.
+        # only time makes it deep.
+        #
+        # It covers all 305 symbols rather than just the ETFs, because
+        # survivorship contamination scales with LOOKBACK and this window is 29
+        # days. The stock lists are unusable over 34 years - every company that
+        # failed is missing from a 2026 membership list - but over the last
+        # month every one of them demonstrably existed and traded. The bias
+        # that makes those symbols worthless for a decade-long backtest is
+        # close to absent at this horizon.
+        #
+        # Five requests a symbol at 7-day chunks, so this is the expensive step;
+        # it is last so a throttle here cannot cost the cheaper fetches above.
         run: |
-          python -m bipbip.cli fetch --universe etf_wide --bar-size 1m --lookback 29
+          python -m bipbip.cli fetch --universe full --bar-size 1m --lookback 29
 
       - name: Fetch non-price data
         if: always()
