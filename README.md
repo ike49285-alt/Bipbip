@@ -456,6 +456,49 @@ bull run in the sample - the strategy is 92% SPY and simply inherits its
 results. The harness now begins where every sleeve exists.
 
 
+**Protective stops.** Added to the engine and swept across width, type and
+re-entry delay, on plain SPY, on the SMA(200) rule, and on the 3x book where a
+70% drawdown gives them the most to work with. They damage every one of them,
+and the way they fail is more interesting than the fact that they do.
+
+On SPY, a 5% trailing stop with immediate re-entry produced a **73.0% maximum
+drawdown against 54.9% for holding, and 55.2% for the index itself**. The stop
+did not fail to prevent a drawdown; it manufactured eighteen points of drawdown
+that the market never had. Each stop realises a loss and re-enters higher, and
+in a market that spends most of its declines recovering, doing that repeatedly
+ratchets the account below anything the price did.
+
+| stop on SPY | $50 becomes | CAGR | Sharpe | max drawdown | times fired |
+|---|---|---|---|---|---|
+| none | $1,547 | 10.75% | 0.65 | 54.9% | 0 |
+| trailing 5%, re-enter next bar | $434 | 6.64% | 0.46 | 73.0% | 314 |
+| trailing 5%, 21-day lockout | $307 | 5.55% | 0.54 | 47.7% | 126 |
+| trailing 10%, 21-day lockout | $861 | 8.84% | 0.66 | 50.3% | 43 |
+| trailing 20%, 21-day lockout | $825 | 8.70% | 0.60 | 54.6% | 13 |
+
+The same holds where stops should help most. On the 3x book every width from
+10% to 20% cuts the result to a fraction - $318, $720, $827 against $2,911
+unstopped - and two of those settings end with a *worse* drawdown than no stop
+at all. Only a 30% trailing stop roughly matches leaving it alone, and it fires
+seven times in thirty-four years.
+
+That is the pattern everywhere: the only settings that do not hurt are the ones
+too wide to act. The best-looking row in the whole sweep is a 20% trailing stop
+on the SMA(200) rule, which lifts Sharpe from 0.70 to 0.74 and cuts drawdown
+from 35.6% to 26.0% - on **two** fills in thirty-four years, 1998-08-31 and
+2020-03-11. An improvement resting on two events is two data points, not a
+property, and choosing 20% because those two landed well is choosing a
+coordinate.
+
+None of this says stops are useless in general. It says they are a bet that
+declines continue rather than revert, and a long-only equity book is the wrong
+place to make that bet, because the asset's own tendency is to recover. The
+engine now supports them so the claim is testable rather than assumed - and it
+models the two details that would otherwise make them look free: a bar that
+gaps through the level fills at the open rather than the level, and a trailing
+reference is taken through the previous bar so this bar's high cannot raise the
+level that this bar's low is tested against.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
