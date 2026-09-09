@@ -103,13 +103,23 @@ def run(panel, costs, horizon, label, top_k=20):
         m = make_gbm().fit(Xv[tr], y[tr])
         p = m.predict_proba(Xv[va])[:, 1]
         vd, vn = dates[va], net[va]
+        # Group ONCE by timestamp instead of rescanning the fold for each one.
+        # The obvious loop - `for ts in unique(vd): sel = vd == ts` - is
+        # quadratic, and on a minute panel that is 380,000 rows scanned 2,340
+        # times per fold: 3.6 billion comparisons across four folds, which ran
+        # for nineteen minutes without emitting a single row. Sorting and
+        # slicing contiguous blocks does the same work in one pass.
+        order = np.argsort(vd.to_numpy(), kind="stable")
+        vd_s, p_s, vn_s = vd[order], p[order], vn[order]
+        bounds = np.flatnonzero(np.r_[True, vd_s[1:] != vd_s[:-1], True])
         got = []
-        for ts in np.unique(vd)[::horizon]:
-            sel = vd == ts
-            if sel.sum() < top_k * 2:
+        for b in range(0, len(bounds) - 1, horizon):
+            lo, hi = bounds[b], bounds[b + 1]
+            if hi - lo < top_k * 2:
                 continue
-            top = np.argsort(-p[sel])[:top_k]
-            got.append(np.nanmean(vn[sel][top]))
+            block_p, block_n = p_s[lo:hi], vn_s[lo:hi]
+            top = np.argpartition(-block_p, top_k)[:top_k]
+            got.append(np.nanmean(block_n[top]))
         if got:
             picks.extend(got)
             fold_bps.append(np.mean(got) * 1e4)
