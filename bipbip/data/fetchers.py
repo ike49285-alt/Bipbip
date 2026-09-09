@@ -21,6 +21,13 @@ YF_MAX_DAYS = {"1m": 29, "2m": 59, "5m": 59, "15m": 59, "30m": 59, "60m": 729, "
 #: is decades of regime context the minute archive can never contain.
 UNLIMITED_INTERVALS = frozenset({"1d", "5d", "1wk", "1mo", "3mo"})
 
+#: Intervals Yahoo will serve in ONE request spanning their whole window, given
+#: a `period` rather than explicit dates. Walking 729 days of hourly bars in
+#: 30-day chunks costs 25 requests per symbol - 7,625 across a 305-symbol
+#: universe, which is enough to get throttled and slow enough to time the job
+#: out. The same history arrives in a single request per symbol.
+PERIOD_FETCHABLE = {"1h": "730d", "60m": "730d"}
+
 
 class FetchError(RuntimeError):
     """Raised when a provider returns nothing usable."""
@@ -53,6 +60,16 @@ class YFinanceFetcher:
             if df is None or df.empty:
                 raise FetchError(f"no {bar_size} bars returned for {symbol}")
             return df
+
+        # One request for the whole window where Yahoo allows it. Falls through
+        # to the chunked walk below if it comes back empty, so a change at the
+        # provider degrades to the slow path rather than to no data.
+        if bar_size in PERIOD_FETCHABLE and lookback_days is None:
+            df = yf.download(symbol, period=PERIOD_FETCHABLE[bar_size],
+                             interval=bar_size, progress=False,
+                             auto_adjust=False, prepost=False, threads=False)
+            if df is not None and not df.empty:
+                return df
 
         cap = YF_MAX_DAYS.get(bar_size, 30)
         days = cap if lookback_days is None else min(lookback_days, cap)

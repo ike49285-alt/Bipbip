@@ -75,6 +75,30 @@ jobs:
         run: |
           python -m bipbip.cli fetch --universe full --bar-size 1d
 
+      - name: Fetch the hourly universe
+        if: always()
+        # The largest unforced gap this collector had. It was written for two
+        # symbols and never widened when the universe grew to 305, so the
+        # archive held 305 daily series and TWO intraday ones - which is why
+        # every intraday test in this project has been single-symbol, and why
+        # the cross-sectional intraday question went unasked rather than
+        # unanswered.
+        #
+        # Yahoo serves 730 days of hourly bars, so this needs no accumulating
+        # either: two years arrives on the first run for every symbol at once.
+        run: |
+          python -m bipbip.cli fetch --universe full --bar-size 1h
+
+      - name: Fetch minute bars for the tradeable universe
+        if: always()
+        # Minute history IS trailing-window-limited, so this one accumulates and
+        # only time makes it deep. Scoped to the ETF universe rather than all
+        # 305 symbols: those are the names without severe survivorship bias,
+        # so they are the only ones a selection strategy could honestly use,
+        # and 34 symbols keeps the request count survivable.
+        run: |
+          python -m bipbip.cli fetch --universe etf_wide --bar-size 1m --lookback 29
+
       - name: Fetch non-price data
         if: always()
         # Earnings dates and sector membership are information the price series
@@ -94,6 +118,7 @@ jobs:
           python -m bipbip.cli coverage --require-data
           python -m bipbip.cli coverage --bar-size 1d || true
           python -m bipbip.cli coverage --bar-size 1h || true
+          python -m bipbip.cli coverage --bar-size 1m || true
 
       - name: Verify the daily archive is total-return
         if: always()
