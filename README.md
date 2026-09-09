@@ -644,6 +644,66 @@ order-book or quote-level signals, since only OHLCV is stored and no free
 source provides depth; and nothing about a model over richer features, which
 would need far more history before it could be validated rather than fitted.
 
+**Options on $50, and the delta/theta balance.** The premise is arithmetically
+correct: a contract is 100 shares, so a two-cent move in the premium is $2.00
+gross and about $1.90 after the regulatory pass-through - roughly 4% on a $50
+account in one trade, which nothing in the equity book approaches. Three things
+sit between that and the money, and only the third is the one people expect.
+
+FIRST, the contracts where that arithmetic applies cannot be bought. Options
+are quoted per share and sold in lots of 100, with no fractional trading, so
+$50 reaches only contracts priced under $0.50. Every at-the-money SPY put -
+0DTE through 30DTE - costs between $267 and $1,329.
+
+SECOND, a two-cent move is the same size as the quote it has to cross. On a
+0DTE at-the-money put the round trip is $1.10 of the $2.00; on 7DTE it is
+$2.92 and on 30DTE $5.59, both of which exceed the entire gain.
+
+THIRD, and this is the delta/theta point: theta does not merely shrink a
+winner, it enlarges the matching loser. On a 0DTE put over 30 minutes at SPY's
+own median move, being right pays $13.04 and being wrong costs $31.71, which is
+a break-even hit rate of 70.9%. Held two hours it is 96.7%. Decay is charged
+whichever way the underlying goes, so the payoff is skewed against the buyer
+before direction is considered at all.
+
+Repricing against every move in the archive rather than the median - which
+credits the convexity in full, since an option's payoff lives in the tail -
+gives the drag on a randomly-timed put, priced at implied rather than realised
+volatility so the variance risk premium is not quietly handed to the buyer:
+
+| SPY put, bought at random | 30-min hold | 2-hour hold | cost to own |
+|---|---|---|---|
+| 0DTE | -3.1% of premium | -10.4% | $267 |
+| 1DTE | -1.6% | -4.3% | $374 |
+| 7DTE | -0.7% | -0.6% | $722 |
+| 30DTE | -0.5% | -0.1% | $1,329 |
+
+The balance the premise asks about is real and it points somewhere specific:
+**longer expiry, shorter hold.** That buys delta while renting very little
+theta, and the drag falls from -10.4% to -0.1%. It is also the corner a $50
+account cannot reach, because it is the expensive one.
+
+What $50 can reach is the opposite corner:
+
+| within budget, 30-minute hold | cost | spread as % of premium | mean P&L | wins |
+|---|---|---|---|---|
+| 0DTE 1.0% OTM | $38.55 | 3% | -12.6% per trade | 23% |
+| 0DTE 1.5% OTM | $9.96 | 10% | -26.5% per trade | 13% |
+| 1DTE 1.5% OTM | $45.64 | 2% | -7.4% per trade | 28% |
+
+Cheap options are cheap because they are unlikely to pay, and a one-cent quote
+is the floor whatever the premium - 3% of a $0.38 contract and 10% of a $0.10
+one, charged before the underlying moves at all. A directional edge would have
+to overcome 7% to 27% per trade, against the 15-minute-to-2-hour search in this
+same repository that found nothing clearing 1.53 bps.
+
+None of this says options are a bad instrument. It says the leverage is not
+free and is priced accordingly, and that the account size selects the worst
+contracts on the board. The cheapest honest route to the favourable corner is a
+lower-priced underlying, where an at-the-money option costs a fraction as much -
+at the cost of a wider spread on a less liquid chain, which is the trade-off to
+measure next rather than assume.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
