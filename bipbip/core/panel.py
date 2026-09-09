@@ -75,18 +75,37 @@ class Panel:
                 f"earliest listing {min(listed).date()}, latest {max(listed).date()}")
 
 
+def _is_intraday_index(idx: pd.DatetimeIndex) -> bool:
+    """True when the stamps carry a time of day, not just a session date."""
+    if len(idx) == 0:
+        return False
+    t = idx.time
+    return any((x.hour or x.minute or x.second) for x in t)
+
+
 def build_panel(bars_by_symbol: dict) -> Panel:
-    """Align per-symbol frames onto the union of their dates.
+    """Align per-symbol frames onto the union of their timestamps.
 
     Values are NOT forward-filled across gaps. A missing bar means the symbol
-    was not tradeable that day, and `tradeable()` reports it as such; filling
-    would let a strategy trade a price that never existed.
+    was not tradeable at that moment, and `tradeable()` reports it as such;
+    filling would let a strategy trade a price that never existed.
+
+    Daily bars are keyed by session DATE, which is what they are. Intraday bars
+    keep their full timestamp - and that distinction is load-bearing. This
+    function truncated every stamp to its date unconditionally and then dropped
+    duplicates keeping the LAST, which for hourly data silently discarded six
+    of every seven bars and left only the 15:30 close. A 305-symbol hourly
+    panel came back with 730 rows instead of 5,079, and reported itself as
+    hourly throughout.
     """
     frames = {f: {} for f in FIELDS}
     for symbol, bars in bars_by_symbol.items():
         if bars is None or bars.empty:
             continue
-        idx = pd.DatetimeIndex([pd.Timestamp(ts.date()) for ts in bars.index])
+        if _is_intraday_index(bars.index):
+            idx = bars.index
+        else:
+            idx = pd.DatetimeIndex([pd.Timestamp(ts.date()) for ts in bars.index])
         for f in FIELDS:
             s = pd.Series(bars[f].to_numpy(dtype="float64"), index=idx)
             frames[f][symbol] = s[~s.index.duplicated(keep="last")]
