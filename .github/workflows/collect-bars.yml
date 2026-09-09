@@ -73,7 +73,7 @@ jobs:
         # accumulating - the full history is re-fetchable at any time - but it
         # is committed so backtests can run without a network round trip.
         run: |
-          python -m bipbip.cli fetch --universe full --bar-size 1d
+          python -m bipbip.cli fetch --universe liquid --bar-size 1d
 
       - name: Fetch the hourly universe
         if: always()
@@ -87,7 +87,7 @@ jobs:
         # Yahoo serves 730 days of hourly bars, so this needs no accumulating
         # either: two years arrives on the first run for every symbol at once.
         run: |
-          python -m bipbip.cli fetch --universe full --bar-size 1h
+          python -m bipbip.cli fetch --universe liquid --bar-size 1h
 
       - name: Fetch minute bars for the whole universe
         if: always()
@@ -105,7 +105,7 @@ jobs:
         # Five requests a symbol at 7-day chunks, so this is the expensive step;
         # it is last so a throttle here cannot cost the cheaper fetches above.
         run: |
-          python -m bipbip.cli fetch --universe full --bar-size 1m --lookback 29
+          python -m bipbip.cli fetch --universe liquid --bar-size 1m --lookback 29
 
       - name: Fetch non-price data
         if: always()
