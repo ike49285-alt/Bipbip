@@ -199,3 +199,61 @@ def test_wide_range_context_features_survive_winsorisation():
 
     days = ds.X["days_to_earnings"].dropna()
     assert days.max() > 20.0, "days-to-earnings was flattened by the old clip"
+
+
+# --------------------------------------------------------------------------
+# Trade windows, and the benchmark they exist to support.
+# --------------------------------------------------------------------------
+
+def test_entry_and_exit_bars_are_real_positions_in_the_panel():
+    """Regression: event_end is a SAMPLE position, not a calendar location.
+
+    `event_end` is remapped into the sorted sample so purging can measure
+    overlap between folds. Read as a bar index it is nonsense - a benchmark
+    built that way reported mean holding periods of 1,588 days for a rule
+    capped at 20 bars, and a market return of +14,729 bps to compare against.
+    `entry_bar` and `exit_bar` keep the real window available.
+    """
+    panel = _panel()
+    ds = label_signals(panel, breakout_signals(panel), build_features(panel),
+                       max_hold=20)
+    assert ds.entry_bar is not None and ds.exit_bar is not None
+    hold = ds.exit_bar - ds.entry_bar
+    assert hold.min() >= 0
+    assert hold.max() <= 20, f"a trade ran {hold.max()} bars against a 20-bar cap"
+    assert ds.exit_bar.max() < len(panel.dates)
+    assert ds.entry_bar.min() >= 0
+
+
+def test_the_holding_period_cap_is_respected_for_every_trade():
+    panel = _panel()
+    for cap in (5, 10):
+        ds = label_signals(panel, breakout_signals(panel), build_features(panel),
+                           max_hold=cap)
+        assert (ds.exit_bar - ds.entry_bar).max() <= cap
+
+
+def test_event_end_stays_a_sample_position_for_purging():
+    """The two must not be confused again in the other direction either."""
+    panel = _panel()
+    ds = label_signals(panel, breakout_signals(panel), build_features(panel))
+    assert ds.event_end.max() < len(ds), "event_end should index the sample"
+    assert (ds.event_end >= np.arange(len(ds))).all(), "purging needs it monotone"
+
+
+def test_a_per_trade_return_is_not_an_edge_without_a_matched_benchmark():
+    """The trap this whole section exists to document.
+
+    These trades run about twelve bars in a market that drifts upward, so a
+    positive mean per trade is the default rather than evidence. The comparison
+    that means something is the SAME bars held long, and it is strictly harder
+    to beat than zero.
+    """
+    panel = _panel()
+    ds = label_signals(panel, breakout_signals(panel), build_features(panel))
+    closes = panel.closes[panel.symbols[0]].to_numpy(dtype="float64")
+    ep, xp = ds.entry_bar, ds.exit_bar
+    bench = closes[xp] / closes[ep] - 1.0
+    assert np.isfinite(bench).any(), "the benchmark must be computable at all"
+    # The point: it is a different number from zero, so it can change a verdict.
+    assert abs(np.nanmean(bench)) > 0

@@ -39,6 +39,13 @@ class MetaDataset:
     event_end: np.ndarray
     symbols: np.ndarray
     dates: pd.DatetimeIndex
+    #: Bar positions of entry and exit in the ORIGINAL panel index. `event_end`
+    #: is a position in this sorted sample, which is what purging needs and is
+    #: not a calendar location - reading it as one produced a benchmark
+    #: reporting 1,588-day holds for a rule capped at 20 bars. These two keep
+    #: the real trade window available for holding-period-matched comparisons.
+    entry_bar: np.ndarray = None
+    exit_bar: np.ndarray = None
 
     def __len__(self) -> int:
         return len(self.X)
@@ -149,6 +156,7 @@ def label_signals(panel: Panel, signals: pd.DataFrame, features: dict,
     cost = cost_bps / 10_000.0
 
     rows, ys, rets, ends, syms, when = [], [], [], [], [], []
+    entry_bars, exit_bars = [], []
     cols = list(signals.columns)
     feat_names = list(features)
 
@@ -188,6 +196,7 @@ def label_signals(panel: Panel, signals: pd.DataFrame, features: dict,
                 continue
             rows.append(row); ys.append(outcome); rets.append(r)
             ends.append(end); syms.append(sym); when.append(dates[i])
+            entry_bars.append(j0); exit_bars.append(end)
 
     if not rows:
         raise ValueError("the primary rule produced no usable signals")
@@ -222,4 +231,6 @@ def label_signals(panel: Panel, signals: pd.DataFrame, features: dict,
         X=X, y=np.asarray(ys, dtype="float64")[order],
         rets=np.asarray(rets, dtype="float64")[order],
         event_end=remap, symbols=np.asarray(syms)[order], dates=when_sorted,
+        entry_bar=np.asarray(entry_bars, dtype=int)[order],
+        exit_bar=np.asarray(exit_bars, dtype=int)[order],
     )

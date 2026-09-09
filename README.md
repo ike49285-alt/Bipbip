@@ -786,6 +786,53 @@ everything and rebalances. Every strategy that tries to PICK lands below it,
 which is the same conclusion the survivorship measurement reaches from the
 other direction - remove the contamination and selection stops adding value.
 
+**The meta-labelling model, trained on everything.** The primary rule picks
+direction, the model decides whether to take the trade. Trained on both
+universes, validated with purged walk-forward folds, and it looked like the
+first real result in this repository until it was measured against the right
+thing.
+
+On the clean ETF universe with an RSI-dip primary, the model takes 7,434 of
+17,865 signals and returns **+47.5 bps per trade out of sample** against +32.4
+for taking every signal - a contribution of +15.1 bps. The permutation test
+puts the observed value above all twenty shuffled runs, z = 7.18.
+
+All of that is measured against zero, and zero is the wrong bar. These are
+twelve-bar trades in a market that drifts upward, so the comparison that
+decides anything is being long the SAME bars:
+
+| clean ETF universe, out of sample | model's trades | long SPY, same bars | difference |
+|---|---|---|---|
+| RSI-dip primary, 7,322 trades | +51.5 bps | +77.1 bps | **-25.6 bps** (t = -8.42) |
+| breakout primary, 14,428 trades | +31.5 bps | +51.7 bps | **-20.2 bps** (t = -8.21) |
+
+The model beats holding on 46.6% of its own chosen trades. The permutation test
+says the same thing from the other side once read carefully: its null mean is
+**+31.8 bps**, so shuffled labels also "earn" thirty-two basis points a trade.
+That is the market's drift leaking into the metric, and it means a per-trade
+return here measures exposure rather than skill.
+
+The interesting part is that the model is not incompetent - it is skilled at the
+wrong thing. Its chosen trades sit in windows where the market returned +77.1
+bps against +58.9 bps across all signals, so it genuinely identifies better
+periods. The triple barrier then throws the advantage away: a +4% target caps
+the winners, a -3% stop cuts them, and a 20-bar limit closes what is left, which
+converts a +77 bps market move into +51.5 bps of realised trade. The skill is
+real and the wrapper destroys it.
+
+Training on the contaminated stock universe inverts the picture in the way the
+survivorship section predicts. The base rate there is already inflated, so the
+model's selection subtracts: -17.2 bps per trade on the RSI-dip primary against
+a +32.7 bps base. A model cannot add to a number that is already an artefact.
+
+Two bugs were found writing this, both in the measurement rather than the
+model. `event_end` is a position in the sorted SAMPLE, needed by the purging
+logic, and reading it as a bar index produced a benchmark claiming 1,588-day
+holding periods for a rule capped at 20 bars and a market return of +14,729 bps
+to beat. And the first version of the benchmark compared against all signals
+rather than the model's own selection, which understated the bar the model had
+to clear.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
