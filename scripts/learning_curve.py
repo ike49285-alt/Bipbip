@@ -60,7 +60,13 @@ def run(X, y, sess, blocks, train_sessions, horizon, seed=0, shuffle=False):
         # overlap the first test bar.
         te = np.flatnonzero((sess >= lo_s) & (sess < lo_s + TEST_SESSIONS)
                             & np.isfinite(yy))
-        if len(tr) < 500 or len(te) < 50 or len(np.unique(yy[tr] > 0)) < 2:
+        # Scaled to the timeframe. A flat 500-row floor is right for minute
+        # bars and silently discards every small training width at thirty
+        # minutes, where ten sessions is 130 bars - the rows the curve most
+        # needs in order to have a left-hand end at all.
+        min_train = max(60, BARS_PER_SESSION * 2)
+        if (len(tr) < min_train or len(te) < 20
+                or len(np.unique(yy[tr] > 0)) < 2):
             continue
         te = te[te > tr.max() + horizon]
         if len(te) < 50:
@@ -117,21 +123,25 @@ def main():
         hurdle = 0.5 + COST_BPS / (2 * r.abs().mean() * np.sqrt(horizon))
         mins = horizon * (1 if tf == "1m" else 30)
         print(f"horizon {mins:>3} min   break-even hit rate {hurdle:.1%}")
-        print(f"{'train':>7} {'sessions':>9} {'trades':>7} {'net':>8} {'t':>7} "
-              f"{'win':>6}   {'null t mean':>11} {'best':>6}")
+        print(f"{'train':>7} {'bars':>9} {'trades':>7} {'net':>8} {'t':>7} "
+              f"{'win':>6}   {'null net':>9} {'skill':>9}")
         for n_tr in TRAIN_SIZES:
             real = run(Xi, yi, si, blocks, n_tr, horizon)
             if not len(real):
                 print(f"{n_tr:>7} (no usable folds)")
                 continue
-            nulls = [tstat(run(Xi, yi, si, blocks, n_tr, horizon, seed=s, shuffle=True))
-                     for s in range(1, 4)]
-            nulls = [x for x in nulls if np.isfinite(x)]
+            nrs = [run(Xi, yi, si, blocks, n_tr, horizon, seed=s, shuffle=True)
+                   for s in range(1, 4)]
+            nrs = [a for a in nrs if len(a)]
+            # The null is reported in bps as well as t. Comparing t alone
+            # exaggerates the gap whenever the two have different spreads, and
+            # the quantity that decides whether anything is tradeable is the
+            # difference in bps against the 3.10 it costs to trade.
+            nmean = np.mean([a.mean() for a in nrs]) if nrs else float("nan")
             print(f"{n_tr:>7} {n_tr * BARS_PER_SESSION:>9,} {len(real):>7,} "
                   f"{real.mean():>+7.2f}b {tstat(real):>7.2f} "
-                  f"{(real > 0).mean():>6.1%}   "
-                  f"{np.mean(nulls) if nulls else float('nan'):>11.2f} "
-                  f"{max(nulls) if nulls else float('nan'):>6.2f}")
+                  f"{(real > 0).mean():>6.1%}   {nmean:>+8.2f}b "
+                  f"{real.mean() - nmean:>+8.2f}b")
         print()
     print("how many trades are needed to resolve an edge of a given size (t=2)")
     print(f"{'horizon':>9} {'noise/trade':>12} " +
