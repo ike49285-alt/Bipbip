@@ -752,6 +752,40 @@ dust threshold, so every purchase is correctly refused and the curve sits flat
 at the starting balance. The account size caps the holdable universe near a
 hundred names before any strategy question is asked.
 
+**The clean universe, in full.** With the stock lists set aside as
+unusable for selection, this is the whole tradeable picture: 34 ETFs, mild
+survivorship, 1993-2026, one window and one benchmark throughout.
+
+| strategy | $50 becomes | CAGR | Sharpe | max drawdown | trades/yr |
+|---|---|---|---|---|---|
+| buy and hold SPY | $1,588 | 10.84% | 0.65 | 55.2% | 0 |
+| momentum top 10, monthly, no filter | $1,134 | 9.73% | 0.67 | 37.7% | 76 |
+| equal weight, rebalanced | $1,052 | 9.49% | 0.70 | 41.1% | 20 |
+| momentum top 10, daily | $886 | 8.93% | 0.62 | 36.6% | 403 |
+| momentum top 5, daily | $856 | 8.82% | 0.56 | 43.1% | 240 |
+| reversion basket | $342 | 5.89% | 0.47 | 30.4% | 396 |
+
+Nothing beats buying and holding on total return. Two things beat it on Sharpe
+- equal weight at 0.70 and monthly momentum at 0.67 against 0.65 - and both
+surrender more than a point of annual return to do it, which is the shape every
+risk-adjusted improvement in this repository has taken.
+
+Momentum's underperformance is the SIGNAL, not the friction. Cutting turnover
+fivefold, from 240 trades a year to 45, moves it from 8.82% to 8.64%. "It would
+work with lower costs" is the natural excuse and it is false here.
+
+The absolute filter costs money for the third independent time. Monthly
+momentum returns 8.66% with the crash filter on and 9.73% with it off - and
+this is the filter an engine bug had left inoperative for its whole life until
+it was fixed, so this is the first honest measurement of it. Every rule in this
+project that sits out bad periods has cost more than it saved.
+
+Equal weight is the quiet standout: the best Sharpe on the board, twenty trades
+a year, a 41% drawdown against 55%, and no forecasting of any kind. It holds
+everything and rebalances. Every strategy that tries to PICK lands below it,
+which is the same conclusion the survivorship measurement reaches from the
+other direction - remove the contamination and selection stops adding value.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.

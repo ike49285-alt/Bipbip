@@ -145,3 +145,33 @@ def test_readme_survivorship_table_keeps_its_control_row():
     # Each strategy row must be recomputable from its own two columns.
     for name, clean, dirty, gap in rows[1:]:
         assert float(dirty) - float(clean) == pytest.approx(float(gap), abs=0.02), name
+
+
+def test_readme_clean_universe_table_keeps_holding_on_top():
+    """The section's claim is that nothing beats holding on total return."""
+    import pathlib
+    import re
+
+    readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
+    if not readme.exists():
+        pytest.skip("README not present")
+    body = readme.read_text().split("**The clean universe, in full.**")
+    assert len(body) == 2, "clean-universe section missing from README"
+    flat = " ".join(body[1].split())
+
+    rows = re.findall(
+        r"\| ([^|]+?) \| \$([\d,]+) \| ([\d.]+)% \| ([\d.]+) \| ([\d.]+)% \| (\d+) \|",
+        flat)
+    assert len(rows) == 6, f"expected 6 rows, parsed {len(rows)}"
+
+    finals = [float(r[1].replace(",", "")) for r in rows]
+    assert "buy and hold" in rows[0][0].lower()
+    assert finals[0] == max(finals), "something now beats holding on dollars"
+    assert finals == sorted(finals, reverse=True), "table is not ordered by result"
+
+    # Two rows beat holding on Sharpe, and both give up return for it.
+    hold_sharpe = float(rows[0][3])
+    better = [r for r in rows[1:] if float(r[3]) > hold_sharpe]
+    assert len(better) == 2, f"expected 2 rows above {hold_sharpe} Sharpe"
+    for r in better:
+        assert float(r[2]) < float(rows[0][2]), "a Sharpe win should cost return"
