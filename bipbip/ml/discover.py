@@ -84,7 +84,63 @@ def _causal_features(panel: Panel) -> dict:
     f["volume_ratio"] = v / v.rolling(56, min_periods=56).mean().replace(0, np.nan)
     # Distance below the trailing high: a drawdown measure that needs no label.
     f["dist_high_56"] = c / c.rolling(56, min_periods=56).max() - 1.0
+
+    f.update(_discretionary_features(panel))
     return f
+
+
+def _discretionary_features(panel: Panel) -> dict:
+    """Heikin-Ashi, fast stochastic and Ichimoku, computed per symbol.
+
+    These are in because they are what a discretionary trader actually reads,
+    and the model should get the same view rather than a private set of
+    academic features. Whether they carry information is the question; leaving
+    them out answers it by assumption.
+
+    Heikin-Ashi contributes only its DERIVED readings - direction, body
+    fraction, run length - never its prices. An HA close is the average of four
+    numbers and an HA open the average of two earlier averages; neither ever
+    traded, and because the technique smooths, the fabricated price is
+    systematically kinder than the real one exactly when a signal fires.
+    """
+    from ..core import indicators as ind
+
+    out: dict = {}
+    per_sym: dict = {}
+    for sym in panel.symbols:
+        bars = pd.DataFrame({
+            "open": panel.opens[sym], "high": panel.highs[sym],
+            "low": panel.lows[sym], "close": panel.closes[sym],
+            "volume": panel.volumes[sym],
+        }).dropna(subset=["close"])
+        if len(bars) < 120:
+            continue
+        ha = ind.heikin_ashi(bars)
+        st = ind.full_stochastic(bars, k_window=14, k_smooth=1, d_smooth=3)
+        ich = ind.ichimoku(bars, tenkan=9, kijun=26, senkou_b=52, displacement=26)
+
+        cols = {
+            "ha_trend": ha["ha_trend"],
+            "ha_run": ha["ha_run"],
+            "ha_body": ha["ha_body_frac"],
+            # Fast stochastic: no smoothing on %K, which is what "fast" means.
+            "stoch_k": st["stoch_k"],
+            "stoch_kd": st["stoch_k"] - st["stoch_d"],
+            # Ichimoku, as distances rather than booleans so the model can see
+            # HOW far above the cloud price is, not merely that it is.
+            "ich_cloud_dist": (bars["close"] - ich["cloud_top"]) / bars["close"],
+            "ich_tk": (ich["tenkan"] - ich["kijun"]) / bars["close"],
+            "ich_chikou": ich["chikou_above"].astype("float64"),
+            "ich_cloud_thick": ((ich["cloud_top"] - ich["cloud_bottom"])
+                                / bars["close"]),
+        }
+        for name, series in cols.items():
+            per_sym.setdefault(name, {})[sym] = series
+
+    for name, by_sym in per_sym.items():
+        out[name] = pd.DataFrame(by_sym).reindex(index=panel.dates,
+                                                 columns=panel.symbols)
+    return out
 
 
 def _add_cross_sectional_ranks(f: dict) -> dict:

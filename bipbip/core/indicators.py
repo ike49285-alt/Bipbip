@@ -294,3 +294,74 @@ def ichimoku(df: pd.DataFrame, tenkan: int = 9, kijun: int = 26,
         # Positive when Senkou A leads B: the "bullish cloud" colour.
         "cloud_bull": flag(span_a > span_b, span_a, span_b),
     }, index=df.index)
+
+
+def heikin_ashi(df: pd.DataFrame) -> pd.DataFrame:
+    """Heikin-Ashi candles: a smoothed re-drawing of the same price series.
+
+    HA_close is the bar's own average of open, high, low and close. HA_open is
+    the running average of the PREVIOUS HA candle, which makes the series
+    recursive and is what produces the long unbroken runs of one colour that
+    make trends easy to read.
+
+    THESE ARE NOT PRICES YOU CAN TRADE. An HA close is an average of four
+    numbers and an HA open is an average of two earlier averages; neither ever
+    appeared on an exchange. Filling an order at one is not optimistic, it is
+    fictional - and because HA smooths, the fabricated price is systematically
+    better than the real one at exactly the moments a signal fires. Use these to
+    DECIDE and the real OHLC to FILL, which is what `ha_trend` is for.
+
+    Causal: row i uses bars up to and including i, and nothing after.
+    """
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    ha_close = (o + h + l + c) / 4.0
+
+    # HA_open is recursive: seed on the first bar, then average forward.
+    ha_open = np.empty(len(df), dtype="float64")
+    ha_open[:] = np.nan
+    co = ha_close.to_numpy(dtype="float64")
+    oo = o.to_numpy(dtype="float64")
+    prev = (oo[0] + co[0]) / 2.0 if len(df) else np.nan
+    for i in range(len(df)):
+        ha_open[i] = prev
+        if np.isfinite(prev) and np.isfinite(co[i]):
+            prev = (prev + co[i]) / 2.0
+        elif np.isfinite(co[i]):
+            prev = co[i]
+    ha_open = pd.Series(ha_open, index=df.index)
+
+    ha_high = pd.concat([h, ha_open, ha_close], axis=1).max(axis=1)
+    ha_low = pd.concat([l, ha_open, ha_close], axis=1).min(axis=1)
+    body = ha_close - ha_open
+
+    return pd.DataFrame({
+        "ha_open": ha_open, "ha_high": ha_high,
+        "ha_low": ha_low, "ha_close": ha_close,
+        # The colour, as a number: +1 rising, -1 falling.
+        "ha_trend": np.sign(body),
+        # Body size relative to the whole candle - a doji is near zero, and a
+        # run of full-bodied candles is the pattern the technique is read for.
+        "ha_body_frac": (body.abs() / (ha_high - ha_low).replace(0, np.nan)),
+        # An unbroken run of one colour, which is the actual signal people use.
+        "ha_run": _signed_run(np.sign(body).to_numpy(dtype="float64"), df.index),
+    }, index=df.index)
+
+
+def _signed_run(sign: np.ndarray, index=None) -> pd.Series:
+    """Length of the current unbroken run of one sign, signed by direction.
+
+    The index is passed explicitly: returning a default RangeIndex and letting
+    pandas align it into a DatetimeIndex frame silently produced a column of
+    NaN, which looked like a feature that simply had no readings.
+    """
+    out = np.zeros(len(sign), dtype="float64")
+    run = 0.0
+    for i, s in enumerate(sign):
+        if not np.isfinite(s) or s == 0:
+            run = 0.0
+        elif i > 0 and s == sign[i - 1]:
+            run += s
+        else:
+            run = s
+        out[i] = run
+    return pd.Series(out, index=index)
