@@ -113,6 +113,7 @@ class MeanReversionBasket(PortfolioStrategy):
         return {s: 1.0 / len(picks) for s in picks} if picks else {}
 
 
+from .ichimoku import IchimokuCloud, IchimokuStochastic  # noqa: E402
 from .swing_multi import DualMomentum, VolTargetTrend  # noqa: E402
 from .turn_of_month import TurnOfMonthRotation  # noqa: E402
 
@@ -121,6 +122,8 @@ REGISTRY = {
     "turn_of_month": TurnOfMonthRotation,
     "dual_momentum": DualMomentum,
     "vol_target_trend": VolTargetTrend,
+    "ichimoku": IchimokuCloud,
+    "ichimoku_stoch": IchimokuStochastic,
     "momentum": MomentumRanking,
     "reversion_basket": MeanReversionBasket,
 }

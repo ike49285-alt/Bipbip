@@ -167,3 +167,103 @@ def minutes_since_open(index: pd.DatetimeIndex) -> pd.Series:
     """Bars elapsed in the session - the natural intraday clock."""
     key = _session_key(index)
     return pd.Series(index, index=index).groupby(key).cumcount().rename("bar_of_day")
+
+
+def full_stochastic(df: pd.DataFrame, k_window: int = 14, k_smooth: int = 3,
+                    d_smooth: int = 3) -> pd.DataFrame:
+    """Full stochastic oscillator: %K and %D.
+
+    Where the raw oscillator asks "where in its recent range is price?", the
+    FULL version smooths that answer twice - once into %K, again into %D - with
+    both periods chosen by the caller. Fast, slow and full are the same formula
+    at different smoothing: fast is (n, 1, 3), slow is (n, 3, 3).
+
+    Returns NaN, not 50, when the lookback window is flat. A motionless range
+    makes the ratio 0/0, and filling it with the midpoint invents a reading of
+    "perfectly neutral" out of an absence of information - which downstream
+    becomes a tradeable signal the tape never gave.
+    """
+    low = df["low"].rolling(k_window, min_periods=k_window).min()
+    high = df["high"].rolling(k_window, min_periods=k_window).max()
+    span = high - low
+
+    raw_k = 100.0 * (df["close"] - low) / span.where(span > 0)
+    k = raw_k.rolling(k_smooth, min_periods=k_smooth).mean()
+    d = k.rolling(d_smooth, min_periods=d_smooth).mean()
+    return pd.DataFrame({"stoch_k": k, "stoch_d": d, "stoch_raw_k": raw_k},
+                        index=df.index)
+
+
+def ichimoku(df: pd.DataFrame, tenkan: int = 9, kijun: int = 26,
+             senkou_b: int = 52, displacement: int = 26) -> pd.DataFrame:
+    """Ichimoku Kinko Hyo, with every line aligned to the bar that may USE it.
+
+    Ichimoku is drawn with two time shifts, and both are traps in a backtest.
+
+    THE CLOUD IS SHIFTED FORWARD. Senkou A and B are plotted `displacement`
+    bars into the future, so the cloud sitting above bar i was computed from
+    data at bar i - 26. Shifting forward is therefore safe: the value returned
+    on row i is derived entirely from history. This is the one place a
+    `.shift(+n)` is doing what the chart shows.
+
+    THE CHIKOU SPAN IS SHIFTED BACKWARD, AND THAT IS WHERE BACKTESTS BREAK. On
+    a chart the lagging line is today's close drawn 26 bars to the LEFT, so
+    "chikou is above price" compares close(i) against close(i - 26). Written as
+    `close.shift(-displacement)` and read at row i, the same line yields
+    close(i + 26) - a price 26 bars in the future - and a strategy consuming it
+    trades on tomorrow's news. That comparison is precomputed here as
+    `chikou_above`, causally, so nothing downstream has to get the sign right.
+
+    Every column on row i uses only bars at or before i.
+    """
+    high, low = df["high"], df["low"]
+
+    def mid(window: int) -> pd.Series:
+        return (high.rolling(window, min_periods=window).max()
+                + low.rolling(window, min_periods=window).min()) / 2.0
+
+    tenkan_sen = mid(tenkan)
+    kijun_sen = mid(kijun)
+
+    # Forward displacement: row i carries the value computed `displacement`
+    # bars ago, which is exactly what the chart draws over bar i.
+    span_a = ((tenkan_sen + kijun_sen) / 2.0).shift(displacement)
+    span_b = mid(senkou_b).shift(displacement)
+
+    cloud_top = pd.concat([span_a, span_b], axis=1).max(axis=1)
+    cloud_bottom = pd.concat([span_a, span_b], axis=1).min(axis=1)
+
+    close = df["close"]
+
+    def flag(cond: pd.Series, *inputs: pd.Series) -> pd.Series:
+        """A boolean that is MISSING where its inputs are, not False.
+
+        A plain `a > b` with a NaN operand returns False, which asserts the
+        condition is definitely not met on bars where it is simply unknown.
+        This project has already shipped that bug once, in a market filter that
+        read as "below its average" for thirty years of history it did not
+        have. Senkou B needs 52 bars plus a 26-bar displacement, so the cloud
+        is undefined for 78 bars that price data alone covers - long enough for
+        a caller to mistake the gap for a signal.
+
+        Nullable booleans make the gap explicit: `bool(pd.NA)` raises rather
+        than quietly choosing a side, so a strategy has to say what it wants.
+        """
+        missing = pd.concat([s.isna() for s in inputs], axis=1).any(axis=1)
+        return cond.astype("boolean").mask(missing, pd.NA)
+
+    return pd.DataFrame({
+        "tenkan": tenkan_sen,
+        "kijun": kijun_sen,
+        "senkou_a": span_a,
+        "senkou_b": span_b,
+        "cloud_top": cloud_top,
+        "cloud_bottom": cloud_bottom,
+        "above_cloud": flag(close > cloud_top, close, cloud_top),
+        "below_cloud": flag(close < cloud_bottom, close, cloud_bottom),
+        # The lagging-line comparison, stated causally. NOT close.shift(-n).
+        "chikou_above": flag(close > close.shift(displacement),
+                             close, close.shift(displacement)),
+        # Positive when Senkou A leads B: the "bullish cloud" colour.
+        "cloud_bull": flag(span_a > span_b, span_a, span_b),
+    }, index=df.index)

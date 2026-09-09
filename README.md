@@ -499,6 +499,61 @@ gaps through the level fills at the open rather than the level, and a trailing
 reference is taken through the previous bar so this bar's high cannot raise the
 level that this bar's low is tested against.
 
+**Ichimoku cloud, and the full stochastic.** Both implemented, swept, and
+conditioned on. The textbook system stacks four confirmations - price above the
+cloud, Tenkan above Kijun, a bullish cloud, and the lagging span above price -
+and every one of them is a trend measure, so they do not vote independently.
+Requiring more of them narrows the window without gathering more evidence:
+
+| on SPY | $50 becomes | CAGR | Sharpe | max drawdown | in market |
+|---|---|---|---|---|---|
+| buy and hold | $1,547 | 10.75% | 0.65 | 54.9% | 100% |
+| cloud filter alone | $1,219 | 9.97% | 0.68 | 42.1% | 92% |
+| 2 confirmations | $367 | 6.11% | 0.57 | 44.8% | 74% |
+| 3 confirmations | $274 | 5.19% | 0.55 | 29.7% | 63% |
+| 4 confirmations, the textbook system | $150 | 3.33% | 0.47 | 19.8% | 40% |
+
+Monotonic in both directions, and the same ordering holds in all four decades.
+Only the bare cloud filter is competitive, and it lands where every other trend
+filter here lands - a shade better on Sharpe, materially worse on total return,
+which is the signature of insurance rather than an edge.
+
+Conditioning on next-day returns says why, and it is worse than dilution. The
+days the system SITS OUT beat the days it holds: 5.70 bp against 3.42 bp at
+four confirmations, against 4.78 bp for all days unconditionally. The filter
+does not merely reduce exposure, it selects the below-average half. Each extra
+confirmation moves the mean by -1.57, +0.30 and -0.21 bp, which is noise around
+no improvement at all. That is what short-horizon mean reversion does to any
+rule whose entry condition is "price has already gone up".
+
+The stochastic is the one component that is not a trend measure, and it is the
+only thing here that showed a real gradient. Within four-confirmation days,
+next-day returns run 8.86 bp when %K is below 60, 4.43 bp between 60 and 80,
+and 0.97 bp above 80, with t = 2.50 on the low bucket. Split by era it is the
+familiar corpse:
+
+| low-minus-high %K spread | 1993-1999 | 2000-2009 | 2010-2019 | 2020-2026 |
+|---|---|---|---|---|
+| basis points per day | +14.41 | +9.74 | +3.22 | +1.33 |
+| t-statistic | 2.65 | 1.64 | 0.74 | 0.18 |
+
+Strong when it was worth publishing, halved each decade since, and at +1.33 bp
+with t = 0.18 it is now indistinguishable from zero and below the round-trip
+cost of acting on it. Bolted onto the backtest it makes every configuration
+worse, because it cuts exposure from 40% to 21% in exchange for an edge that
+stopped existing around 2010.
+
+Both indicators carry the time shifts that make them easy to get wrong, so both
+are pinned by tests. The cloud is displaced FORWARD, which is safe: the cloud
+drawn over a bar was computed 26 bars earlier. The lagging span is displaced
+BACKWARD, and written the obvious way - `close.shift(-26)`, read at row i - it
+hands the strategy a price 26 bars in the future. It is stored here as the
+causal comparison it actually represents, close(i) against close(i-26). The
+cloud flags are also nullable rather than boolean, because Senkou B needs 78
+bars to exist and `NaN > x` is False rather than unknown - the same bug this
+project already shipped once in a market filter that read as "below its
+average" for thirty years it had no data for.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
