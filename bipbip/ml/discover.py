@@ -258,7 +258,8 @@ def make_gbm(seed: int = 0, **kw):
 def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
                     n_splits: int = 5, embargo_days: int = 5,
                     top_k: int = 5, cost_bps: float = 0.0,
-                    invert: bool = False) -> dict:
+                    invert: bool = False,
+                    train_window_days: int | None = None) -> dict:
     """Walk forward, then trade the model's ranking and measure the excess.
 
     The score is NOT accuracy. At each timestamp the model ranks the available
@@ -290,9 +291,25 @@ def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
         if val_start_ts >= val_end_ts:
             continue
 
-        tr = np.flatnonzero(dates <= train_end_ts)
+        # Expanding by default: every fold trains on all history to date.
+        # `train_window_days` makes it ROLLING instead, dropping anything older.
+        #
+        # That is not a tuning knob, it is a hypothesis. Every effect this
+        # project has measured decayed - turn-of-month, post-earnings drift,
+        # the stochastic gradient, Heikin-Ashi reversion - each strong when
+        # published and gone within two decades. If edges expire, a model
+        # trained on thirty years is fitting an average of regimes that no
+        # longer exist, and a short window that sees only the live one may beat
+        # it despite having far less data. The trade is regime freshness
+        # against sample size, and it has an empirical answer.
+        if train_window_days is None:
+            tr = np.flatnonzero(dates <= train_end_ts)
+        else:
+            floor = train_end_ts - pd.Timedelta(days=train_window_days)
+            tr = np.flatnonzero((dates <= train_end_ts) & (dates > floor))
         va = np.flatnonzero((dates > val_start_ts) & (dates <= val_end_ts))
-        if len(tr) < 2000 or len(va) < 200:
+        min_train = 2000 if train_window_days is None else 500
+        if len(tr) < min_train or len(va) < 200:
             continue
         if len(np.unique(ds.y[tr])) < 2:
             continue
