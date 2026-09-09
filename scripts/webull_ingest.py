@@ -13,6 +13,7 @@ import sys, pathlib, json, glob, os
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
+import numpy as np
 import pandas as pd
 
 from bipbip.data.store import BarStore
@@ -25,8 +26,33 @@ RESULTS = os.path.expanduser(
 TZ = "America/New_York"
 
 
-def collect(symbol: str) -> pd.DataFrame:
-    frames = []
+#: Minutes between consecutive bars, per timeframe we ingest.
+SPACING = {"1m": 1, "5m": 5, "15m": 15, "30m": 30, "1h": 60, "60m": 60}
+
+
+def _spacing_minutes(rows: list) -> float:
+    """Modal gap between consecutive bars, in minutes.
+
+    The dumped responses record the bars but not the granularity that was
+    requested, and every dump for a symbol lands in one directory. Without this
+    the ingest globs all of them together: a 1m load happily absorbed the 30m
+    chunks and stored 69,121 "minute" bars reaching back to 2011, reporting a
+    clean run the whole way. The gap between timestamps is the only thing in the
+    file that says what the bars actually are.
+    """
+    ts = pd.to_datetime([r["time"] for r in rows], utc=True, format="mixed")
+    if len(ts) < 3:
+        return float("nan")
+    gaps = pd.Series(ts).sort_values().diff().dt.total_seconds().div(60).dropna()
+    gaps = gaps[gaps > 0]
+    return float(gaps.mode().iloc[0]) if len(gaps) else float("nan")
+
+
+def collect(symbol: str, timeframe: str) -> pd.DataFrame:
+    want = SPACING.get(timeframe)
+    if want is None:
+        raise ValueError(f"unknown timeframe {timeframe!r}")
+    frames, skipped = [], 0
     for f in sorted(glob.glob(f"{RESULTS}/mcp-Webull-get_stock_bars-*.txt")):
         try:
             blob = json.load(open(f))
@@ -36,8 +62,15 @@ def collect(symbol: str) -> pd.DataFrame:
             if entry.get("symbol") != symbol:
                 continue
             rows = entry.get("result") or []
-            if rows:
-                frames.append(pd.DataFrame(rows))
+            if not rows:
+                continue
+            got = _spacing_minutes(rows)
+            if not np.isfinite(got) or abs(got - want) > 1e-9:
+                skipped += 1
+                continue
+            frames.append(pd.DataFrame(rows))
+    if skipped:
+        print(f"  ignored {skipped} dumps at other granularities")
     if not frames:
         return pd.DataFrame()
     df = pd.concat(frames, ignore_index=True)
@@ -48,7 +81,7 @@ def collect(symbol: str) -> pd.DataFrame:
 
 
 def main(symbol: str, timeframe: str) -> None:
-    raw = collect(symbol)
+    raw = collect(symbol, timeframe)
     if raw.empty:
         print(f"no dumped bars found for {symbol}")
         return
@@ -81,6 +114,25 @@ def main(symbol: str, timeframe: str) -> None:
         cleaned = cleaned.loc[~pd.Series(day, index=cleaned.index).isin(still).to_numpy()]
         print(f"  dropped {len(still):,} sessions still disagreeing after the fix")
     print(f"  removed {len(raw) - len(cleaned):,} contaminated bars")
+
+    # Report short sessions rather than storing them quietly. Each request
+    # returns a fixed bar COUNT ending at a timestamp, so stepping back by a
+    # slightly wider span than the count covers leaves a sliver of every chunk
+    # unfetched - which shows up as sessions holding thirty minutes instead of
+    # a full day. Averaged into a bar count they vanish; listed here they are
+    # obviously fetch gaps to backfill rather than days the market closed early.
+    expected = {"1m": 390, "5m": 78, "15m": 26, "30m": 13, "1h": 7, "60m": 7}
+    want = expected.get(timeframe)
+    if want:
+        per = cleaned.groupby(
+            pd.DatetimeIndex([pd.Timestamp(d.date()) for d in cleaned.index])).size()
+        short = per[per < want * 0.9]
+        print(f"  sessions: {len(per):,} total, {int((per >= want * 0.9).sum()):,} "
+              f"complete ({want} bars expected)")
+        if len(short):
+            print(f"  INCOMPLETE ({len(short)}): "
+                  + ", ".join(f"{d.date()}={n}" for d, n in short.head(8).items())
+                  + (" ..." if len(short) > 8 else ""))
 
     adj = rescale_to_adjusted_with(cleaned, factors)
     info = store.append(symbol, adj, bar_size=timeframe)

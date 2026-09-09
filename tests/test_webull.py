@@ -182,3 +182,37 @@ def test_assert_causal_does_not_flag_a_rolling_maximum():
                             index=b.index)
 
     assert_causal(rolling_max, bars)
+
+
+def test_spacing_detects_granularity():
+    """Dumps of every granularity share one directory; only the gaps distinguish them."""
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "wi", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "webull_ingest.py")
+    wi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wi)
+
+    def rows(minutes, n=10):
+        base = pd.Timestamp("2026-09-09T13:30:00+0000")
+        return [{"time": (base + pd.Timedelta(minutes=minutes * i)).isoformat()}
+                for i in range(n)]
+
+    assert wi._spacing_minutes(rows(1)) == pytest.approx(1)
+    assert wi._spacing_minutes(rows(30)) == pytest.approx(30)
+    assert wi._spacing_minutes(rows(60)) == pytest.approx(60)
+    # A single bar cannot reveal its own granularity, and must not guess.
+    assert not np.isfinite(wi._spacing_minutes(rows(30, n=1)))
+
+
+def test_spacing_survives_a_session_gap():
+    """Overnight gaps are larger than the bar interval; the mode must ignore them."""
+    import importlib.util, pathlib
+    spec = importlib.util.spec_from_file_location(
+        "wi2", pathlib.Path(__file__).resolve().parents[1] / "scripts" / "webull_ingest.py")
+    wi = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(wi)
+    day1 = [{"time": (pd.Timestamp("2026-09-08T13:30:00+0000")
+                      + pd.Timedelta(minutes=30 * i)).isoformat()} for i in range(13)]
+    day2 = [{"time": (pd.Timestamp("2026-09-09T13:30:00+0000")
+                      + pd.Timedelta(minutes=30 * i)).isoformat()} for i in range(13)]
+    assert wi._spacing_minutes(day1 + day2) == pytest.approx(30)
