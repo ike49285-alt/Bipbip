@@ -833,6 +833,48 @@ to beat. And the first version of the benchmark compared against all signals
 rather than the model's own selection, which understated the bar the model had
 to clear.
 
+**Loosening the barriers, and a correction.** The previous section claimed the
+model had real skill that the triple barrier was throwing away - "the skill is
+real and the wrapper destroys it". That was wrong, and the way it was wrong is
+worth more than the original claim.
+
+The evidence for it was that model-selected trades returned +51.5 bps while
+being long SPY over the same bars returned +77.1. But the trades are on 34
+assets and the benchmark was SPY, which is the third-best compounder in that
+universe: 31 of the 34 symbols grew more slowly. Every trade on TLT, GLD or USO
+was being charged the gap between its own asset and the index, and that gap was
+read as barriers destroying value.
+
+Benchmarking each trade against holding THE SAME SYMBOL over THE SAME BARS
+removes the asset and leaves only the timing, which is what was being claimed:
+
+| RSI-dip primary | target | stop | hold | timing edge | t | vs SPY |
+|---|---|---|---|---|---|---|
+| the original | 4% | 3% | 20d | -3.0 bps | -2.28 | -23.8 |
+| target further out | 8% | 3% | 20d | **+0.1 bps** | **0.06** | -26.8 |
+| no effective target | 20% | 3% | 20d | -0.7 bps | -0.48 | -42.4 |
+| stop further out | 4% | 8% | 20d | -13.8 bps | -13.74 | -34.1 |
+| neither barrier binds | 20% | 20% | 20d | -5.1 bps | -5.42 | -16.6 |
+| and a longer leash | 20% | 20% | 60d | -6.8 bps | -6.71 | -67.8 |
+| longer still | 20% | 20% | 120d | -8.9 bps | -6.77 | -124.5 |
+
+There was no strangled signal. The best configuration in the sweep achieves a
+timing edge of +0.1 bps at t = 0.06, which is a coin flip stated precisely, and
+every other configuration is negative. Loosening the barriers does not recover
+anything because there was nothing being held back - the trades captured what
+their own assets did, no more and no less.
+
+Two things in the sweep are still worth keeping. Widening the STOP is the most
+damaging single change, at -13.8 bps with t = -13.74: letting losers run costs
+far more than letting winners run gains. And the only configuration that is not
+negative is the one that moves the target out while keeping the stop tight,
+which is the oldest advice in trading and here scores exactly zero.
+
+The correction generalises. A benchmark has to subtract everything the strategy
+is not claiming to supply. Comparing a multi-asset rule against one index
+measures asset selection and calls it timing, and it will do that consistently
+enough to look like a finding.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.

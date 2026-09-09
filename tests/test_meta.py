@@ -257,3 +257,50 @@ def test_a_per_trade_return_is_not_an_edge_without_a_matched_benchmark():
     assert np.isfinite(bench).any(), "the benchmark must be computable at all"
     # The point: it is a different number from zero, so it can change a verdict.
     assert abs(np.nanmean(bench)) > 0
+
+
+def test_a_multi_asset_rule_needs_a_per_symbol_benchmark():
+    """The correction. Benchmarking against one index measures the wrong thing.
+
+    A rule trading 34 assets, compared against SPY, is charged the gap between
+    whatever it bought and the index - and SPY is the third-best compounder of
+    the 34, with 31 growing more slowly. That gap was read as the triple
+    barrier destroying value, and it was not; it was the assets.
+
+    This asserts the two benchmarks genuinely differ on a panel whose symbols
+    drift apart, so a future refactor cannot collapse them back together.
+    """
+    n = 400
+    idx = pd.DatetimeIndex(pd.bdate_range("2015-01-05", periods=n))
+
+    def series(drift):
+        rng = np.random.default_rng(int(drift * 1e6) % 9999)
+        c = 100.0 * np.exp(np.cumsum(rng.normal(drift, 0.01, n)))
+        return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99,
+                             "close": c, "volume": 1e7}, index=idx)
+
+    # One clear outperformer and one clear laggard.
+    panel = build_panel({"SPY": series(0.0008), "LAGGARD": series(-0.0002)})
+    ds = label_signals(panel, breakout_signals(panel), build_features(panel))
+    if len(ds) < 20:
+        pytest.skip("fixture produced too few signals")
+
+    spy = panel.closes["SPY"].to_numpy(dtype="float64")
+    closes = panel.closes
+    ep, xp = ds.entry_bar, ds.exit_bar
+
+    vs_spy = spy[xp] / spy[ep] - 1.0
+    vs_own = np.full(len(ds), np.nan)
+    for sym in np.unique(ds.symbols):
+        m = ds.symbols == sym
+        px = closes[sym].to_numpy(dtype="float64")
+        vs_own[m] = px[xp[m]] / px[ep[m]] - 1.0
+
+    ok = np.isfinite(vs_spy) & np.isfinite(vs_own)
+    assert ok.sum() > 10
+    # On the laggard the two benchmarks must disagree materially.
+    lag = ok & (ds.symbols == "LAGGARD")
+    if lag.sum() > 5:
+        assert abs(np.nanmean(vs_spy[lag]) - np.nanmean(vs_own[lag])) > 1e-4, (
+            "the per-symbol and index benchmarks collapsed together; the "
+            "confound this guards against is back")
