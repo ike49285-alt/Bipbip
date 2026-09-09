@@ -603,6 +603,47 @@ and that is against a quote-only cost that assumes every fill lands at the
 quote with no adverse selection. There is no version of this arithmetic in
 which a retail account trades SPY profitably on a one-second horizon.
 
+**The 15-minute-to-2-hour search.** The cost arithmetic left this horizon open,
+so it was searched properly: seventeen hypotheses written down in full before
+any of them ran, on 2,976 tradeable hourly observations across 496 sessions of
+SPY, each signal decided at one bar's close and earning the next bar's
+open-to-close return.
+
+Nothing survives. The strongest result is fading the overnight gap at t = 1.95
+against a Bonferroni threshold of 3.02 for a battery this size, and it is worth
++0.99 bps against a 2.28 bps round trip, so it would lose money even if it were
+real. **Zero of the seventeen clear an uncorrected 5% test, where chance alone
+predicts 0.9.** The families covered are time-of-day, hourly momentum and
+reversal, reversal conditioned on an outsized prior bar, closing position within
+the bar's range, overnight gap continuation and fade, first-hour continuation
+and fade, and volatility conditioning.
+
+This is a real negative rather than a data shortage, which is the part worth
+being careful about. With 2,976 observations and a 28 bps hourly standard
+deviation, the smallest edge reaching the corrected threshold is 1.53 bps -
+below the 2.28 bps it costs to trade. **Any edge large enough to be worth
+having would have been detected.** The harness is checked against a planted
+reversal edge of exactly 2.28 bps and finds it, so a null result from it means
+something. TQQQ is the marginal case: its minimum detectable edge is 5.86 bps
+against a 5.28 bps cost, so a barely-tradeable edge there could hide, and it
+needs about 513 sessions to resolve against the 496 available.
+
+The gap fade was then taken to the daily archive, where it has an exact analog
+with 8,458 observations over 34 years rather than 496 sessions. It returns
++1.06 bps at t = 1.02, below cost. By era it is +1.96, +2.60, -1.08 and +1.02
+bps, and by gap size it is positive for small and medium gaps and negative for
+large and extreme ones - the reverse of what a gap-overshoot mechanism predicts.
+Sign flips across the buckets a mechanism would order are noise wearing a
+result's clothing.
+
+What this does NOT rule out is worth stating plainly, because the search was
+narrow by design. It covers time-series signals on one instrument. It says
+nothing about cross-sectional signals at this horizon, which need intraday
+history for many symbols that this archive does not have; nothing about
+order-book or quote-level signals, since only OHLCV is stored and no free
+source provides depth; and nothing about a model over richer features, which
+would need far more history before it could be validated rather than fitted.
+
 ## What is not done
 
 - No broker connection. Nothing places an order.
