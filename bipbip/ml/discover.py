@@ -255,6 +255,27 @@ def make_gbm(seed: int = 0, **kw):
     return HistGradientBoostingClassifier(**params)
 
 
+def make_gbm_regressor(seed: int = 0, **kw):
+    """The same trees, fitted to a continuous target.
+
+    Direction is a classification problem; realised volatility is not - it is a
+    positive magnitude, modelled here in logs. Passing a continuous target to
+    the classifier above fails loudly, which is the correct behaviour and the
+    reason this exists separately rather than as a flag.
+
+    Regularisation is kept identical so a volatility result can be compared with
+    a direction result without the model capacity having quietly changed too.
+    """
+    from sklearn.ensemble import HistGradientBoostingRegressor
+
+    params = dict(max_depth=4, max_leaf_nodes=15, learning_rate=0.05,
+                  max_iter=250, min_samples_leaf=200, l2_regularization=1.0,
+                  early_stopping=True, validation_fraction=0.15,
+                  random_state=seed)
+    params.update(kw)
+    return HistGradientBoostingRegressor(**params)
+
+
 def evaluate_ranker(ds: CrossSectionalDataset, make_model=make_gbm,
                     n_splits: int = 5, embargo_days: int = 5,
                     top_k: int = 5, cost_bps: float = 0.0,
