@@ -70,8 +70,18 @@ class RuleSearch:
     def __init__(self, X, fwd_by_hold: dict, feature_names,
                  min_trades: int = 200, seed: int = 0,
                  max_conditions: int = 3, max_fraction: float = 0.30,
-                 demean: bool = True):
+                 demean: bool = True, cost_bps=None):
         self.X = X
+        # Cost is charged AFTER direction, never before. Netting it into the
+        # forward return first and then flipping the sign for a short turns
+        # `gross - cost` into `-gross + cost`: the short is PAID the spread
+        # instead of charged it. That handed every short a 4.34 bps rebate and
+        # produced an "edge" of +8.58 bps that existed at every hour of the
+        # day, which is what it looks like when a bug is uniform. Gross
+        # open-to-close over five bars is -0.12 bps; there was nothing there in
+        # either direction.
+        self.cost = (np.zeros(len(X), dtype="float64") if cost_bps is None
+                     else np.asarray(cost_bps, dtype="float64"))
         # DEMEAN each holding period. Without this the search does not need a
         # signal: forward returns have a non-zero unconditional mean, so a rule
         # firing on most of the sample simply inherits it. The first real run
@@ -152,7 +162,7 @@ class RuleSearch:
         if n > self.max_fraction * len(fwd):
             # Too broad to be a rule; it is market exposure with extra steps.
             return -np.inf, n, 0.0, 0.0
-        pnl = rule.direction * fwd[m]
+        pnl = rule.direction * fwd[m] - self.cost[m]
         mean = float(np.mean(pnl))
         sd = float(np.std(pnl))
         t = mean / sd * np.sqrt(n) if sd > 0 else 0.0

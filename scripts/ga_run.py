@@ -31,6 +31,7 @@ def spread_bps(close):
 def build(limit=200):
     store = BarStore("data/bars")
     feats, fwds, syms_out = [], {h: [] for h in HOLDS}, []
+    costs_out = []
     files = sorted(glob.glob("data/bars/*_1m.parquet"))[:limit]
     for f in files:
         sym = os.path.basename(f).split("_")[0]
@@ -67,29 +68,33 @@ def build(limit=200):
         }
         F = pd.DataFrame(col)
         for hh in HOLDS:
-            fwd = (c.shift(-hh) / o.shift(-1) - 1.0) * 1e4 - cost
+            # GROSS only. Cost is applied by the search after direction, since
+            # netting it here makes a short earn the spread instead of paying.
+            fwd = (c.shift(-hh) / o.shift(-1) - 1.0) * 1e4
             fwd = fwd.where(day.shift(-hh) == day)
             fwds[hh].append(fwd.to_numpy(dtype="float64"))
+        costs_out.append(np.full(len(b), cost, dtype="float64"))
         feats.append(F.to_numpy(dtype="float32"))
         syms_out.append(sym)
 
     X = np.vstack(feats)
     fwd_by_hold = {h: np.concatenate(v) for h, v in fwds.items()}
-    return X, fwd_by_hold, list(col), syms_out
+    return X, fwd_by_hold, list(col), syms_out, np.concatenate(costs_out)
 
 
 def main():
     t0 = time.time()
-    X, fwd, names, syms = build()
+    X, fwd, names, syms, cost = build()
     keep = np.isfinite(X).any(axis=1)
     X = X[keep]
     fwd = {h: v[keep] for h, v in fwd.items()}
+    cost = cost[keep]
     print(f"{len(syms)} symbols, {len(X):,} samples, {len(names)} features "
           f"({time.time()-t0:.0f}s)")
-    print(f"forward returns are NET of each symbol's own measured spread\n")
+    print(f"gross returns; each symbol's measured spread charged after direction\n")
 
     search = RuleSearch(X, fwd, names, min_trades=500, seed=7,
-                    max_fraction=0.25)
+                        max_fraction=0.25, cost_bps=cost)
     res = evolve_with_null(search, population=60, generations=25,
                            null_runs=10, seed=7)
 
@@ -101,14 +106,25 @@ def main():
     print("What the SAME search achieves on destroyed labels:")
     print(f"  null mean t={res.null_mean:.2f}   null best t={res.null_best:.2f}")
     print(f"  p = {res.p_value:.3f}  ({len(res.history)} generations)\n")
-    if np.isfinite(res.null_best) and res.fitness <= res.null_best:
+    # The p-value floor is 1/(null_runs+1), so demanding p<=0.05 with ten runs
+    # asks for something arithmetically unreachable - and the last run printed
+    # "not separable" for a winner that beat all ten nulls by a factor of six.
+    # Report the separation directly and say what the floor is.
+    floor = 1.0 / (res.p_value and (round(1.0 / res.p_value)) or 1)
+    if not np.isfinite(res.null_best):
+        print("VERDICT: no usable null runs; the result means nothing.")
+    elif res.fitness <= res.null_best:
         print("VERDICT: the winner is inside the noise the search itself")
         print("generates. Nothing found.")
-    elif res.p_value <= 0.05:
-        print("VERDICT: beats every null run. Worth a second look, NOT a green")
-        print("light - the sample is 20 sessions.")
     else:
-        print("VERDICT: not separable from the search's own overfitting.")
+        ratio = res.fitness / res.null_best if res.null_best > 0 else float("inf")
+        print(f"VERDICT: winner beat all {len(res.history) and ''}null runs, "
+              f"t={res.fitness:.1f} against a null best of {res.null_best:.1f} "
+              f"({ratio:.1f}x).")
+        print(f"  p={res.p_value:.3f} is the FLOOR for this many null runs, not")
+        print("  a weak result. Separation is the number that matters.")
+        print("  This is NOT a green light: 20 sessions, and every apparent")
+        print("  edge in this project so far has been an accounting artefact.")
     print(f"\ntotal {time.time()-t0:.0f}s")
 
 

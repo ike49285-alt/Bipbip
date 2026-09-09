@@ -144,3 +144,64 @@ def test_mean_is_returned_in_the_units_supplied():
                    max_fraction=1.0, demean=False)
     _, _, mean_bps, _ = s.evaluate(Rule([(0, ">", 0.05)], 1, 5))
     assert mean_bps == pytest.approx(25.0), f"got {mean_bps}, expected 25 bps"
+
+
+def test_cost_is_charged_after_direction_not_before():
+    """The bug that produced an 'edge' at every hour of the day.
+
+    Netting cost into the forward return and then flipping the sign for a
+    short turns `gross - cost` into `-gross + cost`: the short is PAID the
+    spread instead of charged it. That handed every short a 4.34 bps rebate,
+    which showed up as +8.58 bps of profit in the first hour, at midday, in the
+    afternoon and into the close - uniform, because a bug does not care what
+    time it is. Gross open-to-close over five bars is -0.12 bps.
+    """
+    X = np.column_stack([np.arange(1000.0)] * 2)
+    gross = {5: np.zeros(1000)}          # no edge whatsoever
+    s = RuleSearch(X, gross, ["a", "b"], min_trades=10, seed=0,
+                   max_fraction=1.0, demean=False,
+                   cost_bps=np.full(1000, 4.3))
+
+    for direction in (1, -1):
+        _, _, mean_bps, _ = s.evaluate(Rule([(0, ">", 0.05)], direction, 5))
+        assert mean_bps == pytest.approx(-4.3), (
+            f"direction {direction} scored {mean_bps:+.2f} bps on zero gross; "
+            "both sides must pay the spread")
+
+
+def test_a_short_cannot_profit_from_a_flat_tape():
+    """The same property stated as the thing a trader would notice."""
+    rng = np.random.default_rng(31)
+    X = rng.normal(size=(5000, 3))
+    gross = {5: rng.normal(0.0, 40.0, 5000)}     # symmetric, zero mean
+    s = RuleSearch(X, gross, ["a", "b", "c"], min_trades=100, seed=31,
+                   max_fraction=1.0, demean=False,
+                   cost_bps=np.full(5000, 5.0))
+    _, _, longs, _ = s.evaluate(Rule([(0, ">", 0.05)], 1, 5))
+    _, _, shorts, _ = s.evaluate(Rule([(0, ">", 0.05)], -1, 5))
+    assert longs < 0 and shorts < 0, (
+        f"long {longs:+.2f}, short {shorts:+.2f} - one of them is being paid "
+        "to trade a coin flip")
+
+
+def test_a_uniform_result_across_all_conditions_is_a_bug_signature():
+    """Recorded as a diagnostic, because it is how the last two runs were caught.
+
+    A real effect is conditional - it appears under some circumstances and not
+    others. An effect present identically everywhere is arithmetic leaking, and
+    the GA found two of those before it found anything else.
+    """
+    rng = np.random.default_rng(41)
+    n = 30000
+    X = rng.normal(size=(n, 4))
+    gross = {5: rng.normal(0.0, 40.0, n)}
+    s = RuleSearch(X, gross, [f"f{i}" for i in range(4)], min_trades=200,
+                   seed=41, max_fraction=1.0, demean=False,
+                   cost_bps=np.full(n, 4.0))
+    # Slice the sample four ways; a correct engine loses the cost in each.
+    means = []
+    for lo in (0.05, 0.30, 0.55, 0.80):
+        _, _, m, _ = s.evaluate(Rule([(0, ">", lo)], -1, 5))
+        means.append(m)
+    assert all(x < 0 for x in means), f"a slice showed free money: {means}"
+    assert max(means) - min(means) < 3.0, "slices should differ only by noise"
