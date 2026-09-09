@@ -1,0 +1,450 @@
+<title>Signal or Placebo</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,600;1,400&display=swap">
+<style>
+  :root{
+    --paper:#F1F4F7; --surface:#FFFFFF; --sunk:#E8ECF1;
+    --ink:#161A20; --body:#333B46; --muted:#5F6B7A;
+    --hair:#D5DCE4; --hair-strong:#B9C4D0;
+    --signal:#1B5E8C; --signal-soft:#D6E6F1;
+    --null:#A8613C; --null-soft:#F0E0D6;
+    --train:#C3D3E0; --embargo:#E4C9B7; --test:#1B5E8C;
+    --good:#2F6B4F; --bad:#9B3B32;
+    --shadow:0 1px 2px rgba(22,26,32,.05), 0 8px 24px -16px rgba(22,26,32,.28);
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#0F1319; --surface:#161B23; --sunk:#1C222C;
+      --ink:#E7ECF3; --body:#C3CBD6; --muted:#8B95A4;
+      --hair:#262E3A; --hair-strong:#3A4553;
+      --signal:#5AA8DC; --signal-soft:#17303F;
+      --null:#D28A5D; --null-soft:#33251C;
+      --train:#33414F; --embargo:#4A3729; --test:#5AA8DC;
+      --good:#63B48C; --bad:#DC7A70;
+      --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#0F1319; --surface:#161B23; --sunk:#1C222C;
+    --ink:#E7ECF3; --body:#C3CBD6; --muted:#8B95A4;
+    --hair:#262E3A; --hair-strong:#3A4553;
+    --signal:#5AA8DC; --signal-soft:#17303F;
+    --null:#D28A5D; --null-soft:#33251C;
+    --train:#33414F; --embargo:#4A3729; --test:#5AA8DC;
+    --good:#63B48C; --bad:#DC7A70;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  *{box-sizing:border-box}
+  body{
+    background:var(--paper); color:var(--body);
+    font-family:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+    font-size:17px; line-height:1.65;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px; margin:0 auto; padding:0 28px 96px}
+  .measure{max-width:66ch}
+
+  h1,h2,h3{color:var(--ink); text-wrap:balance; margin:0}
+  h1{
+    font-family:"IBM Plex Serif",Georgia,serif; font-weight:600;
+    font-size:clamp(2.3rem,5.4vw,3.4rem); line-height:1.06;
+    letter-spacing:-.022em;
+  }
+  h2{
+    font-family:"IBM Plex Serif",Georgia,serif; font-weight:600;
+    font-size:clamp(1.4rem,2.6vw,1.85rem); line-height:1.2;
+    letter-spacing:-.012em;
+  }
+  h3{font-size:1.02rem; font-weight:600; letter-spacing:-.005em}
+  p{margin:0}
+  a{color:var(--signal)}
+
+  .eyebrow{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.72rem; font-weight:500; letter-spacing:.14em;
+    text-transform:uppercase; color:var(--muted);
+  }
+
+  header.masthead{
+    display:flex; flex-direction:column; gap:18px;
+    padding:76px 0 34px; border-bottom:1px solid var(--hair-strong);
+  }
+  .standfirst{
+    font-family:"IBM Plex Serif",Georgia,serif; font-size:1.22rem;
+    line-height:1.5; color:var(--body); max-width:60ch;
+  }
+  .runin{
+    display:flex; flex-wrap:wrap; gap:8px 26px;
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.76rem; color:var(--muted); padding-top:6px;
+  }
+  .runin b{color:var(--ink); font-weight:500}
+
+  section{padding-top:56px; display:flex; flex-direction:column; gap:20px}
+  section > p, section > .measure{max-width:66ch}
+
+  .lede{font-size:1.06rem}
+  strong{color:var(--ink); font-weight:600}
+  em.term{
+    font-style:normal; font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.92em; color:var(--ink);
+    background:var(--sunk); padding:.08em .34em; border-radius:3px;
+  }
+
+  /* ---- figures ---- */
+  figure{margin:8px 0 0; display:flex; flex-direction:column; gap:14px}
+  .plate{
+    background:var(--surface); border:1px solid var(--hair);
+    border-radius:6px; padding:22px 20px 16px; overflow-x:auto;
+    box-shadow:var(--shadow);
+  }
+  .plate svg{display:block; min-width:660px; width:100%; height:auto}
+  figcaption{font-size:.9rem; color:var(--muted); max-width:66ch}
+  .sv-train{fill:var(--train)}
+  .sv-emb{fill:var(--embargo)}
+  .sv-test{fill:var(--test)}
+  .sv-rule{stroke:var(--hair-strong); stroke-width:1}
+  .sv-lab{
+    fill:var(--muted); font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:11px;
+  }
+  .sv-lab-ink{fill:var(--ink)}
+  .key{
+    display:flex; flex-wrap:wrap; gap:6px 22px;
+    font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.76rem;
+    color:var(--muted);
+  }
+  .key span{display:inline-flex; align-items:center; gap:8px}
+  .chip{width:22px; height:11px; border-radius:2px; display:inline-block}
+
+  /* ---- rules list ---- */
+  .rules{display:flex; flex-direction:column; gap:2px; margin-top:4px}
+  .rule{
+    display:grid; grid-template-columns:minmax(0,1fr); gap:7px;
+    padding:20px 0; border-top:1px solid var(--hair);
+  }
+  .rule:last-child{border-bottom:1px solid var(--hair)}
+  .rule p{max-width:64ch}
+  .damage{
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.79rem; color:var(--null); line-height:1.55; max-width:64ch;
+  }
+  .damage b{color:var(--null); font-weight:600}
+
+  /* ---- tables ---- */
+  .tablewrap{overflow-x:auto; border:1px solid var(--hair); border-radius:6px;
+             background:var(--surface); box-shadow:var(--shadow)}
+  table{border-collapse:collapse; width:100%; min-width:560px;
+        font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.84rem;
+        font-variant-numeric:tabular-nums}
+  caption{
+    text-align:left; padding:16px 18px 0; color:var(--muted);
+    font-family:"IBM Plex Sans",sans-serif; font-size:.84rem;
+  }
+  th,td{padding:9px 18px; text-align:right; white-space:nowrap}
+  th:first-child,td:first-child{text-align:left}
+  thead th{
+    color:var(--muted); font-weight:500; font-size:.74rem;
+    letter-spacing:.06em; text-transform:uppercase;
+    border-bottom:1px solid var(--hair-strong);
+  }
+  tbody tr + tr td{border-top:1px solid var(--hair)}
+  td.k{color:var(--ink); font-weight:500}
+  td.pos{color:var(--good)} td.neg{color:var(--bad)}
+  tfoot td{color:var(--muted); font-size:.78rem; padding-top:12px;
+           border-top:1px solid var(--hair-strong)}
+
+  .callout{
+    border-left:2px solid var(--signal); background:var(--surface);
+    padding:16px 20px; border-radius:0 5px 5px 0; max-width:66ch;
+    display:flex; flex-direction:column; gap:8px;
+  }
+  .callout .eyebrow{color:var(--signal)}
+  .arith{
+    font-family:"IBM Plex Mono",ui-monospace,monospace; font-size:.86rem;
+    color:var(--ink); font-variant-numeric:tabular-nums;
+  }
+
+  footer{
+    margin-top:72px; padding-top:22px; border-top:1px solid var(--hair-strong);
+    font-family:"IBM Plex Mono",ui-monospace,monospace;
+    font-size:.76rem; color:var(--muted); max-width:66ch;
+  }
+  @media (max-width:640px){
+    body{font-size:16px} .wrap{padding:0 20px 72px}
+    header.masthead{padding-top:52px}
+  }
+  @media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+
+<div class="wrap">
+
+<header class="masthead">
+  <span class="eyebrow">Bipbip · evaluation method</span>
+  <h1>Signal or Placebo</h1>
+  <p class="standfirst">Bip is trained on nothing but raw candles and asked one
+  question. Almost all the engineering isn't in the model — it's in the rules
+  that stop a backtest flattering itself.</p>
+  <div class="runin">
+    <span><b>TQQQ</b> 30-minute bars</span>
+    <span><b>48,973</b> bars, 2011–2026</span>
+    <span><b>27,491</b> minute bars, 70 sessions</span>
+    <span>round trip <b>3.10 bps</b></span>
+  </div>
+</header>
+
+<section>
+  <h2>The question we ask it</h2>
+  <p class="lede">Every 30 minutes Bip is asked one thing: <strong>if I buy at
+  the next bar's open and sell 30 minutes later, do I end up ahead?</strong>
+  Yes or no. Not what the price will be — just up or down.</p>
+  <p>That yes/no is the <em class="term">label</em>. We can compute it for every
+  bar in history, because we already know what happened next. Forty-nine
+  thousand bars, forty-nine thousand answers sitting in the back of the book.</p>
+</section>
+
+<section>
+  <h2>What Bip actually is</h2>
+  <p>A gradient-boosted tree is a tall stack of yes/no questions — Twenty
+  Questions played badly, then repaired.</p>
+  <p>The first tree asks something crude: <em class="term">was the last bar's
+  high more than 0.3% above its close?</em> — then guesses. It is barely better
+  than a coin. The second tree doesn't attempt the original question at all. It
+  looks at where the first tree went <strong>wrong</strong> and predicts those
+  mistakes. The third cleans up what's left.</p>
+  <p>Stack a few hundred and the pile can express genuinely intricate rules —
+  <em>when volume was thin three bars ago, and the last two candles closed near
+  their lows, and it's early afternoon, lean short.</em> Nobody writes those.
+  They fall out of grinding through examples.</p>
+  <p>Since the indicators came off, it sees the last twelve candles: open, high,
+  low, close, volume — 59 numbers. Everything divided by the current close,
+  because TQQQ was $0.30 in 2011 and $71 today. Skip that and the tree learns
+  <em>"when price is near $5, do X"</em>, which is a rule about the year 2012,
+  not about price.</p>
+</section>
+
+<section>
+  <h2>Why training scores are worthless</h2>
+  <p>Show Bip 10,000 bars with the answers attached and it builds its stack to
+  get as many right as it can. <strong>It will always look brilliant on those
+  10,000 bars.</strong> Given enough trees it memorises them outright, noise
+  included.</p>
+  <p>So nothing measured on training data counts. It's a student who has seen
+  the answer key. Every number on this page comes from bars the model was never
+  shown.</p>
+</section>
+
+<section>
+  <h2>Time is not shuffleable</h2>
+  <p>Ordinary machine learning shuffles the data and holds out a random 20% to
+  test on. <strong>That is catastrophic here</strong>, and it is the easiest way
+  in the field to fool yourself.</p>
+  <p>Shuffling puts Tuesday in the training set and Monday in the test set. They
+  are not independent — same volatility regime, overlapping price moves. The
+  model effectively studies tomorrow's exam. Results look superb and none of it
+  survives a live market.</p>
+  <p>So we <strong>walk forward</strong> instead. Train on the past, test on the
+  future that follows it, slide, repeat. Always in that direction.</p>
+
+  <figure>
+    <div class="plate">
+      <svg viewBox="0 0 720 250" role="img" aria-label="Five walk-forward folds. Each fold trains on all history up to a point, leaves an embargo gap, then tests on the sessions that follow.">
+        <text class="sv-lab sv-lab-ink" x="60" y="22">Each fold trains only on what came before it</text>
+        <rect class="sv-train" x="60"  y="40"  width="93"  height="22" rx="2"/>
+        <rect class="sv-emb"   x="153" y="40"  width="19"  height="22" rx="2"/>
+        <rect class="sv-test"  x="172" y="40"  width="93"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="55" text-anchor="end">fold 1</text>
+        <rect class="sv-train" x="60"  y="76"  width="186" height="22" rx="2"/>
+        <rect class="sv-emb"   x="246" y="76"  width="19"  height="22" rx="2"/>
+        <rect class="sv-test"  x="265" y="76"  width="93"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="91" text-anchor="end">fold 2</text>
+        <rect class="sv-train" x="60"  y="112" width="279" height="22" rx="2"/>
+        <rect class="sv-emb"   x="339" y="112" width="19"  height="22" rx="2"/>
+        <rect class="sv-test"  x="358" y="112" width="93"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="127" text-anchor="end">fold 3</text>
+        <rect class="sv-train" x="60"  y="148" width="372" height="22" rx="2"/>
+        <rect class="sv-emb"   x="432" y="148" width="19"  height="22" rx="2"/>
+        <rect class="sv-test"  x="451" y="148" width="93"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="163" text-anchor="end">fold 4</text>
+        <rect class="sv-train" x="60"  y="184" width="465" height="22" rx="2"/>
+        <rect class="sv-emb"   x="525" y="184" width="19"  height="22" rx="2"/>
+        <rect class="sv-test"  x="544" y="184" width="93"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="199" text-anchor="end">fold 5</text>
+        <line class="sv-rule" x1="60" y1="222" x2="680" y2="222"/>
+        <text class="sv-lab" x="60" y="240">2011</text>
+        <text class="sv-lab" x="680" y="240" text-anchor="end">2026 →</text>
+      </svg>
+    </div>
+    <div class="key">
+      <span><i class="chip" style="background:var(--train)"></i> train</span>
+      <span><i class="chip" style="background:var(--embargo)"></i> embargo</span>
+      <span><i class="chip" style="background:var(--test)"></i> test — the only bars that count</span>
+    </div>
+    <figcaption>The embargo is the narrow gap. Without it, the last training
+    label covers the same minutes as the first test bar, and the model has
+    already been shown part of the answer.</figcaption>
+  </figure>
+</section>
+
+<section>
+  <h2>Four rules that keep it honest</h2>
+  <p>Each of these exists because breaking it manufactures a fake edge. Most of
+  them were broken in this repo at some point, and every one of those bugs
+  pointed the same way — toward good news.</p>
+
+  <div class="rules">
+    <div class="rule">
+      <h3>Purge and embargo the fold boundary</h3>
+      <p>A label for “the 30 minutes after 3:30pm” overlaps a test set starting
+      at 3:31pm. Leave a gap of one full holding period between them.</p>
+    </div>
+    <div class="rule">
+      <h3>One trade per holding period</h3>
+      <p>Hold for 30 minutes but sample every minute and trade #2 is
+      twenty-nine thirtieths the same trade as #1. Near-copies counted as
+      independent evidence.</p>
+      <p class="damage">Cost of ignoring it: the t-statistic climbed
+      <b>1.60 → 5.55 → 10.78</b> as the horizon lengthened — tracking
+      √horizon exactly, on no new information at all.</p>
+    </div>
+    <div class="rule">
+      <h3>Charge cost after choosing a direction</h3>
+      <p>Pick long or short first, <em>then</em> subtract the spread. Netting it
+      into the forward return beforehand looks equivalent and isn't.</p>
+      <p class="damage">Cost of ignoring it: with the sign inverted a short was
+      <b>paid</b> 4.34 bps instead of charged it, producing “<b>+8.58 bps edge at
+      every hour of the day</b>”.</p>
+    </div>
+    <div class="rule">
+      <h3>Run the whole search again on nonsense</h3>
+      <p>The control arm. Described below — it is the one that decides
+      everything.</p>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>The placebo arm</h2>
+  <p>Take the identical setup and <strong>shuffle the labels</strong>, so bar
+  400's answer is glued to bar 12,000's. There is now definitionally nothing to
+  learn. Run the entire search again.</p>
+  <p><strong>It still finds something.</strong> It always does. Any procedure
+  flexible enough to discover a real pattern is flexible enough to hallucinate
+  one, and shuffled data tells you how large that hallucination usually is.</p>
+  <p>A drug that cures 40% of patients sounds excellent until the sugar pill
+  cures 40% too. So the number that actually matters is the difference:</p>
+
+  <div class="callout">
+    <span class="eyebrow">what gets read</span>
+    <p class="arith">skill = real net &minus; shuffled net</p>
+    <p>Both arms pay the same spread on every trade, so subtracting removes the
+    cost and leaves only what the model knew.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Reading a learning curve</h2>
+  <p>To ask <em>how much data does it need</em>, hold the test blocks fixed and
+  vary only the training width. Slide both together and you confound “more
+  data” with “a different market”.</p>
+
+  <figure>
+    <div class="plate">
+      <svg viewBox="0 0 720 250" role="img" aria-label="Five training widths of 5, 10, 20, 30 and 45 sessions, each ending at the same fixed test block.">
+        <text class="sv-lab sv-lab-ink" x="60" y="22">Same held-out block every time — only the training width changes</text>
+        <rect class="sv-train" x="508" y="40"  width="56"  height="22" rx="2"/>
+        <rect class="sv-test"  x="576" y="40"  width="62"  height="22" rx="2"/>
+        <text class="sv-lab" x="500" y="55" text-anchor="end">5 sessions</text>
+        <rect class="sv-train" x="452" y="76"  width="112" height="22" rx="2"/>
+        <rect class="sv-test"  x="576" y="76"  width="62"  height="22" rx="2"/>
+        <text class="sv-lab" x="444" y="91" text-anchor="end">10 sessions</text>
+        <rect class="sv-train" x="340" y="112" width="224" height="22" rx="2"/>
+        <rect class="sv-test"  x="576" y="112" width="62"  height="22" rx="2"/>
+        <text class="sv-lab" x="332" y="127" text-anchor="end">20 sessions</text>
+        <rect class="sv-train" x="228" y="148" width="336" height="22" rx="2"/>
+        <rect class="sv-test"  x="576" y="148" width="62"  height="22" rx="2"/>
+        <text class="sv-lab" x="220" y="163" text-anchor="end">30 sessions</text>
+        <rect class="sv-train" x="60"  y="184" width="504" height="22" rx="2"/>
+        <rect class="sv-test"  x="576" y="184" width="62"  height="22" rx="2"/>
+        <text class="sv-lab" x="52" y="199" text-anchor="end">45 sessions</text>
+        <line class="sv-rule" x1="564" y1="34" x2="564" y2="214" stroke-dasharray="3 3"/>
+        <text class="sv-lab sv-lab-ink" x="648" y="128">fixed</text>
+        <text class="sv-lab sv-lab-ink" x="648" y="142">test</text>
+      </svg>
+    </div>
+    <figcaption>Every width is also scored on the identical set of trades. An
+    earlier version gated trades on model confidence — reasonable in isolation,
+    ruinous here, because a model trained on more data is less overconfident and
+    so trades less. The widest window was being judged on 32 trades against the
+    narrowest window's 195, which measures sample size rather than
+    learning.</figcaption>
+  </figure>
+
+  <div class="tablewrap">
+    <table>
+      <caption>TQQQ minute bars, 5-minute holds, 70 sessions. Identical 1,920
+      trades at every width.</caption>
+      <thead>
+        <tr><th>Train</th><th>Bars</th><th>Net</th><th>Shuffled</th><th>Skill</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="k">5 sessions</td><td>1,950</td><td>−3.30 b</td><td>−3.03 b</td><td class="neg">−0.27 b</td></tr>
+        <tr><td class="k">10 sessions</td><td>3,900</td><td>−2.79 b</td><td>−3.26 b</td><td class="pos">+0.48 b</td></tr>
+        <tr><td class="k">20 sessions</td><td>7,800</td><td>−4.24 b</td><td>−2.51 b</td><td class="neg">−1.73 b</td></tr>
+        <tr><td class="k">30 sessions</td><td>11,700</td><td>−3.76 b</td><td>−2.88 b</td><td class="neg">−0.88 b</td></tr>
+        <tr><td class="k">45 sessions</td><td>17,550</td><td>−3.74 b</td><td>−3.06 b</td><td class="neg">−0.67 b</td></tr>
+      </tbody>
+      <tfoot>
+        <tr><td colspan="5">The Net column looks dreadful — but the shuffled arm
+        looks equally dreadful, because it pays the same spread. Six times the
+        training data moves skill nowhere.</td></tr>
+      </tfoot>
+    </table>
+  </div>
+
+  <p>That is what a learning curve is: does <strong>skill</strong> climb as
+  <strong>bars</strong> climbs? Here it doesn't — not over 6× at minutes, and
+  not over 16× across the fifteen-year 30-minute archive.</p>
+</section>
+
+<section>
+  <h2>What we could have detected</h2>
+  <p>A fair question when the answer keeps coming back “nothing”: would we
+  see an edge if one existed? Per-trade noise sets that floor.</p>
+
+  <div class="tablewrap">
+    <table>
+      <caption>Sessions of held-out data needed to resolve an edge at t = 2.</caption>
+      <thead>
+        <tr><th>Horizon</th><th>Noise / trade</th><th>1 bps</th><th>2 bps</th><th>5 bps</th><th>10 bps</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="k">30 min</td><td>78.4 b</td><td>1,889</td><td>472</td><td class="pos">76</td><td class="pos">19</td></tr>
+        <tr><td class="k">60 min</td><td>108.3 b</td><td>7,822</td><td>1,955</td><td>313</td><td class="pos">78</td></tr>
+        <tr><td class="k">120 min</td><td>148.7 b</td><td>29,492</td><td>7,373</td><td>1,180</td><td>295</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="callout">
+    <span class="eyebrow">the arithmetic that settles it</span>
+    <p class="arith">2 × 1.41 spread + 0.278 SEC fee = 3.10 bps per round trip</p>
+    <p>A <em>tradeable</em> edge therefore has to clear roughly 5 bps. Detecting
+    5 bps at 30 minutes takes <strong>76 sessions</strong> of held-out data. The
+    archive holds <strong>3,844</strong>.</p>
+  </div>
+
+  <p>So we have around fifty times the data required to find a tradeable edge,
+  and it isn't there. What can't be ruled out — anything under 2 bps — is
+  smaller than the spread, which makes it undetectable and unprofitable at the
+  same time. More history is not the binding constraint.</p>
+</section>
+
+<footer>
+  <p>Bipbip · scripts/learning_curve.py, bipbip/ml/candles.py · TQQQ bars via
+  Webull, reconciled against the daily record at 0.999826 correlation.</p>
+</footer>
+
+</div>
