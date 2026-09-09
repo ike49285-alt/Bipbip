@@ -1,0 +1,242 @@
+<title>Ask Bip</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  :root{
+    --paper:#F2F4F1; --surface:#FFFFFF; --sunk:#E7EBE6; --field:#FFFFFF;
+    --ink:#14180F; --body:#333A2E; --muted:#5E6857;
+    --hair:#D6DDD2; --hair-strong:#B6C0B0;
+    --measured:#2C6B4F; --measured-bg:#E4F0E9;
+    --caveat:#9A6216; --caveat-bg:#F6EBDA;
+    --dead:#95362E; --dead-bg:#F4E2E0;
+    --you:#2D4A63; --you-bg:#E3EBF2;
+  }
+  @media (prefers-color-scheme: dark){
+    :root:not([data-theme="light"]){
+      --paper:#101310; --surface:#181C17; --sunk:#1E231D; --field:#1B201A;
+      --ink:#E9EEE6; --body:#C4CCBE; --muted:#8B9684;
+      --hair:#272E25; --hair-strong:#3B4538;
+      --measured:#6FBF95; --measured-bg:#16281F;
+      --caveat:#D9A253; --caveat-bg:#2C2314;
+      --dead:#DE827A; --dead-bg:#2C1917;
+      --you:#8FB4D4; --you-bg:#16212B;
+    }
+  }
+  :root[data-theme="dark"]{
+    --paper:#101310; --surface:#181C17; --sunk:#1E231D; --field:#1B201A;
+    --ink:#E9EEE6; --body:#C4CCBE; --muted:#8B9684;
+    --hair:#272E25; --hair-strong:#3B4538;
+    --measured:#6FBF95; --measured-bg:#16281F;
+    --caveat:#D9A253; --caveat-bg:#2C2314;
+    --dead:#DE827A; --dead-bg:#2C1917;
+    --you:#8FB4D4; --you-bg:#16212B;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--paper); color:var(--body);
+       font-family:"IBM Plex Sans",system-ui,sans-serif; font-size:16px; line-height:1.6}
+  .wrap{max-width:940px; margin:0 auto; padding:0 22px 40px;
+        display:flex; flex-direction:column; min-height:100vh}
+  header{padding:34px 0 18px; border-bottom:1px solid var(--hair-strong);
+         display:flex; flex-direction:column; gap:10px}
+  h1{margin:0; color:var(--ink); font-size:1.85rem; letter-spacing:-.02em;
+     font-weight:600; text-wrap:balance}
+  .sub{color:var(--muted); font-size:.95rem; max-width:62ch}
+  .stats{display:flex; flex-wrap:wrap; gap:6px 20px; font-family:"IBM Plex Mono",monospace;
+         font-size:.74rem; color:var(--muted); padding-top:4px}
+  .stats b{color:var(--ink); font-weight:500}
+
+  .legend{display:flex; flex-wrap:wrap; gap:8px; padding:16px 0 4px}
+  .tag{font-family:"IBM Plex Mono",monospace; font-size:.68rem; letter-spacing:.07em;
+       text-transform:uppercase; padding:3px 8px; border-radius:3px; font-weight:500}
+  .t-measured{color:var(--measured); background:var(--measured-bg)}
+  .t-caveat{color:var(--caveat); background:var(--caveat-bg)}
+  .t-dead{color:var(--dead); background:var(--dead-bg)}
+
+  #log{flex:1; display:flex; flex-direction:column; gap:18px; padding:22px 0 8px}
+  .turn{display:flex; flex-direction:column; gap:7px}
+  .who{font-family:"IBM Plex Mono",monospace; font-size:.7rem; letter-spacing:.1em;
+       text-transform:uppercase; color:var(--muted)}
+  .you .who{color:var(--you)}
+  .msg{padding:13px 16px; border-radius:5px; background:var(--surface);
+       border:1px solid var(--hair); white-space:pre-wrap; overflow-wrap:anywhere}
+  .you .msg{background:var(--you-bg); border-color:transparent; color:var(--ink)}
+  .msg code{font-family:"IBM Plex Mono",monospace; font-size:.9em;
+            background:var(--sunk); padding:.08em .3em; border-radius:3px}
+  .seed{opacity:.82}
+  .seed .who::after{content:" · example"; opacity:.6}
+
+  .chips{display:flex; flex-wrap:wrap; gap:8px; padding:6px 0 2px}
+  .chip{font-family:"IBM Plex Mono",monospace; font-size:.76rem; cursor:pointer;
+        border:1px solid var(--hair-strong); background:var(--surface);
+        color:var(--body); padding:6px 11px; border-radius:14px}
+  .chip:hover{border-color:var(--measured); color:var(--measured)}
+  .chip:focus-visible{outline:2px solid var(--measured); outline-offset:2px}
+
+  form{position:sticky; bottom:0; background:var(--paper); padding:14px 0 18px;
+       border-top:1px solid var(--hair-strong); display:flex; gap:9px}
+  input[type=text]{flex:1; font:inherit; font-family:"IBM Plex Mono",monospace;
+    font-size:.92rem; padding:12px 14px; border-radius:5px; color:var(--ink);
+    border:1px solid var(--hair-strong); background:var(--field)}
+  input[type=text]:focus{outline:2px solid var(--measured); outline-offset:-1px;
+                         border-color:transparent}
+  button{font:inherit; font-weight:500; padding:12px 20px; border-radius:5px;
+         border:none; background:var(--measured); color:var(--paper); cursor:pointer}
+  button:disabled{opacity:.45; cursor:default}
+  .note{font-size:.82rem; color:var(--muted); padding-top:10px}
+  .warn{color:var(--caveat)}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Ask Bip</h1>
+    <p class="sub">Everything this project actually measured, and nothing it
+    didn't. Answers are grounded in the findings below &mdash; when something
+    wasn't tested, it says so instead of guessing.</p>
+    <div class="stats">
+      <span><b>48,973</b> TQQQ 30-min bars, 2011&ndash;2026</span>
+      <span><b>235,500</b> minute bars, 20 ETFs</span>
+      <span><b>2.5M</b> daily rows, 289 symbols</span>
+      <span>round trip <b>3.10 bps</b></span>
+    </div>
+    <div class="legend">
+      <span class="tag t-measured">measured</span>
+      <span class="tag t-caveat">untested</span>
+      <span class="tag t-dead">ruled out</span>
+    </div>
+  </header>
+
+  <div id="log">
+    <div class="turn you seed"><span class="who">you</span>
+      <div class="msg">is there a directional edge in TQQQ at 30 minutes?</div></div>
+    <div class="turn seed"><span class="who">bip</span><div class="msg">No. Over 48,973 bars spanning 2011&ndash;2026 the model hits 50.0% against a 52.5% break-even, and lands inside the distribution of the same search run on shuffled labels.
+
+Cost is not what kills it. A penny spread on a $70 stock is 0.029 of a typical 30-minute move, so the hurdle is only 52.5% &mdash; and longer holds lower it to 50.7%. The binding constraint is skill, not the spread.</div></div>
+  </div>
+
+  <div class="chips" id="chips"></div>
+
+  <form id="f">
+    <input type="text" id="q" autocomplete="off"
+           placeholder="ask about anything measured here&hellip;">
+    <button type="submit" id="go">Ask</button>
+  </form>
+  <p class="note" id="note"></p>
+</div>
+
+<script>
+const CHAIN_COLS = ["strike","dte","side","bid","ask","openInterest","iv"];
+const CHAIN = [[40.0,2,"call",30.75,31.9,294,3.9883],[55.0,2,"call",15.8,16.45,319,0.0],[58.0,2,"call",12.9,14.5,222,1.5039],[60.0,2,"call",11.0,11.55,181,1.0664],[63.5,2,"call",7.65,8.6,116,0.8789],[65.0,2,"call",6.05,6.65,304,0.7676],[66.0,2,"call",5.2,6.55,595,0.8496],[67.0,2,"call",4.2,4.5,366,0.4023],[67.5,2,"call",3.85,4.6,112,0.584],[68.0,2,"call",3.6,4.0,747,0.5801],[68.5,2,"call",3.15,3.75,218,0.6074],[69.0,2,"call",2.6,2.99,862,0.5654],[69.5,2,"call",2.5,2.91,104,0.5996],[70.0,2,"call",1.91,2.1,2735,0.4824],[70.5,2,"call",1.67,1.92,603,0.54],[71.0,2,"call",1.42,1.46,1797,0.4717],[71.5,2,"call",1.13,1.24,356,0.4873],[72.0,2,"call",0.92,0.95,27852,0.4629],[72.5,2,"call",0.74,0.83,28256,0.4932],[73.0,2,"call",0.58,0.62,5877,0.4746],[73.5,2,"call",0.46,0.55,1486,0.5068],[74.0,2,"call",0.33,0.35,14895,0.4648],[74.5,2,"call",0.21,0.35,1335,0.5166],[75.0,2,"call",0.18,0.19,6324,0.4629],[75.5,2,"call",0.11,0.17,1127,0.4902],[76.0,2,"call",0.08,0.1,2951,0.4648],[76.5,2,"call",0.06,0.12,767,0.5254],[77.0,2,"call",0.05,0.09,2011,0.5],[77.5,2,"call",0.01,0.06,729,0.5195],[78.0,2,"call",0.02,0.03,1172,0.4883],[78.5,2,"call",0.01,0.02,1481,0.4844],[79.0,2,"call",0.01,0.05,1952,0.5469],[80.0,2,"call",0.01,0.03,2647,0.5703],[54.0,2,"put",0.01,0.03,162,1.2969],[55.0,2,"put",0.01,0.03,3792,1.2188],[55.5,2,"put",0.01,0.03,181,1.1719],[56.0,2,"put",0.01,0.03,516,1.1406],[57.0,2,"put",0.01,0.03,562,1.0625],[58.0,2,"put",0.02,0.04,651,1.0469],[58.5,2,"put",0.03,0.04,301,1.0313],[59.0,2,"put",0.01,0.05,2316,0.9688],[59.5,2,"put",0.03,0.05,250,0.9766],[60.0,2,"put",0.03,0.05,8920,0.9375],[60.5,2,"put",0.04,0.06,280,0.9297],[61.0,2,"put",0.04,0.06,4332,0.8906],[61.5,2,"put",0.03,0.07,1688,0.8516],[62.0,2,"put",0.06,0.15,2157,0.9258],[62.5,2,"put",0.06,0.08,247,0.8203],[63.0,2,"put",0.08,0.09,1764,0.8086],[63.5,2,"put",0.09,0.11,1212,0.7891],[64.0,2,"put",0.11,0.14,2443,0.7852],[64.5,2,"put",0.12,0.16,309,0.7578],[65.0,2,"put",0.15,0.19,6792,0.748],[65.5,2,"put",0.17,0.23,553,0.7305],[66.0,2,"put",0.26,0.27,3892,0.7383],[66.5,2,"put",0.27,0.3,1047,0.7031],[67.0,2,"put",0.34,0.4,4140,0.71],[67.5,2,"put",0.4,0.45,1030,0.6885],[68.0,2,"put",0.53,0.55,7343,0.6953],[68.5,2,"put",0.6,0.66,1346,0.6797],[69.0,2,"put",0.77,0.8,5502,0.6875],[69.5,2,"put",0.81,0.9,1331,0.6489],[70.0,2,"put",1.09,1.12,5048,0.6797],[70.5,2,"put",1.19,1.28,1025,0.6514],[71.0,2,"put",1.46,1.55,2433,0.6699],[71.5,2,"put",1.59,1.73,554,0.6348],[72.0,2,"put",1.97,2.08,2513,0.6719],[72.5,2,"put",2.18,2.37,636,0.6553],[73.0,2,"put",2.59,2.65,1069,0.6675],[73.5,2,"put",2.82,3.05,103,0.6592],[74.0,2,"put",3.0,3.45,589,0.6289],[74.5,2,"put",3.15,3.85,312,0.5762],[75.0,2,"put",3.8,4.25,822,0.6426],[76.0,2,"put",5.0,5.25,263,0.7988],[76.5,2,"put",4.2,5.7,112,0.8896],[77.0,2,"put",5.3,6.15,201,0.627],[78.0,2,"put",5.7,7.1,443,0.9766],[80.0,2,"put",8.55,9.15,505,0.9688],[69.0,5,"call",3.0,3.45,1039,0.5518],[70.0,5,"call",2.18,2.35,759,0.417],[71.0,5,"call",1.66,1.91,255,0.458],[72.0,5,"call",1.27,1.34,1131,0.4346],[73.0,5,"call",0.8,0.85,200,0.4048],[74.0,5,"call",0.52,0.59,2550,0.4131],[75.0,5,"call",0.35,0.46,853,0.4443],[76.0,5,"call",0.16,0.29,408,0.4404],[77.0,5,"call",0.09,0.14,479,0.4121],[78.0,5,"call",0.05,0.1,651,0.4316],[79.0,5,"call",0.02,0.13,751,0.5078],[60.0,5,"put",0.06,0.29,980,0.8613],[62.0,5,"put",0.11,0.16,151,0.6895],[63.0,5,"put",0.14,0.19,922,0.6543],[65.0,5,"put",0.27,0.33,253,0.6152],[66.0,5,"put",0.35,0.42,2455,0.5859],[67.0,5,"put",0.55,0.61,262,0.5928],[68.0,5,"put",0.76,0.77,4919,0.5742],[69.0,5,"put",0.8,1.0,175,0.5234],[70.0,5,"put",1.07,1.28,317,0.501],[72.0,5,"put",2.17,2.33,180,0.5366],[77.0,5,"put",4.9,6.0,100,0.582],[78.0,5,"put",5.5,7.4,193,0.8096],[61.0,7,"call",9.9,12.0,122,0.8916],[65.0,7,"call",6.5,7.85,124,0.709],[68.0,7,"call",4.3,4.7,103,0.5781],[69.0,7,"call",3.35,4.2,108,0.5645],[72.0,7,"call",1.6,1.77,323,0.479],[73.0,7,"call",1.11,1.56,150,0.5269],[74.0,7,"call",0.75,1.2,128,0.523],[75.0,7,"call",0.63,0.83,641,0.4981],[76.0,7,"call",0.39,0.5,129,0.46],[57.0,7,"put",0.08,0.15,505,0.8496],[63.0,7,"put",0.28,0.53,621,0.7148],[65.0,7,"put",0.55,0.66,4488,0.667],[68.0,7,"put",0.96,1.3,106,0.604],[69.0,7,"put",1.28,1.48,189,0.582],[70.0,7,"put",1.6,1.89,533,0.5762],[71.0,7,"put",1.82,2.27,540,0.5391],[77.0,7,"put",4.85,6.4,121,0.6397],[19.0,9,"call",51.55,54.05,124,4.3828],[25.0,9,"call",45.35,47.8,790,2.9531],[26.0,9,"call",44.55,47.05,133,3.3984],[30.0,9,"call",40.45,42.4,903,3.6719],[35.0,9,"call",35.55,36.45,188,0.0],[38.0,9,"call",32.25,34.7,221,1.4219],[39.0,9,"call",31.25,33.75,175,1.5391],[40.0,9,"call",30.75,31.95,1100,2.2344],[41.0,9,"call",29.5,32.1,284,1.9961],[42.0,9,"call",28.6,30.55,278,1.5859],[43.0,9,"call",27.45,30.0,314,1.7617],[44.0,9,"call",26.6,28.75,271,1.627],[45.0,9,"call",25.7,27.75,923,1.625],[46.0,9,"call",24.55,26.75,532,1.4648],[47.0,9,"call",23.35,25.75,455,1.2383],[48.0,9,"call",22.5,24.95,374,1.4297],[49.0,9,"call",21.75,24.0,562,1.5039],[50.0,9,"call",20.85,22.5,2588,1.252],[51.0,9,"call",19.55,22.05,1654,1.3125],[52.0,9,"call",19.05,20.55,2210,1.25],[53.0,9,"call",17.6,20.1,1994,1.2266],[54.0,9,"call",16.8,18.85,572,1.1465],[55.0,9,"call",15.95,17.15,3958,0.8223],[56.0,9,"call",14.85,16.95,1017,1.0742],[57.0,9,"call",13.95,14.65,1196,0.8359],[58.0,9,"call",13.2,14.95,845,1.0449],[59.0,9,"call",11.75,14.35,607,0.9688],[60.0,9,"call",11.15,11.9,5423,0.5508],[61.0,9,"call",10.4,11.75,2216,0.8535],[62.0,9,"call",9.4,10.0,890,0.6074],[63.0,9,"call",8.85,9.7,660,0.8018],[64.0,9,"call",7.75,8.5,756,0.6816],[65.0,9,"call",6.8,6.95,3106,0.5249],[66.0,9,"call",6.05,6.55,1214,0.606],[67.0,9,"call",5.25,5.8,801,0.5986],[68.0,9,"call",4.6,5.05,1676,0.5986],[69.0,9,"call",3.8,4.3,1263,0.5693],[69.5,9,"call",3.45,4.45,792,0.6155],[70.0,9,"call",3.15,3.3,7231,0.5193],[71.0,9,"call",2.6,2.72,2234,0.5151],[72.0,9,"call",2.07,2.16,2846,0.5015],[72.5,9,"call",1.86,2.16,182,0.5249],[73.0,9,"call",1.65,1.83,15802,0.5103],[73.5,9,"call",1.41,1.64,16101,0.5034],[74.0,9,"call",1.24,1.31,18467,0.4927],[74.5,9,"call",1.03,1.12,201,0.4839],[75.0,9,"call",0.95,0.99,13387,0.4858],[75.5,9,"call",0.83,1.21,182,0.5249],[76.0,9,"call",0.68,0.77,4179,0.4898],[77.0,9,"call",0.51,0.75,2255,0.5049],[78.0,9,"call",0.4,0.43,2568,0.4893],[79.0,9,"call",0.25,0.36,2271,0.5078],[80.0,9,"call",0.16,0.18,31705,0.4629],[81.0,9,"call",0.11,0.22,605,0.5244],[82.0,9,"call",0.07,0.14,1002,0.5098],[85.0,9,"call",0.03,0.08,12806,0.5195],[90.0,9,"call",0.02,0.03,24041,0.5938],[30.0,9,"put",0.01,0.04,2870,2.0469],[33.0,9,"put",0.01,0.08,376,1.9609],[35.0,9,"put",0.01,0.03,4419,1.6563],[37.0,9,"put",0.02,0.08,642,1.7109],[39.0,9,"put",0.02,0.11,483,1.6445],[40.0,9,"put",0.03,0.1,6730,1.582],[45.0,9,"put",0.05,0.06,3711,1.2578],[46.0,9,"put",0.05,0.08,576,1.2344],[47.0,9,"put",0.05,0.08,1326,1.1797],[48.0,9,"put",0.05,0.09,1155,1.1406],[49.0,9,"put",0.05,0.1,610,1.1016],[50.0,9,"put",0.09,0.1,6779,1.0859],[51.0,9,"put",0.09,0.12,1437,1.0508],[52.0,9,"put",0.11,0.14,2314,1.0293],[53.0,9,"put",0.12,0.16,1509,0.9961],[54.0,9,"put",0.13,0.19,392,0.9668],[55.0,9,"put",0.17,0.21,6450,0.9453],[56.0,9,"put",0.21,0.24,1450,0.9219],[57.0,9,"put",0.19,0.38,1659,0.9131],[58.0,9,"put",0.26,0.3,2457,0.8535],[59.0,9,"put",0.29,0.36,1827,0.8262],[60.0,9,"put",0.37,0.41,13526,0.8066],[61.0,9,"put",0.42,0.48,6732,0.7783],[62.0,9,"put",0.54,0.59,3657,0.77],[63.0,9,"put",0.64,0.65,9899,0.7393],[64.0,9,"put",0.76,0.81,2066,0.7246],[65.0,9,"put",0.93,0.98,12370,0.7109],[65.5,9,"put",0.75,1.01,145,0.6533],[66.0,9,"put",1.09,1.15,2396,0.688],[66.5,9,"put",0.95,1.25,351,0.6455],[67.0,9,"put",1.33,1.37,2646,0.6743],[67.5,9,"put",1.27,1.46,585,0.6392],[68.0,9,"put",1.47,1.6,2400,0.6406],[68.5,9,"put",1.37,1.79,1191,0.6099],[69.0,9,"put",1.81,1.95,1460,0.6362],[69.5,9,"put",1.98,2.14,152,0.6314],[70.0,9,"put",2.24,2.3,5655,0.6304],[71.0,9,"put",2.63,2.73,1795,0.6177],[71.5,9,"put",2.47,2.98,116,0.5732],[72.0,9,"put",2.77,3.2,1460,0.5718],[72.5,9,"put",2.71,3.5,353,0.5371],[73.0,9,"put",3.6,3.8,2117,0.6011],[74.0,9,"put",3.7,4.3,684,0.5273],[75.0,9,"put",4.8,5.05,5803,0.5811],[76.0,9,"put",5.0,5.8,664,0.5142],[77.0,9,"put",5.3,6.55,703,0.6133],[78.0,9,"put",6.1,7.45,1066,0.6416],[79.0,9,"put",7.0,8.65,273,0.752],[80.0,9,"put",8.45,9.3,1986,0.542],[85.0,9,"put",12.65,14.55,984,0.5293]];
+
+const FINDINGS = [
+ ["direction","dead","TQQQ 30-min, 15 years, hand-picked indicators (Heikin-Ashi, fast stochastic, Ichimoku): 50.0% hit rate vs 52.5% break-even. Inside the shuffled-label null. Cost is 0.029 of a typical move, so skill is the constraint, not the spread."],
+ ["direction","dead","Raw candles only (indicators off): 18 configurations across 3 lookbacks x 3 horizons, with and without time-of-day. Best t=0.81. Every result inside its own null. Raw candles score about the same as the hand-built overlays, which settles whether the indicators were the problem: they were neither helping nor hurting."],
+ ["direction","dead","Learning curve: flat to declining. Minute data over 6x of training range, 30-min data over 16x (2,080 to 33,280 bars). More data does not help."],
+ ["direction","dead","Symbolic GA inventing its own indicators, 20 ETFs, 235,500 bars: 30-min held-out t=0.17 vs nulls best 0.94; 5-min held-out t=-0.93 vs nulls mean -1.32. In-sample 2.74 and 1.50 against a null floor of 4.05 (best of ~3,600 coin flips). Two of five shuffled runs BEAT the real search in-sample. Verdict: not separable from noise."],
+ ["direction","measured","Statistical power: at 30 minutes, per-trade noise is 78.4 bps. Detecting a 5 bps edge needs 76 sessions of held-out data; the archive has 3,844. We have ~50x what is needed to find a tradeable edge. What cannot be ruled out (under 2 bps) is smaller than the 3.10 bps spread, so it is undetectable AND unprofitable at once."],
+ ["price target","dead","Polled four times a session (10:00, 11:30, 13:00, 14:30) for today's close: R-squared against the random walk is NEGATIVE at every poll (-0.21, -0.25, -0.38, -0.14). TQQQ at $72.43 - 'closes where it is now' is off by $0.46, the model by $0.47. SPY: $1.10 either way."],
+ ["price target","dead","Direction into the close hit 53.8%, above the ~51.8% break-even, but trading it loses 3.38 bps per trade (t=-0.95), negative at all four polls. Right on small moves, wrong on big ones. A hit rate is not a P&L."],
+ ["price target","measured","How FAR the close is from here: within-symbol correlation 0.283 (pooled 0.541 - half was the model learning SOXL moves more than XLU). Positive for all 19 ETFs, +0.17 to +0.47. Real but too weak to buy a tighter interval: rescaled to equal coverage the model band is WIDER than a flat band."],
+ ["volatility","measured","Volatility persists at 0.711 across independent weeks; returns persist at -0.008. That gap is why an option is the instrument, not a share."],
+ ["volatility","measured","30-min horizon: model beats HAR by +0.0863 pooled R-squared. But within symbol HAR is 0.329 not 0.829, and time-of-day alone takes 0.329 to 0.621 of the 0.664 total. 87% of the gain is the intraday volatility smile - real, and not an edge. Everything else adds +0.043."],
+ ["volatility","measured","Option horizons on the daily archive (289 symbols, 2.5M rows, tested post-2016, non-overlapping): +0.065 within-symbol R-squared over HAR at 5 days, +0.099 at 20 days. Larger at the longer horizon. Parkinson range is the biggest single contributor (+0.046) - a session that travels 3% and closes flat reads as quiet to a close-to-close estimator."],
+ ["volatility","measured","Forecast error at 20 days: HAR 11.0 vol points, model 10.2, and 3.7 of that is the target's own sampling noise (realised vol over H days is estimated from H returns; even a perfect forecast misses by ~1/sqrt(2H)). True-vol forecast error ~9.5 points."],
+ ["volatility","caveat","Vol expansion sorted into fifths: bottom expands 13.6% of the time and contracts 32%; top expands 80.6% and grows 36%. A 16 vol-point spread. BUT mean reversion alone correlates +0.479 with the change and the model manages +0.581 - most of that spread is 'it is high now so it will fall', which every option chain already prices. The model's own contribution is the 0.10 on top. A t of 109 is the tell that you have rediscovered something everyone prices."],
+ ["volatility","caveat","NOT TESTED: whether any of this beats IMPLIED volatility. Beating HAR is beating an academic benchmark, not the market's own forecast. Requires IV history; the chain collector takes 4 snapshots a day and has 1 day so far. Four to six weeks until answerable."],
+ ["options","measured","Every liquid TQQQ call scored against 15 years of real moves, drift removed, weeks matched on volatility: expectation falls monotonically with moneyness. Near the money it is indistinguishable from zero; far out it reaches -100%. The cheaper the option, the worse the expectation - the ones you can afford are priced worst."],
+ ["options","measured","The $74 call at 3 sessions: -23.0% of premium with zero drift, still -10.5% under TQQQ's actual historical +42%/yr. The $75: -34.0% / -21.8%. The $73: -15.5% / -4.2%. The only positive row is the deep-ITM $65 at 5 sessions (+1.3% / +8.1%), which costs $695 a contract."],
+ ["options","measured","The other side does not rescue it: of 53 defined-risk short call spreads priced at the bid and ask rather than the mid, 6 have positive expectation and NONE clears its confidence interval. Best is +1.0% on risk at +/-2.9 on a mean of +2.8. Buying is clearly negative, selling is approximately zero, and the gap between them is what a market maker collects for quoting."],
+ ["options","measured","The quoted 5DTE ATM implied vol is 58.4% on a trading-day clock against 42.9% realised - about a 5 vol-point premium once measured properly. Yahoo's impliedVolatility column is unusable (48.7% for a call and 67.0% for the put of the same strike, which parity forbids); IV is inverted from mids instead, and spot is recovered from put-call parity because a live quote taken 49 minutes after the snapshot was 20 cents off."],
+ ["capital","measured","At $500: five to seven defined-risk spreads at $70-92 margin each, or 7 shares. But those spreads are one bet, not five - same underlying, same expiry, adjacent strikes. $460 deployed is 92% of the account on a single correlated position with a +$4.60 expectation whose CI straddles zero, and $1.00 of regulatory fees takes 22% of it."],
+ ["capital","measured","Buying calls with $500, using measured expectancy: $73 call = -$77 per cycle, $74 = -$113, $75 = -$168. At weekly cycles that is $500 to near zero inside two months, from expectancy rather than bad luck."],
+ ["levers","caveat","UNTESTED AND THE LIVE THREAD: passive execution. Every cost model here charges 3.10 bps assuming we CROSS the spread. A resting limit order that fills EARNS it instead, which flips the sign on every 'approximately zero after costs' result. The catch is adverse selection - you fill precisely when you are wrong - and that is measurable from tick data with side flags. Scheduled."],
+ ["levers","caveat","UNTESTED: resistance and support as a CONDITIONAL structure. Everything searched so far is unconditional ('given features, what is the return'). Resistance is 'if price reaches level L it behaves differently there'. The features only ever saw the last 12 bars, never prior-day highs, 20-day extremes, round numbers or volume-at-price. Round numbers have a real mechanism (limit orders genuinely cluster there), not just folklore. The trap: touching a 20-day high IS a momentum event, so the null must be matched on recent return and volatility with a fake level."],
+ ["levers","measured","Real structural advantages a small account has: it can hold for months (market makers are flat and hedged), and it never has to quote (they must show two sides all day, you can sit out 95% of sessions). Both get better with a small account, not worse."],
+ ["method","measured","Recurring trap, caught four times: pooled statistics across symbols mostly measure which ticker it is. HAR scored 0.829 pooled and 0.329 within symbol; a magnitude correlation 0.541 and 0.283; persistence 0.356 and -0.015 (worse than each name's own average). Always report within-symbol."],
+ ["method","measured","Overlapping observations inflate significance by sqrt(horizon): a t-statistic walked 1.60 to 5.55 to 10.78 on no new information. Sample one trade per holding period."],
+ ["method","measured","Cost must be charged AFTER the direction is chosen. Netting it into the label with the sign inverted paid shorts 4.34 bps instead of charging them, and produced '+8.58 bps edge at every hour of the day'."],
+ ["method","measured","Data defect found in the Webull feed: the final RTH-tagged bar of a session sometimes runs past the closing bell. On 2020-02-27 it closes at 68.74 when the session actually closed at 75.82 - because 68.74 is an after-hours print, and it is where the stock opens next morning. That is lookahead, and it appears only on the largest-move days. 79 of 3,844 sessions were contaminated."],
+];
+
+const CHIPS = ["what is the 4 call worth?","why did the GA fail?",
+  "can it predict volatility?","what should I do with 00?",
+  "what has NOT been tested?","is resistance worth trying?"];
+
+const log = document.getElementById("log");
+const chipBox = document.getElementById("chips");
+const form = document.getElementById("f");
+const input = document.getElementById("q");
+const go = document.getElementById("go");
+const note = document.getElementById("note");
+let sample = null, busy = false;
+
+function turn(who, text, isYou){
+  const d = document.createElement("div");
+  d.className = "turn" + (isYou ? " you" : "");
+  d.innerHTML = '<span class="who"></span><div class="msg"></div>';
+  d.querySelector(".who").textContent = who;
+  d.querySelector(".msg").textContent = text;
+  log.appendChild(d);
+  d.scrollIntoView({block:"nearest"});
+  return d.querySelector(".msg");
+}
+
+CHIPS.forEach(c => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "chip"; b.textContent = c;
+  b.addEventListener("click", () => { input.value = c; form.requestSubmit(); });
+  chipBox.appendChild(b);
+});
+
+const PREAMBLE =
+"You are Bip, the research agent for a quantitative trading project. Answer ONLY " +
+"from the findings and chain data below. They are the complete record of what was " +
+"actually measured.\n\nRules:\n" +
+"- If something was not tested, say so plainly. Never invent a number.\n" +
+"- Quote the specific figures when they answer the question.\n" +
+"- Distinguish measured (verified out of sample), caveat (untested or confounded) " +
+"and dead (ruled out).\n" +
+"- Be direct and short. No hedging, no preamble, no bullet-point padding. " +
+"Two or three short paragraphs at most.\n" +
+"- The user has about 00 and trades TQQQ. Nothing measured has positive " +
+"expectancy; do not pretend otherwise or soften it.\n\n" +
+"FINDINGS (topic | status | detail):\n" +
+FINDINGS.map(f => f[0] + " | " + f[1] + " | " + f[2]).join("\n") +
+"\n\nTQQQ OPTION CHAIN, snapshot 2026-09-09 15:40 UTC, spot ~1.03 " +
+"(recovered from put-call parity). Columns: " + CHAIN_COLS.join(",") + "\n" +
+CHAIN.map(r => r.join(",")).join("\n");
+
+claude.use("sample").then(s => {
+  sample = s;
+  if (!s) {
+    input.disabled = true; go.disabled = true;
+    input.placeholder = "live answers unavailable in this view";
+    note.className = "note warn";
+    note.textContent = "This view cannot reach Claude, so questions are disabled. " +
+      "The findings above are still the complete record.";
+  } else {
+    note.textContent = "Answers come from Claude, grounded in the findings and the " +
+      "chain snapshot embedded in this page. Your account covers the cost.";
+  }
+}).catch(() => {});
+
+form.addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const q = input.value.trim();
+  if (!q || busy || !sample) return;
+  busy = true; go.disabled = true; input.value = "";
+  turn("you", q, true);
+  const out = turn("bip", "Thinking…");
+  try {
+    const res = await sample(PREAMBLE + "\n\nQUESTION: " + q,
+      {onText: ({text}) => { out.textContent = text; }});
+    out.textContent = res.text;
+  } catch (err) {
+    out.textContent = err && err.text ? err.text
+      : "Could not answer (" + ((err && err.code) || "error") + ").";
+  } finally {
+    busy = false; go.disabled = false; input.focus();
+  }
+});
+</script>
