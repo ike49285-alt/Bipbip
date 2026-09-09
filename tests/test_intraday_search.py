@@ -148,7 +148,8 @@ def test_readme_search_claims_match_the_arithmetic():
         pytest.skip("README not present")
     body = readme.read_text().split("**The 15-minute-to-2-hour search.**")
     assert len(body) == 2, "the search section is missing from README"
-    body = body[1]
+    # Bound at the next section, or later tables are read as this one's.
+    body = body[1].split("\n\n**")[0]
 
     # The minimum detectable edge must actually be below the quoted cost.
     # The README is hard-wrapped, so every pattern has to tolerate a newline

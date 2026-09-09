@@ -98,7 +98,8 @@ def test_readme_intraday_tables_match_the_formulas():
         pytest.skip("README not present")
     body = readme.read_text().split("**Intraday, and the cost hurdle that defines it.**")
     assert len(body) == 2, "intraday section missing from README"
-    body = body[1]
+    # Bound at the next section, or later tables are read as this one's.
+    body = body[1].split("\n\n**")[0]
 
     # Both tables have the same column shape, so each regex has to be scoped
     # to its own table or the execution-cost rows get read as payoff ratios.

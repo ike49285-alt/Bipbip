@@ -144,7 +144,8 @@ def test_readme_options_tables_are_internally_consistent():
         pytest.skip("README not present")
     body = readme.read_text().split("**Options on $50, and the delta/theta balance.**")
     assert len(body) == 2, "options-on-$50 section missing from README"
-    flat = " ".join(body[1].split())
+    # Bound at the next section, or later tables are read as this one's.
+    flat = " ".join(body[1].split("\n\n**")[0].split())
 
     # The first row spells out "of premium" and the rest do not, so the
     # pattern has to tolerate the trailing words rather than require them.

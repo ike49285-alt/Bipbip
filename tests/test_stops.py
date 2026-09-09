@@ -268,7 +268,10 @@ def test_readme_stop_table_still_shows_stops_losing():
         pytest.skip("README not present")
     section = readme.read_text().split("**Protective stops.**")
     assert len(section) == 2, "stops section missing from README"
-    body = section[1]
+    # Bound the section at the next one. Splitting on the heading alone left
+    # every LATER section in scope, so tables added below this one were parsed
+    # as stop rows and the assertions read them as contradictions.
+    body = section[1].split("\n\n**")[0]
 
     rows = re.findall(
         r"^\| ([^|]+?) \| \$([\d,]+) \| (\d+\.\d+)% \| (\d\.\d+) \| (\d+\.\d+)% \| (\d+) \|$",

@@ -244,6 +244,8 @@ def test_readme_leverage_table_is_monotonic_in_the_borrowing_rate():
 
     section = text.split("**Leveraged trend following.**")
     assert len(section) == 2, "leverage section missing from README"
+    # Bound at the next section, or later tables are read as this one's.
+    section = [section[0], section[1].split("\n\n**")[0]]
 
     rows = re.findall(
         r"^\| (\d\.\d)% \| \$([\d,]+) \| (\d+\.\d+)% \| (\d\.\d+) \| (\d+\.\d+)% \|$",
@@ -284,7 +286,7 @@ def test_readme_leverage_sharpe_never_beats_holding_meaningfully():
     readme = pathlib.Path(__file__).resolve().parents[1] / "README.md"
     if not readme.exists():
         pytest.skip("README not present")
-    section = readme.read_text().split("**Leveraged trend following.**")[1]
+    section = readme.read_text().split("**Leveraged trend following.**")[1].split("\n\n**")[0]
     sharpes = [float(m) for m in re.findall(
         r"^\| \d\.\d% \| \$[\d,]+ \| \d+\.\d+% \| (\d\.\d+) \| \d+\.\d+% \|$",
         section, re.M)]
@@ -311,7 +313,8 @@ def test_readme_risk_parity_table_shows_the_recent_period_failing():
         pytest.skip("README not present")
     section = readme.read_text().split("**Levered risk parity.**")
     assert len(section) == 2, "risk-parity section missing from README"
-    body = section[1]
+    # Bound at the next section, or later tables are read as this one's.
+    body = section[1].split("\n\n**")[0]
 
     assert "2021-2026" in body, "the recent sub-period was dropped from the table"
 

@@ -128,7 +128,8 @@ def test_readme_survivorship_table_keeps_its_control_row():
         pytest.skip("README not present")
     body = readme.read_text().split("**Survivorship, measured.**")
     assert len(body) == 2, "survivorship section missing from README"
-    flat = " ".join(body[1].split())
+    # Bound at the next section, or later tables are read as this one's.
+    flat = " ".join(body[1].split("\n\n**")[0].split())
 
     rows = re.findall(
         r"\| ([^|]+?) \| ([\d.]+)% \| ([\d.]+)% \| \+([\d.]+)pp \|", flat)
@@ -157,7 +158,8 @@ def test_readme_clean_universe_table_keeps_holding_on_top():
         pytest.skip("README not present")
     body = readme.read_text().split("**The clean universe, in full.**")
     assert len(body) == 2, "clean-universe section missing from README"
-    flat = " ".join(body[1].split())
+    # Bound at the next section, or later tables are read as this one's.
+    flat = " ".join(body[1].split("\n\n**")[0].split())
 
     rows = re.findall(
         r"\| ([^|]+?) \| \$([\d,]+) \| ([\d.]+)% \| ([\d.]+) \| ([\d.]+)% \| (\d+) \|",

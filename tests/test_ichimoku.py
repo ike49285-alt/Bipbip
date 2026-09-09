@@ -283,7 +283,9 @@ def test_readme_ichimoku_table_stays_monotonic():
         pytest.skip("README not present")
     section = readme.read_text().split("**Ichimoku cloud, and the full stochastic.**")
     assert len(section) == 2, "ichimoku section missing from README"
-    body = section[1]
+    # Bound at the next section; splitting on the heading alone leaves every
+    # later section in scope and their tables get parsed as this one's rows.
+    body = section[1].split("\n\n**")[0]
 
     rows = re.findall(
         r"^\| ([^|]+?) \| \$([\d,]+) \| (\d+\.\d+)% \| (\d\.\d+) \| (\d+\.\d+)% \| (\d+)% \|$",
