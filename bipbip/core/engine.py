@@ -22,7 +22,6 @@ from __future__ import annotations
 
 import datetime as dt
 
-import numpy as np
 import pandas as pd
 
 from ..data.sessions import iter_sessions, next_session_date, session_dates

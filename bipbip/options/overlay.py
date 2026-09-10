@@ -15,7 +15,6 @@ the single most important number in live trading - far more so than the signal.
 """
 from __future__ import annotations
 
-import datetime as dt
 from dataclasses import dataclass
 
 import numpy as np
@@ -24,7 +23,7 @@ import pandas as pd
 from . import pricing as bs
 from .iv import implied_vol
 from .risk import strike_for_delta
-from .synth import atm_strike, minutes_to_close, option_series, quote_spread
+from .synth import minutes_to_close, quote_spread
 
 #: Regulatory pass-through per contract, each way. Webull charges no commission
 #: or contract fee on options, but OCC clearing and the Options Regulatory Fee

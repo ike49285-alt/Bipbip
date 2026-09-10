@@ -94,26 +94,22 @@ def main():
     print(f"{'entry':>7} {'LEVERED':>22}   {'INDEX + SECTOR':>22}")
     print(f"{'':>7} {'n':>7}{'edge':>8}{'+/-95':>7}   {'n':>7}{'edge':>8}{'+/-95':>7}")
 
-    rows = []
     for sl in sorted(set(slot[te])):
         line = f"{sl:>7}"
-        keep = []
         for grp in (levered, ~levered):
             m = (slot[te] == sl) & grp
             if m.sum() < 60:
                 line += f" {m.sum():>6}{'--':>8}{'':>7}  "
-                keep.append(np.nan)
                 continue
             e = edge[m]
             se = 1.96 * e.std(ddof=1) / np.sqrt(len(e))
             line += f" {len(e):>6}{e.mean():>+8.2f}{se:>7.2f}  "
-            keep.append(e.mean())
         print(line)
-        rows.append((sl, *keep))
 
-    tail = [r for r in rows if r[0] >= "14:30"]
-    mid = [r for r in rows if "10:30" <= r[0] < "14:30"]
-    for name, grp, col in (("LEVERED", levered, 1), ("index+sector", ~levered, 2)):
+    # Pooled from the raw observations rather than from the per-slot means
+    # printed above: averaging slot means would weight a thin slot equally with
+    # a fat one, and would not give a usable two-sample standard error.
+    for name, grp in (("LEVERED", levered), ("index+sector", ~levered)):
         t_mask = (slot[te] >= "14:30") & grp
         m_mask = (slot[te] >= "10:30") & (slot[te] < "14:30") & grp
         if t_mask.sum() < 60 or m_mask.sum() < 60:

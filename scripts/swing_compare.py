@@ -98,7 +98,6 @@ def main(universe="etf_wide"):
     # coordinate, not an edge.
     print("\nCAGR by period (all start from the same date, so these are")
     print("annualised returns WITHIN each slice, not compounded from $50):")
-    bench = curves["buy & hold SPY"]
     slices = [("1993-1999", "1993", "1999"), ("2000-2009", "2000", "2009"),
               ("2010-2019", "2010", "2019"), ("2020-2026", "2020", "2026")]
     print(f"{'strategy':<26}" + "".join(f"{n:>12}" for n, _, _ in slices))

@@ -196,8 +196,6 @@ def test_regime_flags_an_unusually_quiet_window(tmp_path, capsys):
     that is the difference between a backtest and a claim about markets.
     """
     import numpy as np
-    import pandas as pd
-    from bipbip.data.sessions import EXCHANGE_TZ
 
     rng = np.random.default_rng(3)
     n = 800

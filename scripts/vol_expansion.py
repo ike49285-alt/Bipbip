@@ -14,7 +14,7 @@ whatever fraction of windows expand at all. But volatility mean-reverts, so a
 strategy of always predicting the opposite of the current deviation from average
 is a real forecaster and much harder to beat, and it is the second column.
 """
-import sys, pathlib, glob, os, time
+import sys, pathlib, glob, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
@@ -90,7 +90,7 @@ def main():
     print(f"\ntop minus bottom fifth: {spread * lvl * 100:+.1f} vol points "
           f"(t={np.mean(yt[top]) - np.mean(yt[bot]):.3f}/{se:.3f} = "
           f"{(np.mean(yt[top]) - np.mean(yt[bot])) / se:.1f})")
-    print(f"for comparison, the premium measured on the TQQQ chain was ~5 vol points")
+    print("for comparison, the premium measured on the TQQQ chain was ~5 vol points")
     print(f"\ntotal {time.time()-t0:.0f}s")
 
 

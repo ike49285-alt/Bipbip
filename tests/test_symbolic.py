@@ -4,7 +4,6 @@ The guards are the module. An expression search without them finds an edge in
 anything, so each one gets a test that fails if it is removed.
 """
 import numpy as np
-import pytest
 
 from bipbip.ml.symbolic import (AlphaSearch, Node, clone, crossover, evaluate,
                                 mutate, random_tree)
@@ -110,7 +109,6 @@ def test_mutate_and_crossover_return_evaluable_trees():
 
 
 def test_clone_is_deep():
-    rng = np.random.default_rng(4)
     a = Node("binary", name="+", kids=[_leaf("close"), _leaf("high")])
     b = clone(a)
     b.kids[0].name = "volume"

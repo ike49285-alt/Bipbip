@@ -1,4 +1,3 @@
-import pandas as pd
 import pytest
 
 from bipbip.core import BacktestEngine, CashAccount, CostModel

@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from bipbip.core import indicators as ind
-from bipbip.data.sessions import EXCHANGE_TZ, restrict_to_rth, to_exchange_tz
+from bipbip.data.sessions import restrict_to_rth, to_exchange_tz
 
 
 # --------------------------------------------------------------------------

@@ -1,7 +1,6 @@
 """Baselines. Every real strategy must beat these or it is not worth running."""
 from __future__ import annotations
 
-import pandas as pd
 
 from ..core.strategy import Context, Strategy
 from ..core.types import HOLD, Intent

@@ -17,7 +17,7 @@ import numpy as np
 import pandas as pd
 
 from bipbip.data.store import BarStore
-from bipbip.data.webull import (rescale_to_adjusted, robust_factors,
+from bipbip.data.webull import (robust_factors,
                                 verify_factors, reconcile_sessions, drop_leaked_closes)
 
 RESULTS = os.path.expanduser(
@@ -112,7 +112,7 @@ def main(symbol: str, timeframe: str) -> None:
           f"({n_bad/len(report):.1%})")
     if n_bad:
         worst = report[report["bad"]].sort_values("close_err", ascending=False)
-        print(f"  worst close errors: "
+        print("  worst close errors: "
               + ", ".join(f"{d.date()} {e:.1%}"
                           for d, e in worst["close_err"].head(5).items()))
     cleaned = drop_leaked_closes(raw, report)

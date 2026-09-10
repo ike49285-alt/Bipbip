@@ -1,7 +1,6 @@
 """Option-chain snapshots, and the line between derivation and invention."""
 import datetime as dt
 
-import numpy as np
 import pandas as pd
 import pytest
 

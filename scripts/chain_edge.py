@@ -75,9 +75,8 @@ def main():
         if m.sum() < 100:
             continue
         pay = np.maximum(0.0, spot * (1.0 + fwd.to_numpy()[m]) - k) * MULT
-        mid = (row["bid"] + row["ask"]) / 2 * MULT
         ask = row["ask"] * MULT
-        e_mid, e_ask = pay.mean() - mid, pay.mean() - ask
+        e_ask = pay.mean() - ask
         # A payoff this skewed has a fat standard error; without it a +5% row
         # reads as an opportunity when it is indistinguishable from zero.
         ci = 1.96 * pay.std(ddof=1) / np.sqrt(len(pay))
@@ -89,8 +88,8 @@ def main():
               f"{e_ask/ask:>+8.1%} {ci/ask:>7.1%} "
               f"{np.mean(pay > ask):>5.1%} {verdict:>12}")
 
-    print(f"\n(E[P&L] as a fraction of premium, over comparable weeks since 2011, "
-          f"drift removed. 'win' = finishes above the ask.)")
+    print("\n(E[P&L] as a fraction of premium, over comparable weeks since 2011, "
+          "drift removed. 'win' = finishes above the ask.)")
 
 
 if __name__ == "__main__":

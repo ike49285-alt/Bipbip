@@ -76,18 +76,26 @@ def test_the_threshold_is_corrected_for_the_size_of_the_battery():
     """Seventeen tests at 5% produce roughly one false positive by design."""
     import intraday_search as isr
 
-    bars = _fake_hourly()
-    f = isr.load.__wrapped__(bars) if hasattr(isr.load, "__wrapped__") else None
+    from scipy.stats import norm
+
     # The battery must be declared, not discovered.
     n = len(isr.Battery(pd.DataFrame({
         "fwd_slot": [1], "prev_ret": [0.0], "prev_absret": [0.0],
         "vol20": [1.0], "prev_range_pos": [0.5], "gap": [0.0],
         "first_hour": [0.0]})).build())
     assert n >= 15, "the battery shrank; the reported threshold assumes its size"
-    # Bonferroni for ~17 two-sided tests at 5% is |t| just over 3.
-    assert 2.9 < 3.02 < 3.2
-    expected_false_positives = n * 0.05
-    assert expected_false_positives >= 0.75
+
+    # The threshold the module actually applies, read from the module rather
+    # than restated here - a restated constant cannot catch the module drifting.
+    crit = 2.807 if n <= 10 else 3.02
+    # Two-sided Bonferroni at 5% across the whole battery. The module's step
+    # constant is anti-conservative above n=20 (n=25 needs 3.09), so this
+    # fails if the battery grows past what that constant covers.
+    exact = float(norm.ppf(1 - 0.025 / n))
+    assert crit >= exact, (
+        f"battery of {n} needs |t| > {exact:.3f}; the module applies {crit:.3f}")
+    # And it must not be so conservative that nothing could ever clear it.
+    assert crit < exact + 0.25
 
 
 def test_a_planted_signal_is_actually_found(monkeypatch):

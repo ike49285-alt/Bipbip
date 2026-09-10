@@ -29,7 +29,6 @@ import datetime as dt
 import numpy as np
 import pandas as pd
 
-from ..core import indicators as ind
 from ..core.strategy import Context, Strategy
 from ..core.types import HOLD, Intent
 

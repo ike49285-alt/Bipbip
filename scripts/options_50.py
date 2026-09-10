@@ -18,7 +18,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import numpy as np, pandas as pd
 
 from bipbip.options import pricing as bs
-from bipbip.options.overlay import FEE_PER_CONTRACT, MULTIPLIER, breakeven_move_bps
+from bipbip.options.overlay import FEE_PER_CONTRACT, MULTIPLIER
 from bipbip.options.synth import quote_spread
 from bipbip.data.store import BarStore
 

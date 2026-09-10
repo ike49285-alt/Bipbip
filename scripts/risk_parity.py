@@ -22,7 +22,7 @@ import numpy as np, pandas as pd
 
 from swing_compare import stats, HDR, show, START
 from bipbip.core.costs import CostModel
-from bipbip.core.panel import build_panel, load_panel
+from bipbip.core.panel import build_panel
 from bipbip.core.portfolio import PortfolioEngine, PortfolioStrategy
 from bipbip.data.store import BarStore
 

@@ -21,7 +21,7 @@ import sys, pathlib, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-import numpy as np, pandas as pd
+import numpy as np
 
 from bipbip.core.indicators import assert_causal
 from bipbip.data.store import BarStore

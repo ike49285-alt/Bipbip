@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 import pandas as pd
 
-from .types import HOLD, Intent
+from .types import Intent
 
 
 @dataclass

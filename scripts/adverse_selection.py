@@ -80,10 +80,10 @@ def main():
             print(f"{wait:>5}m {name:>5} {filled.mean():>9.1%} "
                   f"{cap.mean():>+9.2f}b {drift.mean():>+9.2f}b "
                   f"{net.mean():>+8.2f}b {net.mean()+half_bps:>+12.2f}b")
-    print(f"\n(net = half spread captured + drift over the following 15 minutes;")
+    print("\n(net = half spread captured + drift over the following 15 minutes;")
     print(f" 'vs crossing' adds the {half_bps:.2f} bps you would have PAID instead)")
 
-    print(f"\ndrift after a passive BUY fill, by horizon (1-minute wait):")
+    print("\ndrift after a passive BUY fill, by horizon (1-minute wait):")
     level = c - half
     filled = (np.r_[lo[1:], np.nan] <= level) & (np.r_[day[1:], -1] == day)
     print(f"{'horizon':>9} {'n':>8} {'drift':>9} {'+/-95%':>9} {'net of capture':>16}")

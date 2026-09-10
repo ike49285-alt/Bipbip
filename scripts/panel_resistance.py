@@ -149,7 +149,7 @@ NEAR_CENTS = 0.03
 
 
 def round_numbers(df, label):
-    print(f"\n  ROUND NUMBERS - the high reaches a level, the close falls back under")
+    print("\n  ROUND NUMBERS - the high reaches a level, the close falls back under")
     print(f"    {'level':<22}{'effect':>10}{'se':>8}{'t':>7}{'events':>10}{'dates':>9}")
     out = {}
     df = df[(df["close"] >= PRICE_LO) & (df["close"] <= PRICE_HI)]
@@ -188,7 +188,7 @@ def extremes(df, label):
     bucket = (d["rq"] * 5 + d["vq"]).to_numpy().astype(int)
     dummies = [(bucket == k).astype("float64") for k in range(1, 25)]
     b, se, t, n, g = clustered(d, ev, dummies)
-    print(f"\n  EXTREMES - stalling at the 20-bar high, inside return/vol buckets")
+    print("\n  EXTREMES - stalling at the 20-bar high, inside return/vol buckets")
     print(f"    {'':<22}{'effect':>10}{'se':>8}{'t':>7}{'events':>10}{'dates':>9}")
     print(f"    {'20-bar high':<22}{b:>+9.1f}b{se:>8.1f}{t:>7.2f}{n:>10,}{g:>9,}")
 

@@ -13,7 +13,6 @@ calendar year; run across forty names, something is nearly always triggering.
 from __future__ import annotations
 
 import numpy as np
-import pandas as pd
 
 from ..core.panel import Panel
 from ..core.portfolio import PortfolioContext, PortfolioStrategy

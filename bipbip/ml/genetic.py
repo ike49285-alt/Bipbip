@@ -55,6 +55,11 @@ class GAResult:
     null_best: float = float("nan")
     null_mean: float = float("nan")
     p_value: float = float("nan")
+    #: Null runs that actually produced a finite fitness. The permutation
+    #: p-value cannot go below 1/(null_runs + 1), and callers need the count
+    #: to say so - it is not recoverable from `p_value` alone, and `history`
+    #: is per-generation fitness, not null runs.
+    null_runs: int = 0
     history: list = field(default_factory=list)
     feature_names: list = field(default_factory=list)
 
@@ -228,5 +233,6 @@ def evolve_with_null(search: RuleSearch, population: int = 60,
         null_mean=float(nulls.mean()) if len(nulls) else float("nan"),
         p_value=(float((np.sum(nulls >= fit) + 1) / (len(nulls) + 1))
                  if len(nulls) else float("nan")),
+        null_runs=int(len(nulls)),
         history=hist, feature_names=search.names,
     )

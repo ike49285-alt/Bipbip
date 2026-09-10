@@ -18,7 +18,7 @@ import pandas as pd
 from ..core import indicators as ind
 from ..core.strategy import Context, Strategy
 from ..core.types import HOLD, Intent
-from ..ml.features import FEATURE_COLUMNS, build_features
+from ..ml.features import build_features
 
 
 class MLStrategy(Strategy):

@@ -11,7 +11,7 @@ shuffled labels: a search over expression trees will always return a champion,
 and the only way to know whether this one means anything is to see what the same
 machinery produces when the answers are noise.
 """
-import sys, pathlib, glob, os, time
+import sys, pathlib, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 

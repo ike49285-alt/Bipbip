@@ -45,7 +45,7 @@ def build_macro(store, dates: pd.DatetimeIndex, window: int = 60) -> pd.DataFram
                       index=pd.DatetimeIndex([pd.Timestamp(t.date()) for t in bars.index]))
         return s[~s.index.duplicated(keep="last")].reindex(dates).ffill()
 
-    tlt, ief, shy = load("TLT"), load("IEF"), load("SHY")
+    tlt, shy = load("TLT"), load("SHY")
     lqd, hyg = load("LQD"), load("HYG")
     gld, uso = load("GLD"), load("USO")
 

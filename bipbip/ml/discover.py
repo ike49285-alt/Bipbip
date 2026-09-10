@@ -183,7 +183,7 @@ def build_cross_sectional(panel: Panel, horizon: int = 7,
     excess = fwd.sub(median, axis=0)
 
     stacked = {n: feats[n].where(valid) for n in names}
-    rows, ys, exs, fws, meds, syms, whens, bars = [], [], [], [], [], [], [], []
+    rows, exs, fws, meds, syms, whens, bars = [], [], [], [], [], [], []
 
     dates = panel.dates
     keep_rows = np.flatnonzero(enough.to_numpy())

@@ -55,7 +55,6 @@ def build_features(bars: pd.DataFrame, or_minutes: int = 30,
     close, high, low = bars["close"], bars["high"], bars["low"]
 
     bands = ind.session_vwap_bands(bars)
-    vwap = bands["vwap"]
     # Session-scale dispersion. Every distance that accumulates over the
     # session is normalised by this rather than by a one-minute ATR, which
     # would be a timescale error: such distances grow with elapsed time while
