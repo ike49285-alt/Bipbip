@@ -1,0 +1,178 @@
+"""How big is the null, really? A hundred shuffles instead of five.
+
+The five-shuffle run established that the null is NOT zero: the scoring rule -
+max(long prediction, short prediction) scored against long-only - pays about
++0.79 bps on labels carrying no information. That reframed the finding from
++1.63 bps of signal to roughly +0.84. But it left the harder question open,
+because five draws cannot locate a distribution. Two limits bit:
+
+  - A rank-based permutation p-value over five nulls cannot go below 1/6.
+  - Against the correct null of +0.79 the paired t falls from 2.22 to about
+    1.14, which is inside the noise.
+
+So the effect was neither confirmed nor refuted, only underpowered. A hundred
+shuffles pins the null's centre and spread and gives a permutation p-value with
+resolution to 1/101.
+
+TWO FIXES TO THE COMPARISON ITSELF. The original evaluate() passed one seed to
+both the label permutation and the GBM, so every null differed from the real
+run in two ways at once and the null spread carried model-seed noise the single
+real point did not. Here the model seed is FIXED across all runs and only the
+permutation varies, which is what a permutation test compares. Model-seed
+sensitivity is then measured separately, on the real labels, so it is visible
+rather than silently inflating the null.
+"""
+import os
+# Set before sklearn's OpenMP runtime initialises: 4 single-threaded workers
+# beat one 4-threaded fit, because GBM thread scaling is well short of linear.
+os.environ.setdefault("OMP_NUM_THREADS", "1")
+
+import sys, pathlib, time, argparse, csv
+
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
+import numpy as np, pandas as pd
+
+from bipbip.ml.discover import make_gbm_regressor
+from scripts.barrier_panel import BASKET, CROSS_BPS, load
+
+G = {}
+
+
+def shuffled_labels(df, L, S, sym, perm_seed):
+    """Permute labels by TIMESTAMP, the same permutation for every symbol.
+
+    Each moment's cross-section travels together, so the relative outcomes
+    across the twenty funds at a given instant survive intact and only their
+    attachment to the features is cut. A row-wise shuffle would also destroy
+    the cross-sectional correlation the model is being tested on, making the
+    null easier to beat than it should be.
+    """
+    rng = np.random.default_rng(perm_seed)
+    dates = np.array(sorted(df["_date"].unique()))
+    perm = dict(zip(dates, rng.permutation(dates)))
+    key = pd.MultiIndex.from_arrays([sym, df["_date"].to_numpy()])
+    newkey = pd.MultiIndex.from_arrays([sym, df["_date"].map(perm).to_numpy()])
+    pos = pd.Series(np.arange(len(df)), index=key)
+    take = pos.reindex(newkey).to_numpy()
+    ok = np.isfinite(take)
+    take = np.where(ok, take, np.arange(len(df))).astype(int)
+    return L[take], S[take]
+
+
+def evaluate(perm_seed=None, model_seed=0):
+    """Return (margin_bps, paired_t, n_trades) for one run."""
+    df, Xv, tr, te, L, S, sym = (G["df"], G["Xv"], G["tr"], G["te"],
+                                 G["L"], G["S"], G["sym"])
+    y_l, y_s = (shuffled_labels(df, L, S, sym, perm_seed)
+                if perm_seed is not None else (L, S))
+
+    ml = make_gbm_regressor(seed=model_seed).fit(Xv[tr], y_l[tr])
+    ms = make_gbm_regressor(seed=model_seed).fit(Xv[tr], y_s[tr])
+    long_side = ml.predict(Xv[te]) >= ms.predict(Xv[te])
+    d = np.where(long_side, y_l[te], y_s[te]) - y_l[te]
+    t = d.mean() / (d.std(ddof=1) / np.sqrt(len(d)))
+    return float(d.mean()), float(t), len(d)
+
+
+def _work(args):
+    perm_seed, model_seed = args
+    m, t, n = evaluate(perm_seed, model_seed)
+    return perm_seed, model_seed, m, t, n
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--runs", type=int, default=100)
+    ap.add_argument("--jobs", type=int, default=4)
+    ap.add_argument("--out", default="data/panel_null100.csv")
+    a = ap.parse_args()
+
+    t0 = time.time()
+    tm, sm, hold = 1.5, 1.0, 26
+    frames = [f for f in (load(s, tm, sm, hold) for s in BASKET) if f is not None]
+    df = pd.concat(frames, ignore_index=True)
+    cols = [c for c in df.columns if not c.startswith("_")]
+    dates = np.array(sorted(df["_date"].unique()))
+    cut = dates[int(len(dates) * 0.7)]
+    tr = (df["_date"] < cut).to_numpy()
+    L, S, H = df["_L"].to_numpy(), df["_S"].to_numpy(), df["_H"].to_numpy()
+    sym = df["_sym"].to_numpy()
+
+    # Non-overlapping test sample: step by the REALISED hold, so no bar is
+    # counted twice. Fixed once here rather than per run - it depends only on
+    # the holds, which the shuffle does not touch.
+    picks = []
+    for s in sorted(set(sym)):
+        idx = np.flatnonzero((sym == s) & ~tr)
+        cur = 0
+        while cur < len(idx):
+            picks.append(idx[cur])
+            cur += max(1, int(H[idx[cur]]))
+    te = np.array(picks)
+
+    G.update(df=df, Xv=df[cols].to_numpy(dtype="float32"), tr=tr, te=te,
+             L=L, S=S, sym=sym)
+    print(f"{df['_sym'].nunique()} ETFs, {len(df):,} bars, {len(cols)} features, "
+          f"test after {pd.Timestamp(cut).date()}, {len(te):,} trades")
+    print(f"load {time.time()-t0:.0f}s\n", flush=True)
+
+    real, real_t, n = evaluate(None, 0)
+    print(f"REAL margin {real:+.3f} bps, paired t={real_t:.2f}, {n:,} trades\n",
+          flush=True)
+
+    # Model-seed sensitivity on the REAL labels, so this source of variation is
+    # visible instead of hiding inside the null spread.
+    seeds = [evaluate(None, s)[0] for s in range(1, 5)]
+    allseeds = [real] + seeds
+    print(f"real across 5 model seeds: "
+          f"{', '.join(f'{x:+.2f}' for x in allseeds)}  "
+          f"(sd {np.std(allseeds, ddof=1):.3f})\n", flush=True)
+
+    import multiprocessing as mp
+    jobs = [(s, 0) for s in range(1, a.runs + 1)]
+    out = pathlib.Path(a.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    nulls = []
+    with out.open("w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["perm_seed", "model_seed", "margin_bps", "paired_t", "trades"])
+        w.writerow(["", 0, f"{real:.6f}", f"{real_t:.6f}", n])  # blank = real
+        with mp.get_context("fork").Pool(a.jobs) as pool:
+            for i, (ps, ms_, m, t, nn) in enumerate(
+                    pool.imap_unordered(_work, jobs), 1):
+                nulls.append(m)
+                w.writerow([ps, ms_, f"{m:.6f}", f"{t:.6f}", nn])
+                fh.flush()
+                if i % 10 == 0 or i == len(jobs):
+                    el = time.time() - t0
+                    print(f"  {i:>3}/{len(jobs)} nulls  "
+                          f"mean {np.mean(nulls):+.3f}  sd {np.std(nulls, ddof=1):.3f}  "
+                          f"max {max(nulls):+.3f}  [{el/60:.1f}m, "
+                          f"eta {el/i*(len(jobs)-i)/60:.1f}m]", flush=True)
+
+    nulls = np.array(nulls)
+    ge = int((nulls >= real).sum())
+    # The +1 is Phipson-Smyth: the real run is itself one draw under H0, so a
+    # p-value of exactly zero is not attainable and claiming it is overstates.
+    p = (ge + 1) / (len(nulls) + 1)
+    z = (real - nulls.mean()) / nulls.std(ddof=1)
+
+    print(f"\n{'':>22}{'margin bps':>12}")
+    print(f"{'REAL':>22}{real:>+11.2f}b")
+    print(f"{'null mean':>22}{nulls.mean():>+11.2f}b")
+    print(f"{'null sd':>22}{nulls.std(ddof=1):>12.2f}")
+    for q in (50, 90, 95, 99):
+        print(f"{'null p' + str(q):>22}{np.percentile(nulls, q):>+11.2f}b")
+    print(f"{'null max':>22}{nulls.max():>+11.2f}b")
+    print(f"\nsignal above the null   {real - nulls.mean():+.2f} bps")
+    print(f"nulls at or above real  {ge} of {len(nulls)}")
+    print(f"permutation p           {p:.4f}")
+    print(f"z against null spread   {z:.2f}")
+    print("\nVERDICT:", "separable from the procedure (p<0.05)" if p < 0.05
+          else "NOT separable from the procedure at p<0.05")
+    print(f"\ntotal {(time.time()-t0)/60:.1f}m -> {a.out}")
+
+
+if __name__ == "__main__":
+    main()
