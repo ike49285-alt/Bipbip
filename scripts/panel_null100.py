@@ -133,6 +133,17 @@ from scripts.barrier_panel import BASKET, load
 
 G = {}
 
+#: Ceiling on the number of DATES a permutation may map to themselves.
+#:
+#: A uniformly random permutation of D elements has exactly mean 1 and variance
+#: 1 fixed points for every D >= 2, converging to Poisson(1), so P(X > 10) is
+#: about 1e-7 and one flat ceiling is correct at any panel size. Counting fixed
+#: DATES rather than fixed rows is what makes that true: the fixed-row share is
+#: ~1/D - 2.5% on a forty-date test panel and 0.05% on the real archive - so a
+#: row-share ceiling would really be a statement about panel size, and would
+#: have to be loosened on small panels exactly where it is easiest to check.
+MAX_FIXED_DATES = 10
+
 
 def shuffled_labels(df, L, S, sym, perm_seed, method="rotate"):
     """Permute labels by TIMESTAMP, the same permutation for every symbol.
@@ -166,7 +177,30 @@ def shuffled_labels(df, L, S, sym, perm_seed, method="rotate"):
                 f"{missing:,} lookups missed on a grid that should be complete")
     else:
         take = np.where(np.isfinite(take), take, np.arange(len(df)))
-    return L[take.astype(int)], S[take.astype(int)]
+
+    # Assert the shuffle actually shuffled. Raising on a missed lookup only
+    # covers the failure that was found; it does not confirm labels MOVED. A
+    # random permutation of D dates has an expected one fixed point whatever D
+    # is, and every symbol on a self-mapped date keeps its true label, so a
+    # small share is expected and a large one means the permutation degenerated.
+    take = take.astype(int)
+    fixed = int(sum(1 for d in dates if perm[d] == d))
+    if fixed > MAX_FIXED_DATES:
+        raise AssertionError(
+            f"{fixed} of {len(dates)} dates map to themselves "
+            f"(limit {MAX_FIXED_DATES}); the shuffle did not shuffle")
+
+    if method != "common":
+        # Do NOT raise on the fallback share: --method permute exists precisely
+        # to reproduce the contaminated run, which sits around 23%. Report the
+        # number instead, because seeing it printed is what would have caught
+        # the original bug.
+        kept = float((take == np.arange(len(df))).mean())
+        if kept > 0.01 and not G.get("kept_warned"):
+            print(f"  [permute] {kept:.1%} of rows keep their TRUE label "
+                  f"- this null is contaminated by construction", flush=True)
+            G["kept_warned"] = True
+    return L[take], S[take]
 
 
 def evaluate(perm_seed=None, model_seed=0, method="rotate"):
