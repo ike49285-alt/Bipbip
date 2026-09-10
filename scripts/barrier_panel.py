@@ -37,19 +37,13 @@ LEVERED_LONG = {"TQQQ", "SOXL", "TNA", "SPXL", "UPRO", "LABU"}
 def load(sym, tm, sm, hold):
     st = BarStore("data/bars")
     try:
-        b = st.load(sym, "1m").dropna()
+        # NATIVE 30-minute bars now, reconciled against each symbol's own daily
+        # record - not minute bars resampled over ninety days. Roughly 37,000
+        # bars per ETF spanning 2015-2026 against the proxy's 500.
+        b = st.load(sym, "30m").dropna()
     except Exception:
         return None
-    if len(b) < 5000 or b.index[0].year < 2026:
-        return None
-    agg = {"open": "first", "high": "max", "low": "min",
-           "close": "last", "volume": "sum"}
-    b = b.resample("30min").agg(agg).dropna()
-    # Drop the stubs a resample leaves at session edges.
-    day = pd.DatetimeIndex(b.index).normalize()
-    n = b.groupby(day).size()
-    b = b[pd.Series(day, index=b.index).isin(n[n >= 10].index).to_numpy()]
-    if len(b) < 400:
+    if len(b) < 5000:
         return None
     X = features(b)
     lab = barrier_labels(b, atr(b, 14), target_mult=tm, stop_mult=sm,
@@ -84,7 +78,7 @@ def main():
     cut = dates[int(len(dates) * 0.7)]
     tr = (df["_date"] < cut).to_numpy()
     print(f"{df['_sym'].nunique()} ETFs, {len(df):,} bars, "
-          f"{len(dates)} timestamps, barriers {tm}/{sm}/{hold}")
+          f"{len(dates):,} timestamps, barriers {tm}/{sm}/{hold}")
     print(f"train before {pd.Timestamp(cut).date()}, test after "
           f"({int((~tr).sum()):,} bars)\n")
 
