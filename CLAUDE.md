@@ -233,6 +233,34 @@ timeframes** — a rally with a bullish cloud under it running into a bearish on
 above — carries nothing once both trends are held out: the 2×2 interaction is
 p=0.12 at best and 0.37 after Bonferroni, and its sign flips across pairs.
 
+**Rotation — holding what is running and selling what is flagging — is closed,
+and volume does not rescue it.** Rule-based momentum was already negative on the
+clean 34-ETF universe (top-5/top-10 at 8.82%/8.93% against buy-and-hold SPY's
+10.84%, and turnover is not the reason: cutting it fivefold moves 8.82% to
+8.64%), and a decile sort on ~300 symbols found the ordering runs *backwards*.
+The model form had never been measured — both earlier runs of the
+cross-sectional ranker were retracted — so `scripts/rotation_null.py` ran it
+properly: 34 clean ETFs, daily, 21-bar horizon, 240 non-overlapping monthly
+rebalances, the null repeating the whole top-k selection, 100 shuffles.
+
+    arm            real    null mean   null sd   null p90   >= real   p
+    price only   +21.53      +10.28     11.76     +27.05    17/100   0.178
+    price+volume +21.80      +10.98     10.40     +22.90    14/100   0.149
+
+Neither reaches its own null's ninetieth percentile. **Adding four volume
+features bought +0.28 bps — 0.026 of one null standard deviation.** The
+hypothesis that participation carries what price does not is measured, not
+assumed: `volume_trend`, `dollar_volume`, `volume_price_corr` and
+`up_volume_share` were added for this and contributed nothing.
+
+The null's centre is the finding to remember. It sits at **+11 bps, not zero**,
+because excess is measured against the cross-sectional MEDIAN and holding
+everything earns the mean-minus-median spread of a right-skewed cross-section —
++13.38 bps gross, +11.54 after cost. A random picker collects the same thing.
+So a positive `excess_bps` is not evidence of anything, and the bar is equal
+weight, exactly as the README's ranking work already concluded from the other
+direction.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a

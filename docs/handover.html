@@ -139,7 +139,7 @@ strong{font-weight:600}
   <p class="standfirst">Fifty scripts and 132 commits. Every candidate is now closed with a measurement rather than an opinion. What the project actually produced is the list of ways it fooled itself — that part is durable, and it is the reason to read this.</p>
   <div class="meta">
     <span><b>Branch</b> claude/spy-tqqq-trading-algo-kn8akv</span>
-    <span><b>Suite</b> 428 tests</span>
+    <span><b>Suite</b> 460 tests</span>
     <span><b>Archive</b> 549 daily · 20 ETFs at 30m to 2011</span>
     <span><b>Status</b> no live result</span>
   </div>
@@ -225,7 +225,7 @@ strong{font-weight:600}
       <tr><td>Buying short-dated options</td><td>Monotonically negative with moneyness</td><td class="n">−23% to −100%</td></tr>
       <tr><td>Selling defined-risk premium<span class="why">Measured on TQQQ only — the most expensive chain available</span></td><td>Approximately zero</td><td class="n">6/53 positive, none clears CI</td></tr>
       <tr><td>Levered risk parity<span class="why">Beat holding on return, Sharpe and drawdown — then split by period</span></td><td>Carried by gold, 2005–2010</td><td class="n">9.7% vs 15.2% since 2021</td></tr>
-      <tr><td>Barrier-labelled GBM panel</td><td>Does not clear the null</td><td class="n">p=0.158</td></tr>
+      <tr><td>Barrier-labelled GBM panel</td><td>Does not clear the null</td><td class="n">p=0.158</td></tr><tr><td>Rotation: hold what runs, sell what flags<span class="why">Cross-sectional ranker, 34 clean ETFs, monthly, 240 non-overlapping rebalances. Adding four volume features bought +0.28 bps — 0.026 of one null sd</span></td><td>Volume does not rescue it</td><td class="n">p=0.178 price, 0.149 +volume</td></tr>
     </tbody>
   </table>
   </div>
@@ -287,7 +287,7 @@ strong{font-weight:600}
   <h2>Two archive facts that invalidate whole question classes</h2>
   <div class="body-col">
     <p><strong>Prices are split- and dividend-adjusted, and the adjustment is not invertible.</strong> The ingest fetches raw intraday from Webull, multiplies it into adjusted units, and stores only the result — the factors are never persisted. On 12 June 2015 TQQQ traded at <span class="num">$110.91</span>; the archive records <span class="num">$2.197</span>, a factor of 50.48. The inverse funds are worse: SOXS's adjusted 2015 price is <span class="num">$11 million</span>, its maximum <span class="num">$8.6 billion</span>.</p>
-    <p>This rules out the entire microstructure branch on current data, not just one test. The minimum tick is one cent, <em>absolute</em> — so roundness, spread width, tick clustering and where limit orders pile up are all meaningless once every historical price has been multiplied by an arbitrary factor. To recover it: persist the per-day factors (a few hundred KB, makes it invertible going forward) and re-fetch raw into a parallel archive. Webull serves raw intraday back to at least 2015; 2011 is unverified.</p>
+    <p>This rules out the entire microstructure branch on current data, not just one test. The minimum tick is one cent, <em>absolute</em> — so roundness, spread width, tick clustering and where limit orders pile up are all meaningless once every historical price has been multiplied by an arbitrary factor. To recover it: persist the per-day factors (a few hundred KB, makes it invertible going forward) and re-fetch raw into a parallel archive. Webull serves raw intraday back to <strong>late 2010</strong> — verified this session at 30-minute granularity: 2010-12-28 returns bars and 2010-07-01 returns none, for ETFs that hold no 30-minute history here at all. The ingest already rescales raw onto the adjusted daily series, so total return is preserved.</p>
     <p><strong>Costs exceed every gross effect ever measured here.</strong> Crossing the spread is ~1.35 bps round trip on TQQQ. No effect in the closed table above is larger. Options are far worse — 14.5% of mid on a short-dated TQQQ call, about a thousand times the stock's.</p>
   </div>
 </section>
