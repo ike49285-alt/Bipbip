@@ -201,6 +201,12 @@ expensive to miss.
 - **An arbitrary seed is a free parameter.** Changing only the model seed moved
   a headline margin by sd 0.204 bps, against a claimed effect of ~1 bps. If a
   result moves when you reseed, that movement belongs in the error bar.
+- **A silent fallback is how a null gets contaminated.** A permutation looked
+  up `(symbol, permuted timestamp)` and, when the pair did not exist, fell back
+  to the row's own index — handing it back its TRUE label. 23.4% of every
+  "null" run was real signal. Assert that a shuffle actually shuffled: measure
+  the share of rows still carrying their original label, and make a failed
+  lookup raise rather than default.
 - **Check that the event fires on what you think it does.** A round-number
   condition compared a distance capped at 0.50 against a threshold of
   `0.0015 × close`, so above $333 it matched EVERY bar: 2.7% of sub-$20 bars,
@@ -235,23 +241,30 @@ one. It decays hard — −70.7 bps in the first third of the archive, −27.2 a
 insignificant in the last five years.
 
 **There is no live result.** The one that stood longest — a barrier-labelled
-GBM on a 20-ETF levered panel, 696,521 bars, 66,256 held-out trades over 4.5
-years, +1.63 bps over always-long at paired t=2.22 — did not survive a
-properly powered null. Against 100 shuffles: null mean +0.33, **null sd 0.83**,
-and the real run at +1.63 sits **below the null's own 95th percentile of
-+1.71**. Six shuffles beat it outright; the best reached +2.77. Permutation
-**p = 0.069**.
+GBM on a 20-ETF levered panel — did not survive a properly powered null.
+Against 100 shuffles on the common grid (the 91.2% of rows on timestamps every
+symbol shares): real **+1.25 bps**, null mean +0.11, **null sd 1.02**, and the
+real run sits **below the null's own 90th percentile of +1.49**. Fifteen
+shuffles beat it outright. Permutation **p = 0.158**.
+
+The first null run said p=0.069, and that number was itself wrong — its
+permutation looked up `(symbol, new timestamp)` pairs and silently fell back to
+the row's own label when the lookup missed, so **23.4% of every "null" run was
+real signal**. That inflates a null and biases it AGAINST the finding, and
+fixing it still made the finding look worse: the null's centre fell as it had
+to (+0.33 → +0.11), but the common grid shortens the test window so the real
+margin fell further (+1.63 → +1.25) and the smaller sample widened the null
+(0.83 → 1.02).
 
 It had passed seven controls, including always-long, coin-flip, inverse-fund
 (ruling out drift), robustness across 32 barrier cells, and a five-shuffle
-null. The five-shuffle null was the weak link, and it was weak in the
-direction of agreeing (see the traps above).
+null. Every one of those controls was weak in the direction of agreeing.
 
-This is not a refutation — the point estimate is positive and p=0.069 is not
-nothing. It is a finding that does not clear the bar, in a repo whose stated
-prior is that the default hypothesis is zero. Discount it further for the
-32-cell grid it was selected from (best-of-N floor t=2.63) and for model-seed
-noise of sd 0.204.
+This is not a refutation — the point estimate is positive. It is a finding that
+does not clear the bar, in a repo whose stated prior is that the default
+hypothesis is zero. Discount it further for the 32-cell grid it was selected
+from (best-of-N floor t=2.63) and for model-seed noise of sd 0.248, which is a
+fifth of the effect being claimed.
 
 The execution question — whether a resting order keeps its half spread after
 adverse selection — is therefore no longer decisive for any particular

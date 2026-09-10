@@ -22,7 +22,51 @@ permutation varies, which is what a permutation test compares. Model-seed
 sensitivity is then measured separately, on the real labels, so it is visible
 rather than silently inflating the null.
 
-SUPERSEDED - READ THIS FIRST. The p=0.069 below was computed against a
+CORRECTED RESULT: p = 0.158 on the common grid. Still not separable.
+
+                        margin bps
+                  REAL      +1.25b
+             null mean      +0.11b
+               null sd        1.02
+              null p90      +1.49b
+              null p95      +1.74b
+              null max      +2.43b
+
+    nulls at or above real  15 of 100
+    permutation p           0.1584
+    z against null spread   1.11
+
+The real run no longer reaches even the null's NINETIETH percentile. Fifteen
+shuffles carrying no information beat it.
+
+Fixing a bug that was biased AGAINST the finding made the finding look WORSE,
+which is worth understanding rather than shrugging at. Removing the
+contamination did what it had to: the null's centre fell from +0.33 to +0.11.
+But two other things moved further the other way. Restricting to the common
+grid moves the 70% train/test cut to 2023-06-27 and shrinks the held-out sample
+from 66,256 trades to 45,647, so the real margin falls from +1.63 to +1.25. And
+the smaller test sample makes every run noisier, widening the null from sd 0.83
+to 1.02. Width decides significance. The centre moved 0.22 in the finding's
+favour; the spread moved 0.19 against it and the real margin moved 0.38
+against it.
+
+A CONFOUND IN THIS CORRECTION, STATED PLAINLY. Two things changed at once - the
+null method and the sample - and they cannot be separated with these two runs,
+because on the common grid the old method's fallback never fires and
+--method permute is identical to --method common there. Isolating them would
+need an uncontaminated null on the FULL panel, and the obvious construction for
+that (rotating each symbol) was tried and rejected: rotating by a fixed
+FRACTION of each symbol's length gives up to 5,916 bars of relative slip
+between symbols, which scrambles the cross-section the model uses and biases
+the null toward the finding. The verdict is the same either way - 0.069 and
+0.158 both sit above 0.05 - so the decomposition was not worth another run.
+
+The archive CSV for this run was corrupted by an editing mistake while the
+process still held it open, losing about four of the hundred rows; the numbers
+above come from the script's own in-memory summary and are unaffected. The file
+was regenerated from the same seeds.
+
+SUPERSEDED, KEPT FOR THE RECORD. The p=0.069 below was computed against a
 CONTAMINATED null. The permutation looked each (symbol, new timestamp) pair up
 in an index, and the twenty funds do not share every timestamp, so 23.4% of
 lookups missed and silently fell back to the row's OWN label. Nearly a quarter
