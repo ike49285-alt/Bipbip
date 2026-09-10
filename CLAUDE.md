@@ -206,7 +206,17 @@ survivorship. Break *size and timing* looked promising at +0.10 AUC over a
 vol-only baseline and collapsed to +0.002 once time-of-day was added — it was
 the intraday U-shape, which is already priced. The levered-ETF rebalancing
 mechanism is falsified: it predicts the edge concentrates in the last half
-hour, and the edge is flat across the session.
+hour, and the edge is flat across the session. **Cloud colour inverted between
+timeframes** — a rally with a bullish cloud under it running into a bearish one
+above — carries nothing once both trends are held out: the 2×2 interaction is
+p=0.12 at best and 0.37 after Bonferroni, and its sign flips across pairs.
+
+One thing that keeps replicating, and is a reason *not* to trade rather than a
+trade: Ichimoku's bullish readings select bad days. The four-confirmation
+system returns 3.33% against 10.75% for holding, and measured directly a
+bullish 30-minute cloud is followed by ~43 bps worse returns than a bearish
+one. It decays hard — −70.7 bps in the first third of the archive, −27.2 and
+insignificant in the last five years.
 
 **There is no live result.** The one that stood longest — a barrier-labelled
 GBM on a 20-ETF levered panel, 696,521 bars, 66,256 held-out trades over 4.5
