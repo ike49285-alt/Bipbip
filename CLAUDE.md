@@ -300,6 +300,24 @@ what naming the return source before believing it is for. And the capital
 arithmetic: even the favourable arm's quarter-Kelly wants ~$4,500 behind $403
 of risk, against a $2.10 balance and a planned $500.
 
+**The searches were hunting in the wrong half of the day.** Splitting each
+daily bar into its two disjoint legs on the 34 clean ETFs, within-symbol:
+overnight (close→open, held through a gap you cannot trade out of) beats
+intraday (open→close) in **27 of 34**, median **+8.71%** a year against
+**−1.27%**, paired difference +9.03% at t=5.52. SPY is +10.0% against +0.7%;
+QQQ +13.9% against −2.7%; XLK +15.0% against −3.9%. Documented in the
+literature, never measured here — and it reframes every negative above: the
+intraday searches were competing for a share of roughly zero drift.
+
+It is **not a trade**. Overnight-only is a round trip every session, 252 × 1.35
+bps = 3.4% a year against buy-and-hold's zero; net of that it beats
+buy-and-hold in 6 of 34, median −2.21%, and Sharpe is 0.50 against 0.49. And it
+decays monotonically to exactly the cost line — SPY's gap runs +22.5% (1993–99),
++9.5% (2000s), +4.1% (2010s), **+3.3% (2020s) against a 3.4% cost**. That is an
+effect competed down to the friction protecting it, which is also why the
+NightShares ETFs productised it in 2022 and closed in 2023.
+`scripts/overnight_split.py`.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a
