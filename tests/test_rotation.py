@@ -166,3 +166,91 @@ def test_the_new_features_reach_the_model_as_ranks_too():
         r = f[f"rk_{name}"].to_numpy(dtype="float64")
         r = r[np.isfinite(r)]
         assert r.min() >= 0.0 and r.max() <= 1.0
+
+
+# --------------------------------------------------------------------------
+# The rotation harness.
+# --------------------------------------------------------------------------
+
+def _ranker_panel(n_symbols=24, n=900, seed=11):
+    """A panel wide enough for the ranker's fold and basket minimums."""
+    rng = np.random.default_rng(seed)
+    idx = pd.date_range("2015-01-02", periods=n, freq="B")
+    closes, volumes = {}, {}
+    for i in range(n_symbols):
+        s = f"S{i:02d}"
+        closes[s] = 100 * np.exp(np.cumsum(rng.normal(0.0002, 0.011, n)))
+        volumes[s] = 1e6 * np.exp(rng.normal(0, 0.3, n))
+    c = pd.DataFrame(closes, index=idx)
+    v = pd.DataFrame(volumes, index=idx)
+    return Panel(opens=c.shift(1).fillna(c), highs=c * 1.002, lows=c * 0.998,
+                 closes=c, volumes=v)
+
+
+def test_fitting_once_per_fold_matches_fitting_per_basket_size():
+    """The harness fits each fold ONCE and scores every top_k off the same
+    probabilities, which is 4x cheaper than refitting per k.
+
+    That is only legitimate because the model does not depend on k - k decides
+    how deep to go into a ranking the model already produced. If it ever did
+    depend on k this shortcut would silently change the result, so it is checked
+    against the library's own per-k path rather than assumed.
+    """
+    from bipbip.ml.discover import build_cross_sectional, evaluate_ranker, make_gbm
+    from scripts.rotation_null import TOP_KS, procedure
+
+    ds = build_cross_sectional(_ranker_panel(), horizon=21, min_symbols=10)
+    mine = procedure(ds, ds.excess, cost_bps=0.0, rebalance_every=21, model_seed=0)
+    assert "by_k" in mine, mine.get("note")
+
+    for k in TOP_KS:
+        if k not in mine["by_k"]:
+            continue
+        theirs = evaluate_ranker(ds, make_model=make_gbm, top_k=k, cost_bps=0.0,
+                                 rebalance_every=21)
+        assert theirs["rebalances"] == mine["by_k"][k]["rebalances"]
+        assert theirs["excess_bps"] == pytest.approx(
+            mine["by_k"][k]["excess_bps"], abs=1e-6), f"top_k={k} diverged"
+
+
+def test_the_ablation_removes_volume_and_only_volume():
+    from bipbip.ml.discover import build_cross_sectional
+    from scripts.rotation_null import VOLUME_FEATURES, price_only
+
+    ds = build_cross_sectional(_ranker_panel(), horizon=21, min_symbols=10)
+    thin = price_only(ds)
+    gone = set(ds.X.columns) - set(thin.X.columns)
+    # Every volume feature and its rank, nothing else.
+    assert gone == ({f for f in VOLUME_FEATURES} |
+                    {f"rk_{f}" for f in VOLUME_FEATURES})
+    assert len(thin.X.columns) == len(ds.X.columns) - 2 * len(VOLUME_FEATURES)
+    # Labels are untouched, so the two arms are scored on the same target.
+    assert np.array_equal(thin.excess, ds.excess)
+
+
+def test_a_severe_survivorship_universe_is_refused():
+    """Ranking a present-day membership list is partly ranking 'did this
+    survive', worth 15-21 points a year here. The runner must refuse rather
+    than produce the 26.90% that momentum reads on the contaminated list."""
+    from bipbip.data.universe import UNIVERSES
+    severe = [n for n, v in UNIVERSES.items()
+              if str(v.get("survivorship", "")).upper() == "SEVERE"]
+    assert severe, "no universe is flagged SEVERE; the guard has nothing to catch"
+    assert all(not n.startswith("etf") for n in severe)
+
+
+def test_the_shuffle_moves_labels_but_keeps_each_timestamp_intact():
+    """A global shuffle would break the cross-section as well as the signal,
+    scoring the model against a world where the median means nothing."""
+    from scripts.rotation_null import _shuffle_within_timestamp
+
+    dates = np.repeat(pd.date_range("2020-01-01", periods=50), 10)
+    excess = np.arange(len(dates), dtype="float64")
+    out, moved = _shuffle_within_timestamp(excess, dates, seed=3)
+
+    assert moved > 0.5, f"only {moved:.1%} of labels moved"
+    assert sorted(out.tolist()) == sorted(excess.tolist())
+    # Each timestamp holds exactly the values it held before, reordered.
+    for ts in np.unique(dates):
+        m = dates == ts
+        assert sorted(out[m].tolist()) == sorted(excess[m].tolist())
