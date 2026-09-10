@@ -55,6 +55,8 @@ class Node:
             return f"{self.value:g}"
         if self.kind == "unary":
             return f"{self.name}({self.kids[0]}, {self.window})"
+        if self.kind == "cross":
+            return f"{self.name}({self.kids[0]})"
         return f"({self.kids[0]} {self.name} {self.kids[1]})"
 
 
@@ -74,6 +76,37 @@ UNARY = {
     "delta": lambda a, w: a - np.roll(a, w, axis=0),
     "zscore": lambda a, w: (a - _roll(a, w, "mean")) / (_roll(a, w, "std") + 1e-12),
 }
+
+
+def _cs(a: np.ndarray, how: str) -> np.ndarray:
+    """Operators that compare a symbol against the others AT THE SAME INSTANT.
+
+    Everything else in this file runs down one symbol's own history, which means
+    the search had no way to express "this fund versus the rest right now" - and
+    that is exactly the structure the panel test found mattered, since the edge
+    appeared on levered products relative to each other and not on index funds
+    at all. Real alpha expressions are mostly rank across a universe; without
+    these the search could not write one.
+
+    Row-wise, so nothing crosses time: the value for a symbol at bar i depends
+    only on the other symbols at bar i.
+    """
+    if how == "rank":
+        order = np.argsort(np.argsort(np.where(np.isfinite(a), a, -np.inf), axis=1),
+                           axis=1).astype("float64")
+        n = np.isfinite(a).sum(axis=1, keepdims=True).clip(min=1)
+        out = order / np.maximum(n - 1, 1)
+        return np.where(np.isfinite(a), out, np.nan)
+    mu = np.nanmean(a, axis=1, keepdims=True)
+    if how == "demean":
+        return a - mu
+    sd = np.nanstd(a, axis=1, keepdims=True)
+    return (a - mu) / np.where(sd > 1e-12, sd, np.nan)
+
+
+CROSS = {"cs_rank": lambda a: _cs(a, "rank"),
+         "cs_demean": lambda a: _cs(a, "demean"),
+         "cs_z": lambda a: _cs(a, "zscore")}
 
 
 def _safe_div(x, y):
@@ -100,6 +133,8 @@ def evaluate(node: Node, data: dict) -> np.ndarray:
         return np.full_like(data["close"], node.value, dtype="float64")
     if node.kind == "unary":
         return UNARY[node.name](evaluate(node.kids[0], data), node.window)
+    if node.kind == "cross":
+        return CROSS[node.name](evaluate(node.kids[0], data))
     return BINARY[node.name](evaluate(node.kids[0], data),
                              evaluate(node.kids[1], data))
 
@@ -109,7 +144,11 @@ def random_tree(rng, depth=2) -> Node:
         if rng.random() < 0.12:
             return Node("const", value=float(rng.choice([1.0, 2.0, 0.5])))
         return Node("base", name=str(rng.choice(BASE)))
-    if rng.random() < 0.45:
+    r = rng.random()
+    if r < 0.22:
+        return Node("cross", name=str(rng.choice(list(CROSS))),
+                    kids=[random_tree(rng, depth - 1)])
+    if r < 0.55:
         return Node("unary", name=str(rng.choice(list(UNARY))),
                     window=int(rng.choice(WINDOWS)),
                     kids=[random_tree(rng, depth - 1)])
