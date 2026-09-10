@@ -82,6 +82,39 @@ def _causal_features(panel: Panel) -> dict:
     f["gap"] = o / c.shift(1) - 1.0
     f["vol_ratio"] = (f["vol_14"] / f["vol_56"]).replace([np.inf, -np.inf], np.nan)
     f["volume_ratio"] = v / v.rolling(56, min_periods=56).mean().replace(0, np.nan)
+
+    # --- participation ---------------------------------------------------
+    # `volume_ratio` alone says how busy this bar was against a long average,
+    # which is a spike detector. It cannot say whether interest is BUILDING or
+    # FADING, and fading interest is what "flagging" means when someone reads a
+    # chart. These four are the difference between a volume input and a volume
+    # feature; nothing here looks past bar i.
+    with np.errstate(divide="ignore", invalid="ignore"):
+        f["volume_trend"] = np.log(
+            v.rolling(5, min_periods=5).mean()
+            / v.rolling(56, min_periods=56).mean().replace(0, np.nan))
+
+    # Dollar volume is the honest size measure - a million shares of a $5 fund
+    # and of a $500 one are not comparable, and the cross-section spans both.
+    # It also survives the archive's adjustment untouched: rescaling multiplies
+    # price by a factor and divides volume by the same one, so the product is
+    # invariant where price and share count separately are not.
+    dv = c * v
+    f["dollar_volume"] = np.log1p(dv)
+    f["dollar_volume_ratio"] = dv / dv.rolling(
+        56, min_periods=56).mean().replace(0, np.nan)
+
+    # The only genuinely JOINT feature: does volume confirm the move or
+    # contradict it. A rally on falling participation and a rally on rising
+    # participation are the same return and, by hypothesis, different states.
+    dlv = np.log1p(v).diff()
+    f["volume_price_corr"] = logret.rolling(21, min_periods=21).corr(dlv)
+
+    # Volume-weighted share of recent bars that closed up: accumulation against
+    # distribution, which is the direction-aware half of participation.
+    up = (logret > 0).astype("float64")
+    f["up_volume_share"] = ((v * up).rolling(21, min_periods=21).sum()
+                            / v.rolling(21, min_periods=21).sum().replace(0, np.nan))
     # Distance below the trailing high: a drawdown measure that needs no label.
     f["dist_high_56"] = c / c.rolling(56, min_periods=56).max() - 1.0
 
