@@ -90,7 +90,15 @@ class BarStore:
         df = df[~df.index.duplicated(keep="last")].sort_index()
         df.index.name = "timestamp"
         # A zero-volume bar is a provider gap-fill, not a tradeable minute.
-        return df[df["volume"] > 0]
+        df = df[df["volume"] > 0]
+        # A bar can also arrive with volume but no prices - a session the
+        # provider has counted but not yet settled. It is not merely useless:
+        # merges are last-writer-wins, so an unpriced row REPLACES a good
+        # archived bar and destroys history. One such fetch put a volume-only
+        # 2026-09-09 row into all 540 daily files here, which turned QQQ's
+        # total return into NaN. Prices must be present and positive.
+        priced = df[["open", "high", "low", "close"]]
+        return df[priced.notna().all(axis=1) & (priced > 0).all(axis=1)]
 
     def coverage(self, symbol: str, bar_size: str = "1m") -> dict:
         """Describe how much history is archived - the honest sample size."""

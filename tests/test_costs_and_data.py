@@ -250,3 +250,34 @@ def test_daily_and_intraday_agree_on_the_same_date(tmp_path):
         row = d[[t.date() == day for t in d.index]]
         assert len(row) == 1, f"no daily bar on {day}"
         assert float(row["close"].iloc[0]) == pytest.approx(expected)
+
+
+def test_store_rejects_a_bar_that_has_volume_but_no_prices(tmp_path):
+    """A counted-but-unsettled session must never enter the archive.
+
+    A fetch once wrote a volume-only row into all 540 daily files, which made
+    QQQ's total return NaN.
+    """
+    store = BarStore(tmp_path)
+    bars = make_intraday_bars(n_sessions=2, seed=34)
+    bars.iloc[3, bars.columns.get_indexer(["open", "high", "low", "close"])] = float("nan")
+
+    store.append("SPY", bars)
+
+    stored = store.load("SPY")
+    assert len(stored) == len(bars) - 1
+    assert stored[["open", "high", "low", "close"]].notna().all().all()
+
+
+def test_an_unpriced_bar_cannot_overwrite_a_good_one(tmp_path):
+    """Last-writer-wins makes this destructive, not merely useless."""
+    store = BarStore(tmp_path)
+    bars = make_intraday_bars(n_sessions=2, seed=35)
+    store.append("SPY", bars)
+    good = store.load("SPY")["close"].iloc[3]
+
+    unpriced = bars.iloc[3:4].copy()
+    unpriced.loc[:, ["open", "high", "low", "close"]] = float("nan")
+    store.append("SPY", unpriced)
+
+    assert store.load("SPY")["close"].iloc[3] == pytest.approx(good)

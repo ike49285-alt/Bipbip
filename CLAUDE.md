@@ -179,6 +179,11 @@ expensive to miss.
 - **Benchmark against the right thing.** For a price forecast that is the
   random walk, not zero. For volatility it is HAR, not persistence. For a
   strategy it is buy-and-hold, not cash.
+- **The scoring rule can be the edge.** Taking `max(long_score, short_score)`
+  and comparing it to long-only is biased by construction: the max of two
+  noisy numbers beats one of them. Shuffled labels paid **+0.79 bps** through
+  this alone, which was half the headline margin. A null run on the *whole
+  procedure* catches this; a null run on the model does not.
 
 ## Standing results
 
@@ -186,8 +191,23 @@ Direction is dead — tested six ways including a genetic search that invented
 its own indicators. Price targets are worse than the random walk. Volatility is
 predictable but the predictable part is priced. Round-number and extreme-level
 resistance did not survive matched controls. Trend maturity is confounded by
-survivorship.
+survivorship. Break *size and timing* looked promising at +0.10 AUC over a
+vol-only baseline and collapsed to +0.002 once time-of-day was added — it was
+the intraday U-shape, which is already priced. The levered-ETF rebalancing
+mechanism is falsified: it predicts the edge concentrates in the last half
+hour, and the edge is flat across the session.
 
-One live result: at 30 minutes with ~90 features, gross **+1.01 bps at t=2.49**,
-beating all five nulls. It is −2.09 bps crossing the spread and +3.55 earning
-it, so it rests entirely on the adverse-selection measurement.
+One live result, and it is thinner than it first read. Barrier-labelled GBM on
+a 20-ETF levered panel: 696,521 bars, 66,256 held-out trades over 4.5 years,
+gross **+1.79 bps**, paired **t=2.22** over always-long. It survives shuffled
+labels — but the nulls do not come back at zero, because the scoring procedure
+is worth +0.79 bps on its own (see the trap above). The honest split is
+**+0.79 procedure, +0.84 signal**. Supporting evidence that it is not drift: it
+is positive on the inverse funds, which fell. It is robust across all 32 cells
+of the barrier grid. It is also diffuse (flat across confidence deciles),
+uncompressible (the GA cannot find a formula for it), and unexplained.
+
+At +0.84 bps it is **−1.31 bps crossing the spread and +4.33 earning it**.
+Crossing costs about four times the entire edge, so the whole thing rests on
+the adverse-selection measurement — whether a resting order keeps its half
+spread after the price moves against the fill.
