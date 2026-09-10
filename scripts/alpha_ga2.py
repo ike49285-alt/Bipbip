@@ -21,6 +21,34 @@ search came back empty rather than the absence of anything to find.
 The point is not another alpha. There is already a model making +1.79 bps and it
 is ninety features of black box. An expression a person can read is checkable by
 eye, testable against the rebalancing hypothesis, and tradeable by hand.
+
+RESULT: it still returns noise, and the way it fails is the useful part.
+
+    best  ((cs_z((cs_z(delta(close, 3)) / close)) / high) / open)
+          in-sample t=2.86 against a best-of-N floor of 4.02
+          held out  +8.45 bps, t=0.80, win 49.9%
+    nulls in-sample 2.87 / 0.86 / 3.59, held out 1.06 / 0.24 / -0.67
+
+Below the floor is worse than keeping the luckiest of 3,200 coin flips, null 3
+beat it in-sample on meaningless labels, and a 49.9% win rate under a +8.45 mean
+is a few large outcomes rather than an edge. The winner also fails the
+readability bar that motivated the rerun.
+
+The informative part: the cross-sectional operators WERE used, by the winner and
+by two of three nulls. So this is not the language being unable to express
+cross-sectional structure - it can, and the structure is still not findable as a
+compact formula.
+
+Against the gradient-boosted model making +1.79 bps at t=2.22 over always-long
+on the same labels, universe and data, that isolates what is doing the work:
+ninety weak features combined additively succeed where one compact expression
+cannot. The edge is DIFFUSE, not concentrated.
+
+Three independent tests now agree on that shape. Selectivity found it flat from
+100% of bars down to the top 1% rather than lumped in the confident trades. The
+barrier grid was smooth across all 32 cells rather than spiking at one. And it
+cannot be compressed. The practical consequence is that no hand-tradeable
+version exists; if the effect is real it needs the model.
 """
 import sys, pathlib, time
 
