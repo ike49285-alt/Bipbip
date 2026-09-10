@@ -431,6 +431,10 @@
     "industry": "Computer Hardware",
     "sector": "Technology"
   },
+  "HRL": {
+    "industry": "Packaged Foods",
+    "sector": "Consumer Defensive"
+  },
   "HST": {
     "industry": "REIT - Hotel & Motel",
     "sector": "Real Estate"
@@ -614,6 +618,10 @@
   "MKC": {
     "industry": "Packaged Foods",
     "sector": "Consumer Defensive"
+  },
+  "MLM": {
+    "industry": "Building Materials",
+    "sector": "Basic Materials"
   },
   "MMM": {
     "industry": "Conglomerates",
@@ -935,6 +943,10 @@
     "industry": "Asset Management",
     "sector": "Financial Services"
   },
+  "TRV": {
+    "industry": "Insurance - Property & Casualty",
+    "sector": "Financial Services"
+  },
   "TSCO": {
     "industry": "Specialty Retail",
     "sector": "Consumer Cyclical"
@@ -961,6 +973,10 @@
   },
   "UNP": {
     "industry": "Railroads",
+    "sector": "Industrials"
+  },
+  "UPS": {
+    "industry": "Integrated Freight & Logistics",
     "sector": "Industrials"
   },
   "URI": {
