@@ -10,10 +10,14 @@ alongside low-drift sector funds. A strategy that wins by being quietly long
 cannot win here; always-long and always-short should roughly cancel across the
 panel, leaving whatever the model actually knows.
 
-The honest limit going in: the minute archive covers ninety days, so resampled
-to thirty minutes each symbol contributes about 910 bars. Pooled that is
-adequate; per symbol it is thin, and the per-symbol figures below are
-directional rather than conclusive.
+The honest limit going in is no longer sample size. This reads NATIVE 30-minute
+bars - roughly 37,000 per ETF back to 2015, not the 910 the ninety-day minute
+proxy gave - so the per-symbol figures are no longer thin. What limits them now
+is that the twenty funds are not twenty independent bets: TQQQ and SQQQ are the
+same index geared opposite ways, and on a shared timestamp a market-wide move
+lands in every one of them. The group figures below are therefore reported with
+standard errors CLUSTERED BY DATE, which is the only honest denominator here; a
+plain pooled error would treat one macro day as twenty observations.
 """
 import sys, pathlib, time
 
@@ -22,6 +26,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import numpy as np, pandas as pd
 
 from bipbip.core.indicators import atr
+from bipbip.core.stats import ols_cluster
 from bipbip.data.store import BarStore
 from bipbip.ml.barriers import barrier_labels
 from bipbip.ml.discover import make_gbm_regressor
@@ -114,11 +119,23 @@ def main():
         print(arm_stats(k, v))
     d = arms["model"] - arms["always long"]
     se = d.std(ddof=1) / np.sqrt(len(d))
+    te_dates = df["_date"].to_numpy()[te]
+    # The pooled t treats 66,256 trades as 66,256 independent bets. They are
+    # not: twenty funds share every timestamp and several are the same index
+    # geared opposite ways, so one macro move enters the sample twenty times.
+    rd = ols_cluster(d, np.ones((len(d), 1)), te_dates)
     print(f"  model minus always-long: {d.mean():+.2f} bps +/-{1.96*se:.2f} "
-          f"(paired t={d.mean()/se:.2f})")
+          f"(pooled t={d.mean()/se:.2f}, "
+          f"t clustered by date={rd['t'][0]:.2f} over {rd['clusters']:,} dates)")
     print(f"  went short on {np.mean(~pick_long):.1%} of trades\n")
 
-    print(f"  {'group':<16}{'model':>9}{'long':>9}{'short':>9}{'edge vs long':>14}")
+    # The group edges get date-clustered errors. These three numbers are the
+    # ones quoted downstream as the panel's finding, and a bare point estimate
+    # is not a finding - regressing the paired difference on a constant with
+    # dates as clusters gives the same mean with an error that does not treat
+    # one market-wide move as twenty independent observations.
+    print(f"  {'group':<16}{'model':>9}{'long':>9}{'short':>9}"
+          f"{'edge vs long':>14}{'t (by date)':>13}{'dates':>8}")
     groups = {"levered long": LEVERED_LONG, "INVERSE (fell)": INVERSE,
               "index + sector": set(BASKET) - LEVERED_LONG - INVERSE}
     for gname, members in groups.items():
@@ -126,8 +143,11 @@ def main():
         if m.sum() < 30:
             continue
         mm, ll, ss = arms["model"][m], arms["always long"][m], arms["always short"][m]
+        d_g = mm - ll
+        r = ols_cluster(d_g, np.ones((len(d_g), 1)), te_dates[m])
         print(f"  {gname:<16}{mm.mean():>+8.2f}b{ll.mean():>+8.2f}b"
-              f"{ss.mean():>+8.2f}b{(mm-ll).mean():>+13.2f}b")
+              f"{ss.mean():>+8.2f}b{d_g.mean():>+13.2f}b"
+              f"{r['t'][0]:>13.2f}{r['clusters']:>8,}")
     print(f"\ntotal {time.time()-t0:.0f}s")
 
 
