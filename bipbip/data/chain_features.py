@@ -245,7 +245,11 @@ def atm_iv_from_quotes(chain: pd.DataFrame, spot: float | None = None) -> dict:
         spot = implied_spot(chain, dte)
     near = live[live["dte"] == dte]
     strike = float(near.iloc[(near["strike"] - spot).abs().argmin()]["strike"])
-    years = dte / 365.0
+    # Trading clock, not calendar. This function inverted on dte/365 while
+    # every other path here used _trading_years, and on the real TQQQ chains
+    # that overstated ATM vol by 20.4% - 70.2% against 58.3%, the twelve points
+    # CLAUDE.md records. Weekends carry no variance and must not be priced.
+    years = _trading_years(dte, asof)
     vols = []
     for _, row in near[near["strike"] == strike].iterrows():
         v = solve_iv((row["bid"] + row["ask"]) / 2.0, spot, strike, years,
