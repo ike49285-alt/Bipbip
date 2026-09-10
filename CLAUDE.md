@@ -282,6 +282,24 @@ points into dollars needs a structure that pays its own spread and owns its own
 tail, the window is 4.7 years and one regime containing 2022 but not 2008 or
 March 2020, and VIX itself is not tradeable. `scripts/variance_premium.py`.
 
+**And the vol points do not become money.** `scripts/premium_structure.py`
+prices real SPY verticals at real bid/ask against 1,409 non-overlapping
+6-session windows since 1993. Every structure LOSES on the full sample — the
+iron condor runs −4.9% to −8.9% on risk, loses in 55% of windows, and its worst
+window costs 64–95% of capital at risk. **Kelly on that distribution is zero.**
+Every structure wins vol-matched (+2.9% to +12.0%), and the gap between those
+two columns is the finding: it is a bet on the regime persisting, not on a
+premium. Read the vol-matched column with care — it applies TODAY'S quotes to
+historical windows, and implied vol moves with the regime, so it is not a
+backtest and a period split cannot repair a mis-specified comparison.
+
+Two things there generalise. Short PUT spreads look break-even on full history
+(−0.1% to −1.5%) and are −10 to −36 dollars **de-drifted** — the break-even is
+SPY's upward drift, the equity premium wearing a short-vol costume, which is
+what naming the return source before believing it is for. And the capital
+arithmetic: even the favourable arm's quarter-Kelly wants ~$4,500 behind $403
+of risk, against a $2.10 balance and a planned $500.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a
