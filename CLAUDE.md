@@ -261,6 +261,27 @@ So a positive `excess_bps` is not evidence of anything, and the bar is equal
 weight, exactly as the README's ranking work already concluded from the other
 direction.
 
+**The one measured positive in this project, and it is a RISK PREMIUM rather
+than an edge.** VIX against the volatility SPY actually realised over the
+following 21 sessions, sampled one observation per holding period:
+**+3.32 vol points, sd 5.98, n=56, t=4.15.** It survives everything that killed
+the others — both halves (+2.88 and +3.75), every individual year, and dropping
+the 2022 bear market makes it *stronger* (+3.95, t=4.40). Distribution-free,
+positive in 48 of 56 windows, binomial p=2.3e-08. Sampling daily instead would
+have reported t=19.75; the ratio to the honest number is 4.76 against
+sqrt(21)=4.58, which is this file's first trap reproducing to two digits.
+
+Three things keep it honest. **The tail is the product, not a caveat**: the
+premium is negative in 14% of windows and the worst is −26.0 points against a
+mean of +3.3, and that eight-to-one ratio is precisely what is being paid for.
+**The vehicle decides it**: one half-spread costs 0.1 vol points on SPY, 7.8 on
+TQQQ, 18.6 on SOXL — where it eats the whole premium. The repo's earlier
+"selling premium is approximately zero" was measured on TQQQ only, so it was a
+statement about the vehicle. **And it is not yet a strategy**: turning vol
+points into dollars needs a structure that pays its own spread and owns its own
+tail, the window is 4.7 years and one regime containing 2022 but not 2008 or
+March 2020, and VIX itself is not tradeable. `scripts/variance_premium.py`.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a
@@ -268,7 +289,7 @@ bullish 30-minute cloud is followed by ~43 bps worse returns than a bearish
 one. It decays hard — −70.7 bps in the first third of the archive, −27.2 and
 insignificant in the last five years.
 
-**There is no live result.** The one that stood longest — a barrier-labelled
+**There is still no live result** - the premium above is a measured quantity, not a traded one. The candidate that stood longest — a barrier-labelled
 GBM on a 20-ETF levered panel — did not survive a properly powered null.
 Against 100 shuffles on the common grid (the 91.2% of rows on timestamps every
 symbol shares): real **+1.25 bps**, null mean +0.11, **null sd 1.02**, and the
