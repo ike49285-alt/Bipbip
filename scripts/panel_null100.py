@@ -22,7 +22,18 @@ permutation varies, which is what a permutation test compares. Model-seed
 sensitivity is then measured separately, on the real labels, so it is visible
 rather than silently inflating the null.
 
-RESULT: the edge is not separable from the procedure. p = 0.069.
+SUPERSEDED - READ THIS FIRST. The p=0.069 below was computed against a
+CONTAMINATED null. The permutation looked each (symbol, new timestamp) pair up
+in an index, and the twenty funds do not share every timestamp, so 23.4% of
+lookups missed and silently fell back to the row's OWN label. Nearly a quarter
+of every "null" run was real signal. That inflates the null and makes the real
+run look LESS exceptional than it is, so the verdict below is biased against
+the finding. The corrected run uses --method common, which restricts the panel
+to the 91.2% of rows on timestamps every symbol shares and raises rather than
+falls back. Its numbers, and the real margin on that grid, supersede everything
+in this block.
+
+RESULT (against the contaminated null): p = 0.069.
 
                     margin bps
               REAL      +1.63b
@@ -79,14 +90,20 @@ from scripts.barrier_panel import BASKET, CROSS_BPS, load
 G = {}
 
 
-def shuffled_labels(df, L, S, sym, perm_seed):
+def shuffled_labels(df, L, S, sym, perm_seed, method="rotate"):
     """Permute labels by TIMESTAMP, the same permutation for every symbol.
 
-    Each moment's cross-section travels together, so the relative outcomes
-    across the twenty funds at a given instant survive intact and only their
-    attachment to the features is cut. A row-wise shuffle would also destroy
-    the cross-sectional correlation the model is being tested on, making the
-    null easier to beat than it should be.
+    "common" is the correct one, and it requires the panel to have been
+    restricted to timestamps present for EVERY symbol first. Then each moment's
+    whole cross-section moves to the same new moment, every lookup resolves,
+    and a miss is an error rather than a silent fallback.
+
+    "permute" reproduces the ORIGINAL, BROKEN null for comparison. On the full
+    panel the twenty funds do not share every timestamp, so 23.4% of lookups
+    missed and those rows fell back to their OWN row - keeping their TRUE
+    label. Nearly a quarter of every "null" run was real signal, which inflates
+    the null and makes the real run look LESS exceptional than it is. The bug
+    is silent: the fallback is a plausible-looking np.where.
     """
     rng = np.random.default_rng(perm_seed)
     dates = np.array(sorted(df["_date"].unique()))
@@ -95,16 +112,24 @@ def shuffled_labels(df, L, S, sym, perm_seed):
     newkey = pd.MultiIndex.from_arrays([sym, df["_date"].map(perm).to_numpy()])
     pos = pd.Series(np.arange(len(df)), index=key)
     take = pos.reindex(newkey).to_numpy()
-    ok = np.isfinite(take)
-    take = np.where(ok, take, np.arange(len(df))).astype(int)
-    return L[take], S[take]
+    missing = int((~np.isfinite(take)).sum())
+    if method == "common":
+        # On the common grid every (symbol, permuted timestamp) pair exists, so
+        # a miss means the caller did not restrict the panel. Refuse rather than
+        # fall back - the fallback is what broke the original null.
+        if missing:
+            raise AssertionError(
+                f"{missing:,} lookups missed on a grid that should be complete")
+    else:
+        take = np.where(np.isfinite(take), take, np.arange(len(df)))
+    return L[take.astype(int)], S[take.astype(int)]
 
 
-def evaluate(perm_seed=None, model_seed=0):
+def evaluate(perm_seed=None, model_seed=0, method="rotate"):
     """Return (margin_bps, paired_t, n_trades) for one run."""
     df, Xv, tr, te, L, S, sym = (G["df"], G["Xv"], G["tr"], G["te"],
                                  G["L"], G["S"], G["sym"])
-    y_l, y_s = (shuffled_labels(df, L, S, sym, perm_seed)
+    y_l, y_s = (shuffled_labels(df, L, S, sym, perm_seed, method)
                 if perm_seed is not None else (L, S))
 
     ml = make_gbm_regressor(seed=model_seed).fit(Xv[tr], y_l[tr])
@@ -116,8 +141,8 @@ def evaluate(perm_seed=None, model_seed=0):
 
 
 def _work(args):
-    perm_seed, model_seed = args
-    m, t, n = evaluate(perm_seed, model_seed)
+    perm_seed, model_seed, method = args
+    m, t, n = evaluate(perm_seed, model_seed, method)
     return perm_seed, model_seed, m, t, n
 
 
@@ -126,12 +151,22 @@ def main():
     ap.add_argument("--runs", type=int, default=100)
     ap.add_argument("--jobs", type=int, default=4)
     ap.add_argument("--out", default="data/panel_null100.csv")
+    ap.add_argument("--method", default="common",
+                    choices=["common", "permute"])
     a = ap.parse_args()
 
     t0 = time.time()
     tm, sm, hold = 1.5, 1.0, 26
     frames = [f for f in (load(s, tm, sm, hold) for s in BASKET) if f is not None]
     df = pd.concat(frames, ignore_index=True)
+    if a.method == "common":
+        # Keep only moments the whole panel shares, so the permutation is total.
+        n0 = len(df)
+        cnt = df.groupby("_date")["_sym"].nunique()
+        df = df[df["_date"].isin(cnt.index[cnt == df["_sym"].nunique()])]
+        df = df.reset_index(drop=True)
+        print(f"common grid: {len(df):,} of {n0:,} rows "
+              f"({len(df)/n0*100:.1f}%) on timestamps every symbol shares")
     cols = [c for c in df.columns if not c.startswith("_")]
     dates = np.array(sorted(df["_date"].unique()))
     cut = dates[int(len(dates) * 0.7)]
@@ -153,6 +188,7 @@ def main():
 
     G.update(df=df, Xv=df[cols].to_numpy(dtype="float32"), tr=tr, te=te,
              L=L, S=S, sym=sym)
+    print(f"null method: {a.method}")
     print(f"{df['_sym'].nunique()} ETFs, {len(df):,} bars, {len(cols)} features, "
           f"test after {pd.Timestamp(cut).date()}, {len(te):,} trades")
     print(f"load {time.time()-t0:.0f}s\n", flush=True)
@@ -170,7 +206,7 @@ def main():
           f"(sd {np.std(allseeds, ddof=1):.3f})\n", flush=True)
 
     import multiprocessing as mp
-    jobs = [(s, 0) for s in range(1, a.runs + 1)]
+    jobs = [(s, 0, a.method) for s in range(1, a.runs + 1)]
     out = pathlib.Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     nulls = []
