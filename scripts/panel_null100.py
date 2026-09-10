@@ -21,6 +21,46 @@ real point did not. Here the model seed is FIXED across all runs and only the
 permutation varies, which is what a permutation test compares. Model-seed
 sensitivity is then measured separately, on the real labels, so it is visible
 rather than silently inflating the null.
+
+RESULT: the edge is not separable from the procedure. p = 0.069.
+
+                    margin bps
+              REAL      +1.63b
+         null mean      +0.33b
+           null sd        0.83
+          null p95      +1.71b
+          null max      +2.77b
+
+    signal above the null   +1.30 bps
+    nulls at or above real  6 of 100
+    permutation p           0.0693
+    z against null spread   1.57
+
+The real run does not reach the null's OWN 95th percentile of +1.71. Six
+shuffles carrying no information at all beat it outright, and the best reached
++2.77 - seventy percent larger than the finding.
+
+WHAT FIVE DRAWS GOT WRONG, AND IT WAS NOT THE CENTRE. The five-null run put the
+null at +0.79; the truth is +0.33, so the procedure bias was OVERSTATED and the
+surviving signal is +1.30 rather than +0.84. That part of the earlier correction
+was too harsh. But five draws estimated the null's spread at sd 0.415 when the
+truth is 0.829 - exactly half - and the width is what decides significance.
+Resampling five draws from these hundred, 20,000 times: the null mean lands
+anywhere in [-0.37, +1.04] and the sd anywhere in [0.29, 1.40]. Five draws
+cannot measure either.
+
+The verdict is the part that should worry anyone reading an old result here.
+Drawing five nulls returns "survives the null" - all five below the real run -
+SEVENTY-TWO PERCENT of the time on data whose true p-value is 0.069. The
+five-shuffle control was not weak evidence of an edge. It was close to no
+evidence at all, and it read as confirmation.
+
+Direction is right and the point estimate is positive, so this is not a
+refutation. It is a finding that does not clear the bar, on a repo whose stated
+prior is that the default hypothesis is zero. Two further reasons to discount
+rather than round up: the barrier configuration was chosen from a 32-cell grid,
+where the best-of-N floor asks for t=2.63, and model seed alone moves the real
+margin by sd 0.204.
 """
 import os
 # Set before sklearn's OpenMP runtime initialises: 4 single-threaded workers

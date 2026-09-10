@@ -181,9 +181,20 @@ expensive to miss.
   strategy it is buy-and-hold, not cash.
 - **The scoring rule can be the edge.** Taking `max(long_score, short_score)`
   and comparing it to long-only is biased by construction: the max of two
-  noisy numbers beats one of them. Shuffled labels paid **+0.79 bps** through
-  this alone, which was half the headline margin. A null run on the *whole
-  procedure* catches this; a null run on the model does not.
+  noisy numbers beats one of them. Shuffled labels paid **+0.33 bps** through
+  this alone. A null run on the *whole procedure* catches this; a null run on
+  the model does not.
+- **Five nulls is not a null.** The number that decides significance is the
+  null's *spread*, and five draws cannot measure it — here they put it at
+  sd 0.415 when the truth was 0.829, and the null's centre anywhere in
+  [−0.37, +1.04]. Worse, five draws return "beats every null" **72% of the
+  time** on data whose true p is 0.069, so the control reads as confirmation
+  when it is nearly no evidence. Use ~100, and report a permutation p-value
+  with the Phipson–Smyth +1 (the real run is itself a draw, so p=0 is not
+  attainable).
+- **An arbitrary seed is a free parameter.** Changing only the model seed moved
+  a headline margin by sd 0.204 bps, against a claimed effect of ~1 bps. If a
+  result moves when you reseed, that movement belongs in the error bar.
 
 ## Standing results
 
@@ -197,17 +208,27 @@ the intraday U-shape, which is already priced. The levered-ETF rebalancing
 mechanism is falsified: it predicts the edge concentrates in the last half
 hour, and the edge is flat across the session.
 
-One live result, and it is thinner than it first read. Barrier-labelled GBM on
-a 20-ETF levered panel: 696,521 bars, 66,256 held-out trades over 4.5 years,
-gross **+1.79 bps**, paired **t=2.22** over always-long. It survives shuffled
-labels — but the nulls do not come back at zero, because the scoring procedure
-is worth +0.79 bps on its own (see the trap above). The honest split is
-**+0.79 procedure, +0.84 signal**. Supporting evidence that it is not drift: it
-is positive on the inverse funds, which fell. It is robust across all 32 cells
-of the barrier grid. It is also diffuse (flat across confidence deciles),
-uncompressible (the GA cannot find a formula for it), and unexplained.
+**There is no live result.** The one that stood longest — a barrier-labelled
+GBM on a 20-ETF levered panel, 696,521 bars, 66,256 held-out trades over 4.5
+years, +1.63 bps over always-long at paired t=2.22 — did not survive a
+properly powered null. Against 100 shuffles: null mean +0.33, **null sd 0.83**,
+and the real run at +1.63 sits **below the null's own 95th percentile of
++1.71**. Six shuffles beat it outright; the best reached +2.77. Permutation
+**p = 0.069**.
 
-At +0.84 bps it is **−1.31 bps crossing the spread and +4.33 earning it**.
-Crossing costs about four times the entire edge, so the whole thing rests on
-the adverse-selection measurement — whether a resting order keeps its half
-spread after the price moves against the fill.
+It had passed seven controls, including always-long, coin-flip, inverse-fund
+(ruling out drift), robustness across 32 barrier cells, and a five-shuffle
+null. The five-shuffle null was the weak link, and it was weak in the
+direction of agreeing (see the traps above).
+
+This is not a refutation — the point estimate is positive and p=0.069 is not
+nothing. It is a finding that does not clear the bar, in a repo whose stated
+prior is that the default hypothesis is zero. Discount it further for the
+32-cell grid it was selected from (best-of-N floor t=2.63) and for model-seed
+noise of sd 0.204.
+
+The execution question — whether a resting order keeps its half spread after
+adverse selection — is therefore no longer decisive for any particular
+strategy. It is still worth measuring, because it sets what ANY intraday idea
+here has to clear: crossing costs ~1.35 bps round trip, which is larger than
+every gross effect this repo has ever measured.
