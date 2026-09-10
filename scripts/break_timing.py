@@ -21,6 +21,33 @@ Two questions, separately:
   1. WILL it break within N bars - measured by AUC against the vol-only model.
   2. WHEN, given that it does - correlation of predicted with actual bars-to-
      break, again against the vol-only model.
+
+RESULT: nothing, once the clock is in the baseline.
+
+     k     base  AUC vol   +clock     full  lift    r clock  r full   lift
+   1.0    69.6%    0.672    0.787    0.791  +0.004    0.411   0.418  +0.008
+   1.5    43.5%    0.662    0.761    0.763  +0.002    0.436   0.440  +0.004
+   2.0    26.0%    0.662    0.756    0.758  +0.002    0.476   0.479  +0.004
+   3.0     9.4%    0.666    0.768    0.770  +0.002    0.568   0.568  -0.000
+
+Volatility alone reaches 0.662. Adding TWO features - time of day and day of
+week - reaches 0.787. Adding the other eighty-eight adds 0.002. Timing behaves
+the same way: the clock explains r=0.41 to 0.57 of bars-to-break and the rest of
+the feature set adds 0.004.
+
+The reason is mechanical. A 09:30 bar has twelve bars of room before the close
+and a 15:00 bar has two, so "breaks within n bars" is mostly a question about
+how much session remains. Against a volatility-only baseline that looked like a
++0.10 AUC discovery.
+
+The k=3.0 row is the one that settles it. Rare large breaks cannot be explained
+by session structure the way small ones can, so a genuine effect should survive
+there - and the lift is -0.000, exactly where it had to hold.
+
+Also fixed here: the first version swept n=13 and n=26 and reported both. They
+were identical to three decimals, because thirty-minute bars give thirteen per
+session and the session cap binds first - the window parameter was inert and the
+sweep silently tested three configurations while printing four.
 """
 import sys, pathlib, time
 
@@ -37,6 +64,12 @@ from scripts.barrier_panel import BASKET
 
 VOL_ONLY = ["atr_pct", "rv_13", "rv_65", "rv_260", "rv_ratio", "park",
             "park_ratio", "rvol"]
+# Bars remaining in the session decide the answer mechanically: a 09:30 bar has
+# twelve bars of room before the close and a 15:00 bar has two, so "breaks
+# within n bars" is largely a question about the clock. The full feature set
+# carries bar_of_day and the volatility-only set does not, so without this arm
+# the whole lift could be the model reading the time.
+VOL_CLOCK = VOL_ONLY + ["bar_of_day", "dow"]
 
 
 def break_labels(b, a, k, n):
@@ -82,10 +115,11 @@ def load(sym, k, n):
 
 def main():
     t0 = time.time()
-    print(f"{'k x ATR':>8} {'window':>7} {'base rate':>10} "
-          f"{'AUC vol-only':>13} {'AUC full':>10} {'lift':>7}   "
-          f"{'timing r vol':>13} {'full':>7}")
-    for k, n in ((1.0, 13), (1.5, 13), (1.5, 26), (2.0, 26)):
+    print(f"{'k x ATR':>8} {'window':>7} {'base':>10} {'AUC vol':>8} "
+          f"{'+clock':>9} {'full':>8} {'lift/clock':>9}   "
+          f"{'r clock':>8} {'r full':>7} {'lift':>8}")
+    # n>=13 is inert at 30-minute bars: the session cap binds first.
+    for k, n in ((1.0, 13), (1.5, 13), (2.0, 13), (3.0, 13)):
         frames = [f for f in (load(s, k, n) for s in BASKET) if f is not None]
         df = pd.concat(frames, ignore_index=True)
         cols = [c for c in df.columns if not c.startswith("_")]
@@ -97,8 +131,9 @@ def main():
         Xf = df[cols].to_numpy(dtype="float32")
         Xv = df[VOL_ONLY].to_numpy(dtype="float32")
 
+        Xc = df[VOL_CLOCK].to_numpy(dtype="float32")
         auc = {}
-        for name, X in (("vol", Xv), ("full", Xf)):
+        for name, X in (("vol", Xv), ("clock", Xc), ("full", Xf)):
             m = make_gbm(seed=0).fit(X[tr], y[tr])
             auc[name] = roc_auc_score(y[te], m.predict_proba(X[te])[:, 1])
 
@@ -106,7 +141,7 @@ def main():
         w = df["_when"].to_numpy().astype(float)
         broke = df["_broke"].to_numpy()
         rr = {}
-        for name, X in (("vol", Xv), ("full", Xf)):
+        for name, X in (("vol", Xv), ("clock", Xc), ("full", Xf)):
             trb, teb = tr & broke, te & broke
             if trb.sum() < 2000 or teb.sum() < 500:
                 rr[name] = np.nan
@@ -115,11 +150,12 @@ def main():
             p = m.predict(X[teb])
             rr[name] = np.corrcoef(p, np.log(w[teb]))[0, 1]
         print(f"{k:>8.1f} {n:>6}b {y[te].mean():>9.1%} "
-              f"{auc['vol']:>13.3f} {auc['full']:>10.3f} "
-              f"{auc['full']-auc['vol']:>+7.3f}   "
-              f"{rr['vol']:>13.3f} {rr['full']:>7.3f}")
-    print("\nAUC 0.50 is a coin flip. The number that matters is 'lift' - what the")
-    print("full feature set adds OVER a model that already knows the volatility.")
+              f"{auc['vol']:>8.3f} {auc['clock']:>9.3f} {auc['full']:>8.3f} "
+              f"{auc['full']-auc['clock']:>+9.3f}   "
+              f"{rr['clock']:>8.3f} {rr['full']:>7.3f} "
+              f"{rr['full']-rr['clock']:>+8.3f}")
+    print("\nThe column that matters is lift over the +clock arm: what the full")
+    print("feature set adds beyond knowing the volatility AND the time of day.")
     print(f"\ntotal {time.time()-t0:.0f}s")
 
 
