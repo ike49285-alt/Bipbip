@@ -75,7 +75,13 @@ one and reporting it as a finding has happened repeatedly in this project.
 - **Volume is U-shaped intraday** and clusters at the close.
 - **Prices cluster at round numbers** — limit orders genuinely pile there.
   Note this repo tested it and found the effect is not about roundness: a
-  $X.50 placebo produced the same result.
+  $X.50 placebo produced the same result. Re-tested on the full 534-symbol
+  archive with date clustering and a fixed 3-cent band: real minus placebo is
+  +0.1 bps at t=0.02 daily and +3.8 at t=0.94 intraday. Nothing.
+  **Any roundness test needs UNADJUSTED prices.** This archive is
+  split-adjusted, and the inverse levered funds have had large reverse splits —
+  SOXS's adjusted 2015 price is $11 million. A price that never traded cannot
+  be near a round number in any sense a human order ticket recognises.
 
 ## No-arbitrage relations
 
@@ -195,14 +201,24 @@ expensive to miss.
 - **An arbitrary seed is a free parameter.** Changing only the model seed moved
   a headline margin by sd 0.204 bps, against a claimed effect of ~1 bps. If a
   result moves when you reseed, that movement belongs in the error bar.
+- **Check that the event fires on what you think it does.** A round-number
+  condition compared a distance capped at 0.50 against a threshold of
+  `0.0015 × close`, so above $333 it matched EVERY bar: 2.7% of sub-$20 bars,
+  100% above $333. It was selecting expensive stocks, not round prices, and it
+  sat inside a standing result for months. Print the event rate, and print it
+  sliced by whatever the condition could be secretly keying on.
 
 ## Standing results
 
 Direction is dead — tested six ways including a genetic search that invented
 its own indicators. Price targets are worse than the random walk. Volatility is
 predictable but the predictable part is priced. Round-number and extreme-level
-resistance did not survive matched controls. Trend maturity is confounded by
-survivorship. Break *size and timing* looked promising at +0.10 AUC over a
+resistance did not survive matched controls — re-tested on all 534 symbols with
+date clustering, roundness is +0.1 bps at t=0.02, and the one surviving effect
+(stalling at a 20-bar high, −13.7 bps at t=−2.95) is carried entirely by
+1990–2004, the worst survivorship period; every decade since is insignificant,
+and on the twenty levered ETFs actually traded it is t=−1.70 daily and t=−0.24
+intraday. Trend maturity is confounded by survivorship. Break *size and timing* looked promising at +0.10 AUC over a
 vol-only baseline and collapsed to +0.002 once time-of-day was added — it was
 the intraday U-shape, which is already priced. The levered-ETF rebalancing
 mechanism is falsified: it predicts the edge concentrates in the last half
