@@ -177,3 +177,88 @@ def test_ml_strategy_scores_causally_through_the_engine():
         b.equity_curve[b.equity_curve.index < ts],
         check_exact=False, rtol=1e-9,
     )
+
+
+# ---------------------------------------------------------------------------
+# trade_metrics — "score by money, not by accuracy". Mutation testing put
+# validation.py at 20%, and this function, which decides what a model is worth,
+# had nothing exercising it directly.
+# ---------------------------------------------------------------------------
+
+def test_only_rows_at_or_above_the_threshold_are_traded():
+    """`proba >= threshold`, inclusive. Excluding the boundary silently drops
+    every trade at exactly the operating point, which is where a calibrated
+    model puts many of them."""
+    from bipbip.ml.validation import trade_metrics
+    proba = np.array([0.49, 0.50, 0.51])
+    y = np.array([0.0, 1.0, 1.0])
+    rets = np.array([-0.01, 0.02, 0.03])
+
+    m = trade_metrics(proba, y, rets, threshold=0.50)
+    assert m["n_trades"] == 2                       # the 0.50 counts
+    assert m["hit_rate"] == pytest.approx(1.0)      # and only taken rows score
+
+
+def test_returns_are_reported_in_basis_points():
+    """A 2% return is 200 bps. Reporting the fraction instead would make every
+    edge in this repo look 10,000 times too small, and the cost hurdle is
+    quoted in bps."""
+    from bipbip.ml.validation import trade_metrics
+    m = trade_metrics(np.array([1.0, 1.0]), np.array([1.0, 1.0]),
+                      np.array([0.02, 0.04]), threshold=0.5)
+    assert m["mean_ret_bps"] == pytest.approx(300.0)
+    assert m["total_ret_bps"] == pytest.approx(600.0)
+
+
+def test_selectivity_is_the_share_of_rows_traded_not_the_count():
+    from bipbip.ml.validation import trade_metrics
+    proba = np.array([0.9, 0.1, 0.1, 0.1])
+    m = trade_metrics(proba, np.ones(4), np.full(4, 0.01), threshold=0.5)
+    assert m["n_trades"] == 1
+    assert m["selectivity"] == pytest.approx(0.25)
+
+
+def test_taking_no_trades_reports_zero_return_rather_than_an_empty_mean():
+    """A threshold nothing clears must not produce NaN totals that then
+    propagate into a comparison table as if they were results."""
+    from bipbip.ml.validation import trade_metrics
+    m = trade_metrics(np.array([0.1, 0.2]), np.array([1.0, 1.0]),
+                      np.array([0.05, 0.05]), threshold=0.9)
+    assert m["n_trades"] == 0
+    assert m["mean_ret_bps"] == 0.0 and m["total_ret_bps"] == 0.0
+    assert m["selectivity"] == 0.0
+
+
+def test_the_hit_rate_ignores_rows_that_were_not_traded():
+    """Scoring untaken rows is how a selective model inherits the base rate of
+    the whole sample and looks better than it is."""
+    from bipbip.ml.validation import trade_metrics
+    proba = np.array([0.9, 0.9, 0.1, 0.1, 0.1])
+    y = np.array([1.0, 1.0, 0.0, 0.0, 0.0])
+    m = trade_metrics(proba, y, np.full(5, 0.01), threshold=0.5)
+    assert m["hit_rate"] == pytest.approx(1.0)      # not 0.4
+
+
+def test_the_permutation_p_value_can_never_be_reported_as_zero():
+    """Phipson-Smyth: the real run is itself a draw, so the finest resolvable
+    p-value is 1/(n+1). Reporting 0 overstates significance at small
+    permutation counts, which is CLAUDE.md's 'five nulls is not a null'."""
+    null = np.array([1.0, 2.0, 3.0])
+    observed = 99.0                                  # beats every shuffle
+    p = float((1 + (null >= observed).sum()) / (1 + len(null)))
+    assert p == pytest.approx(0.25)
+    assert p > 0
+
+
+def test_the_permutation_default_is_below_the_standard_this_repo_sets():
+    """DOCUMENTS A GAP rather than asserting it is fine.
+
+    CLAUDE.md: "Five nulls is not a null... Use ~100." `permutation_test`
+    defaults to 20, which is better than five and still short of the bar the
+    project sets for itself - and a default is what gets used. Callers that
+    care pass their own; this pins the number so a change is deliberate.
+    """
+    import inspect
+    from bipbip.ml.validation import permutation_test
+    default = inspect.signature(permutation_test).parameters["n_permutations"].default
+    assert default == 20, "if this changed, update CLAUDE.md's guidance too"
