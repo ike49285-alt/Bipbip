@@ -17,6 +17,18 @@ position is 99 shares, not a dollar figure you choose: at $500 the tradeable
 universe is stocks under about $5, at $2,000 it reaches $20, at $10,000 about
 $100. Thousands, not millions - but not $2.10 either.
 
+AND THE POPULATION IS NARROWER THAN THAT, which only became visible once real
+filings arrived rather than being reasoned about. Six of the first eight SC TO-I
+hits were non-traded closed-end funds and BDCs running periodic repurchases AT
+NAV - Ares, Crescent, Franklin. Those are not this opportunity in any form:
+there is no market price to buy below, the shares are not exchange-listed, and
+the "tender" is a redemption feature the fund owes its holders anyway. Only a
+LISTED issuer offers a premium to a price you could have paid, so `is_listed`
+gates on the ticker EDGAR appends for exchange-listed filers. Expect the
+tradeable rate to be a minority of an already small flow, and count filings and
+tradeable filings separately - conflating them would overstate the opportunity
+by roughly four to one on the only sample there is so far.
+
 ARCHITECTURE, AND WHY IT IS SPLIT THIS WAY. EDGAR is unreachable from the
 research session (every sec.gov endpoint returns a connection failure through
 the proxy) and reachable from the CI runner, which is how every bar and chain in
@@ -167,6 +179,37 @@ def parse_tender(text: str) -> dict:
     }
 
 
+_TICKER = re.compile(r"\(([A-Z][A-Z.\-]{0,5})\)")
+
+
+def ticker_from_display(display_name: str) -> str:
+    """The exchange ticker EDGAR appends for listed issuers, or "".
+
+    A display name reads "Arbutus Biopharma Corp  (ABUS)  (CIK 0001447380)"
+    for a listed company and "Ares Private Markets Fund  (CIK 0001876006)" for
+    one that is not. The CIK parenthetical is skipped; anything else in capitals
+    is the ticker.
+    """
+    for m in _TICKER.finditer(display_name or ""):
+        if m.group(1) != "CIK":
+            return m.group(1)
+    return ""
+
+
+def is_listed(row: dict) -> bool:
+    """Whether the issuer's shares can actually be bought on an exchange.
+
+    THIS IS THE GATE, and it was not obvious until real filings arrived. The
+    SC TO-I population is dominated by non-traded closed-end funds and BDCs
+    running periodic repurchases AT NAV - six of the first eight collected.
+    Those are not the odd-lot opportunity at all: there is no market price to
+    buy below, the shares are not exchange-listed, and the "tender" is a
+    redemption feature rather than a premium. Only a LISTED issuer offers what
+    this archive exists to find, and EDGAR marks them by appending a ticker.
+    """
+    return bool(row.get("ticker"))
+
+
 # --------------------------------------------------------------------------
 # Fetching. Only these two touch the network, and only CI can run them.
 # --------------------------------------------------------------------------
@@ -290,6 +333,7 @@ def hit_to_row(hit: dict) -> dict:
     the only way to build a fetchable URL from a search result.
     """
     src = hit.get("_source", {})
+    display = (src.get("display_names") or [""])[0]
     ident = hit.get("_id", "")
     accession, _, document = ident.partition(":")
     cik = (src.get("ciks") or [""])[0]
@@ -299,14 +343,23 @@ def hit_to_row(hit: dict) -> dict:
     return {
         "accession": accession,
         "cik": cik,
-        "company": (src.get("display_names") or [""])[0],
+        "company": display,
+        # EDGAR appends the exchange ticker to display_name for LISTED issuers
+        # and not for the rest, which turns out to be the single most useful
+        # field here - see `is_listed`.
+        "ticker": ticker_from_display(display),
         # EDGAR full-text search indexes DOCUMENTS, so a hit is usually an
         # exhibit - the Offer to Purchase - and `file_type` reads "EX-99.(A)"
-        # rather than the filing's form. root_form is the filing, which is what
-        # the archive is about; file_type is kept separately rather than
-        # overwriting it, because the first run wrote "EX-99" into a column
-        # named `form` and that would read as the filing type later.
-        "form": src.get("root_form") or "",
+        # rather than the filing's form. They are kept in separate columns
+        # because the first run wrote "EX-99" into one named `form`, where it
+        # would later read as the filing's type.
+        #
+        # `root_form` is NOT always present - a run that assumed it was left
+        # the column empty for every row - so the plural is tried too and the
+        # caller fills a blank from the form it filtered on, which is sound
+        # because the filter is what matched.
+        "form": (src.get("root_form")
+                 or (src.get("root_forms") or [""])[0] or ""),
         "doc_type": src.get("file_type") or "",
         "filed": src.get("file_date"),
         "url": url,

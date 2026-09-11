@@ -157,6 +157,45 @@ def test_the_normalised_agent_is_what_actually_goes_on_the_wire():
     assert sent["User-Agent"] == "Bipbip t@e.com"
 
 
+@pytest.mark.parametrize("display,expected", [
+    ("Arbutus Biopharma Corp  (ABUS)  (CIK 0001447380)", "ABUS"),
+    ("Ares Private Markets Fund  (CIK 0001876006)", ""),
+    ("Virtus Dividend, Interest & Premium Strategy Fund  (NFJ)  (CIK 1268884)",
+     "NFJ"),
+    ("Berkshire Hathaway Inc  (BRK.A)  (CIK 0001067983)", "BRK.A"),
+    ("", ""),
+])
+def test_a_ticker_is_read_from_the_display_name_and_cik_is_not_one(display,
+                                                                   expected):
+    """The CIK parenthetical sits in the same position and is all capitals, so
+    a naive parenthesis grab returns "CIK" for every unlisted issuer - which
+    would mark the entire non-traded population as tradeable."""
+    assert edgar.ticker_from_display(display) == expected
+
+
+def test_listed_is_the_gate_and_non_traded_funds_do_not_pass():
+    """Not obvious until real filings arrived: six of the first eight SC TO-I
+    hits were non-traded closed-end funds repurchasing AT NAV. Those are a
+    redemption feature, not the odd-lot opportunity - there is no market price
+    to buy below and the shares are not exchange-listed."""
+    assert edgar.is_listed({"ticker": "ABUS"}) is True
+    assert edgar.is_listed({"ticker": ""}) is False
+    assert edgar.is_listed({}) is False
+
+
+def test_the_filing_form_falls_back_to_the_plural_key():
+    """root_form is NOT always present. A run that assumed it was left the
+    column empty for all eight rows - the previous code only looked right
+    because it was silently falling through to the EXHIBIT type."""
+    row = edgar.hit_to_row({"_id": "a-b:c.htm",
+                            "_source": {"ciks": ["1"], "root_forms": ["SC TO-I"]}})
+    assert row["form"] == "SC TO-I"
+    blank = edgar.hit_to_row({"_id": "a-b:c.htm", "_source": {"ciks": ["1"],
+                                                              "file_type": "EX-99"}})
+    assert blank["form"] == ""          # not the exhibit type
+    assert blank["doc_type"] == "EX-99"
+
+
 def test_a_search_hit_becomes_a_fetchable_url():
     """EDGAR's accession number carries dashes and the directory does not, so
     the URL cannot be built by concatenating the id as it arrives."""

@@ -37,7 +37,8 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from bipbip.data import edgar
 
 OUT = pathlib.Path("data/tenders.csv")
-FIELDS = ["accession", "cik", "company", "form", "doc_type", "filed", "url",
+FIELDS = ["accession", "cik", "company", "ticker", "listed", "form",
+          "doc_type", "filed", "url",
           "odd_lot", "price_low", "price_high", "dutch_auction", "expires",
           "chars", "collected_at"]
 
@@ -184,7 +185,7 @@ def main():
     out = pathlib.Path(a.out)
     out.parent.mkdir(parents=True, exist_ok=True)
     seen = existing(out)
-    new = 0
+    new = n_listed = 0
     write_header = not out.exists()
 
     with out.open("a", newline="") as fh:
@@ -210,20 +211,34 @@ def main():
                 print(f"  FETCH FAILED {row['accession']}: "
                       f"{type(exc).__name__} {str(exc)[:100]}", flush=True)
                 continue
+            # The search filtered on this form and EDGAR matched, so a blank
+            # root_form in the response is a gap in the response rather than an
+            # unknown filing type.
+            row["form"] = row["form"] or edgar.TENDER_FORMS[0]
+            row["listed"] = edgar.is_listed(row)
             row.update(edgar.parse_tender(body))
             row["collected_at"] = dt.datetime.now(dt.timezone.utc).isoformat()
             w.writerow(row)
             seen.add(row["accession"])
             new += 1
+            n_listed += bool(row["listed"])
             flag = "ODD-LOT" if row["odd_lot"] else "       "
+            mkt = row["ticker"] or "unlisted"
             px = (f"${row['price_low']:.2f}" if row["price_low"] else "  ?  ")
             if row["dutch_auction"]:
                 px += f"-${row['price_high']:.2f}"
-            print(f"  {flag} {row['filed']} {row['company'][:38]:<38} {px}",
-                  flush=True)
+            print(f"  {flag} {mkt:>8} {row['filed']} "
+                  f"{row['company'][:34]:<34} {px}", flush=True)
 
     total = len(seen)
     print(f"\n{new} new, {total} in archive -> {out}")
+    if new:
+        # The count that matters is not how many filings were archived. Most
+        # SC TO-I filers are non-traded funds repurchasing at NAV, which is a
+        # redemption feature rather than the odd-lot opportunity, so the
+        # tradeable subset is reported separately rather than being buried.
+        print(f"({n_listed} of {new} are exchange-listed issuers; the rest are "
+              f"non-traded funds repurchasing at NAV)")
     if new == 0:
         # Not an error. Most weeks have few issuer tender offers, and a quiet
         # week must not look like a broken collector - the fetch layer raises
