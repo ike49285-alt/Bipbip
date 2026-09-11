@@ -420,6 +420,34 @@ continuous-book slippage. Until then this is open rather than closed, and the
 script prints all three columns instead of choosing one.
 `scripts/overnight_split.py`.
 
+**Turn-of-month was sitting in the codebase as a registered strategy, unrecorded
+here, untested, and claiming more than it can support.**
+`bipbip/strategies/turn_of_month.py` is selectable by name from
+`cross_sectional.py` and appeared nowhere in this file or the README. Its
+docstring claimed a non-decaying effect confirmed on eight held-out assets at
+"roughly a one-in-256 coincidence".
+
+The effect itself reproduces: SPY's in-window sessions return **+7.50 bps a day
+against +1.97** for the rest, and twelve broad ETFs all show it. Three claims
+around it do not, each a trap this file already names:
+
+- **It loses to buy-and-hold.** 2002–2026, SPY in-window and SHY outside, 24
+  switches a year: **8.41% against SPY's 11.24%**, behind by 2.83 points
+  *before* cost. The old text compared 7.39% to 5.17% — this strategy against
+  another version of itself. Being out of the market two thirds of the year
+  forfeits more drift than the window gains.
+- **"Eight of eight" is not eight observations.** Those assets share dates and
+  most of their variance. One observation per date takes the pooled t from
+  **10.42 to 2.70**.
+- **It has decayed.** Claimed 9.36/7.24/8.52/7.98 bps and called that stable.
+  Measured per date: +5.74 (t=1.21), +14.37 (t=2.32), +4.72 (t=1.16), **+2.08
+  (t=0.34)**. Carried by 2000–2009.
+
+What survives is narrow and real: the in-window minus out-of-window spread, one
+observation per block so nothing overlaps, is **+50.7 bps over 290 blocks at
+t=2.93**, holding in both halves (+52.4 and +49.0). That is a long-short spread,
+not a rotation — the leg you would be short is the market itself.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a

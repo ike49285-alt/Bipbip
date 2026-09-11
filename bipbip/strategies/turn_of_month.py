@@ -1,34 +1,40 @@
 """Turn-of-month rotation.
 
-A disproportionate share of the equity risk premium has historically arrived in
-the few sessions surrounding each month boundary. On SPY over 34 years those
-days returned 8.20 bps each against 2.5 bps for the rest of the month, and the
-gap is not a recent artefact: it measures 9.36, 7.24, 8.52 and 7.98 bps across
-the four decades from 1993, spanning the dot-com collapse and 2008, while the
-non-boundary days swing from +6.17 to -4.63.
+A disproportionate share of the equity risk premium arrives in the few sessions
+surrounding each month boundary. That much REPRODUCES: on the archive, SPY's
+in-window sessions return +7.50 bps a day against +1.97 for the rest, and the
+twelve broad ETFs checked all show it in the same direction.
 
-That stability is what distinguishes this from everything else tested in this
-project. The meta-labelling edge lived entirely in 1995-2002 and was gone by
-2014; this one has not decayed.
+WHAT THIS STRATEGY DOES WITH IT DOES NOT WORK, and the earlier version of this
+docstring overstated the case in three separate ways. Each is a trap CLAUDE.md
+names explicitly, so they are recorded rather than quietly deleted.
 
-Evidence, and its limits:
+  * IT LOSES TO BUY-AND-HOLD. 2002-2026, holding SPY in the window and SHY
+    outside it, 24 switches a year: 8.41% a year against SPY's 11.24% - behind
+    by 2.83 points BEFORE any cost, and cost barely moves it (8.37% at SPY's
+    0.133 bps crossing, 7.81% at the modelled 2.28). The per-day effect is
+    real and it is not harvestable this way: being out of the market for two
+    thirds of the year forfeits more drift than the window gains. The old text
+    compared 7.39% against 5.17%, which is this strategy against ANOTHER
+    VERSION OF ITSELF. The benchmark is buy-and-hold.
+  * "EIGHT OF EIGHT IS ONE IN 256" IS NOT AN INDEPENDENT COUNT. Those eight
+    assets share the same dates and most of their variance; a market-wide
+    turn-of-month effect gives eight correlated draws, not eight coin flips.
+    Collapsing to one observation per date takes the pooled t from 10.42 to
+    2.70 - the clustering trap, to a factor of four.
+  * IT HAS DECAYED. The old text claimed 9.36, 7.24, 8.52 and 7.98 bps across
+    the four decades and called that stability. Measured with one observation
+    per date: +5.74 (t=1.21), +14.37 (t=2.32), +4.72 (t=1.16) and +2.08
+    (t=0.34). It is carried by 2000-2009 and the last six years are nothing.
 
-  * Shifting the eight-day window to any other phase of the month drops the
-    return to 2.97 bps on average, best case 5.30.
-  * Eight assets not used to find the effect - EFA, EEM, XLV, XLI, XLB, VNQ,
-    EWJ, MDY - all show it, and in most the non-boundary days earn nothing or
-    less. Eight of eight is roughly a one-in-256 coincidence.
-  * A permutation test on SPY ALONE gives p = 0.081, which is not conventional
-    significance. The cross-asset consistency carries this result, not the
-    single-asset p-value, and that is worth remembering before sizing it.
+What survives is narrow and worth stating exactly, because it is not nothing:
+the in-window minus out-of-window spread, sampled once per in-window block so
+the observations do not overlap, is +50.7 bps over 290 blocks at t=2.93, and it
+holds in both halves (+52.4 and +49.0). That is a real long-short spread. It is
+not a rotation strategy, because the leg you would be short is the market.
 
-Mechanically it is cheap: about 24 switches a year, so costs take roughly
-0.28% annually rather than the 5.7% that daily trading would.
-
-The capital is parked in short Treasuries between windows rather than left in
-cash, because idle money earning nothing for two thirds of the year is what
-turned the equivalent single-asset version from a 7.39% strategy into a 5.17%
-one.
+The window is counted in SESSIONS rather than calendar days so a holiday cannot
+shift it off the boundary it straddles.
 """
 from __future__ import annotations
 
