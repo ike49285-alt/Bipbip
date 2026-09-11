@@ -57,13 +57,33 @@ def existing(path: pathlib.Path) -> set:
         return set()
     with path.open() as fh:
         rdr = csv.DictReader(fh)
-        if rdr.fieldnames and list(rdr.fieldnames) != FIELDS:
+        on_disk = list(rdr.fieldnames or [])
+        rows = list(rdr)
+
+    if on_disk and on_disk != FIELDS:
+        unknown = [c for c in on_disk if c not in FIELDS]
+        if unknown:
+            # A column that no longer exists cannot be carried forward without
+            # deciding what it meant, and guessing is how an archive quietly
+            # stops meaning what it says.
             raise SystemExit(
-                f"{path} was written with a different schema and appending "
-                f"would misalign every column.\n  on disk: {rdr.fieldnames}\n"
-                f"  expected: {FIELDS}\nDelete the file to re-collect, or "
-                f"migrate it; the archive is cheap to rebuild from EDGAR.")
-        return {r["accession"] for r in rdr}
+                f"{path} has columns this collector does not know: {unknown}.\n"
+                f"  on disk: {on_disk}\n  expected: {FIELDS}\n"
+                f"Migrate or delete it; appending would misalign every row.")
+        # Additions only, so the migration is lossless: rewrite under the new
+        # header with the new columns blank. Appending instead would misalign
+        # every column from the first new one onward, and a misaligned archive
+        # is worse than none because it still looks fine.
+        print(f"  migrating {path.name}: {len(on_disk)} columns -> "
+              f"{len(FIELDS)}, adding {[c for c in FIELDS if c not in on_disk]}",
+              flush=True)
+        with path.open("w", newline="") as fh:
+            w = csv.DictWriter(fh, fieldnames=FIELDS)
+            w.writeheader()
+            for r in rows:
+                w.writerow({k: r.get(k, "") for k in FIELDS})
+
+    return {r["accession"] for r in rows}
 
 
 def probe(query, start, end, ua):

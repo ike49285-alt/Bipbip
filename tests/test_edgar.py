@@ -398,10 +398,24 @@ def test_appending_to_an_archive_with_a_different_schema_is_refused(tmp_path):
     ct = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(ct)
 
+    # Columns ADDED since the file was written: lossless, so it migrates.
     stale = tmp_path / "tenders.csv"
-    stale.write_text("accession,cik,company,form,filed,url\nA,1,X,SC TO-I,,\n")
-    with pytest.raises(SystemExit, match="different schema"):
-        ct.existing(stale)
+    stale.write_text("accession,cik,company,form,filed,url\n"
+                     "A,1,Widget Co,SC TO-I,2026-09-01,http://x\n")
+    assert ct.existing(stale) == {"A"}
+    migrated = stale.read_text().splitlines()
+    assert migrated[0].split(",") == ct.FIELDS
+    # and the data that WAS there survives the rewrite
+    assert "Widget Co" in migrated[1] and "SC TO-I" in migrated[1]
+    # idempotent: a second pass is a no-op rather than a second migration
+    assert ct.existing(stale) == {"A"}
+
+    # A column that no longer exists cannot be carried forward without
+    # deciding what it meant, so that one is refused rather than guessed.
+    weird = tmp_path / "weird.csv"
+    weird.write_text("accession,mystery_column\nB,?\n")
+    with pytest.raises(SystemExit, match="does not know"):
+        ct.existing(weird)
 
     good = tmp_path / "ok.csv"
     good.write_text(",".join(ct.FIELDS) + "\n")
