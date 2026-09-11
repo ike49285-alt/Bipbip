@@ -209,3 +209,40 @@ def test_going_flat_preserves_capital_in_a_crash():
     held = PortfolioEngine(CostModel(), starting_equity=50.0,
                            settle_days=0).run(panel, AbstainAfter(cut=300))
     assert flat.final_equity > held.final_equity * 1.5
+
+
+def test_a_cash_constrained_buy_never_holds_a_fraction_of_a_share():
+    """The fractional-share leak, found by mutation testing `portfolio.py`.
+
+    Quantity is truncated to whole shares BEFORE the affordability check. When
+    the order then failed to fit in settled cash, the engine re-solved the
+    quantity against the cash available and never re-truncated it - so a cash
+    account configured for whole shares ended up holding a fraction of one.
+
+    It needs a non-zero commission to reach, because the branch only fires when
+    the fee exceeds the change left by truncation, and Webull's commission is
+    zero. The cost model is configurable precisely so it survives a change of
+    broker, so "it cannot happen with today's broker" is not a reason to leave
+    it. Prices are chosen so the truncation remainder is a cent against a
+    one-dollar commission.
+    """
+    costs = CostModel(commission_per_trade=1.00, slippage_bps={"default": 0.0})
+    eng = PortfolioEngine(costs, starting_equity=100.0, allow_fractional=False)
+
+    # Driven through _rebalance directly, with settled cash and price chosen so
+    # the branch is actually entered: 3 whole shares at 33.33 leaves one cent
+    # against a one-dollar commission, so the order does not fit and has to be
+    # re-solved. Going through run() instead would depend on the engine's
+    # equity bookkeeping choosing these numbers, which it does not.
+    trades = []
+    cash, settled, shares, filled, short = eng._rebalance(
+        target={"AAA": 1.0}, shares={}, cash=100.0, settled=100.0,
+        opens={"AAA": 33.33}, tradeable=["AAA"], equity=100.0, i=0,
+        pending_settlement=[], trades=trades, ts=pd.Timestamp("2015-01-05"))
+
+    assert trades, "the branch under test was not reached"
+    for t in trades:
+        assert float(t["shares"]).is_integer(), t
+    assert all(float(v).is_integer() for v in shares.values()), shares
+    # ...and it still must not spend more than the settled cash it had.
+    assert cash >= -1e-9 and settled >= -1e-9

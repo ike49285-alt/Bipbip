@@ -392,7 +392,32 @@ class PortfolioEngine:
             fees = self.costs.fees(BUY, qty, fill)
             cost = qty * fill + fees
             if cost > settled + 1e-9:
-                qty = max((settled - fees) / fill, 0.0)
+                # Re-solve inside the settled cash. Two things were missing
+                # here and both matter.
+                #
+                # The quantity has to be RE-TRUNCATED. The truncation above
+                # runs before this branch, so a cash account that landed here
+                # bought a FRACTION of a share - allow_fractional=False was
+                # silently violated on exactly this path. It needs a non-zero
+                # commission to reach (Webull's is zero), but this class is
+                # configurable precisely so it survives a change of broker.
+                #
+                # The fee has to be RE-DERIVED, because the one above was
+                # computed for the larger order and a per-share fee is not
+                # constant in quantity. Iterating settles both: each pass
+                # recomputes the quantity the current fee allows, and stops
+                # when the fee stops moving. Truncating to whole shares makes
+                # qty * fill <= settled - fees exactly, so the result fits.
+                for _ in range(64):
+                    qty = max((settled - fees) / fill, 0.0)
+                    if not self.allow_fractional:
+                        qty = float(int(qty))
+                    if qty <= 0:
+                        break
+                    new_fees = self.costs.fees(BUY, qty, fill)
+                    if abs(new_fees - fees) <= 1e-12:
+                        break
+                    fees = new_fees
                 cost = qty * fill + fees
             if qty <= 0:
                 shortfall += need
