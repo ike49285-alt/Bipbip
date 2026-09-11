@@ -159,11 +159,23 @@ def parse_tender(text: str) -> dict:
 # --------------------------------------------------------------------------
 
 def _require_user_agent(user_agent: str | None) -> str:
-    if not user_agent or "@" not in user_agent:
+    """The contact address the SEC requires, normalised to one header line.
+
+    Whitespace is COLLAPSED rather than merely stripped, and the reason is not
+    cosmetic. A value pasted into a CI variable box across two lines arrives as
+    "Bipbip Research \\r\\nike49285@gmail.com", and `requests` refuses to send a
+    header containing CR or LF at all - so the collector died before its first
+    request with a traceback that named the header rather than the cause. A
+    newline in a header value is also how header injection is spelled, so
+    removing it is the correct handling in both directions; the address itself
+    is what the SEC actually asks for and it survives intact.
+    """
+    ua = _WS.sub(" ", user_agent or "").strip()
+    if not ua or "@" not in ua:
         raise ValueError(
             "SEC requires a User-Agent carrying a real contact address, e.g. "
             "'Bipbip Research you@example.com'. Set SEC_USER_AGENT.")
-    return user_agent
+    return ua
 
 
 def full_text_search(query: str, forms=TENDER_FORMS, date_from: str | None = None,
