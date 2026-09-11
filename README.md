@@ -554,9 +554,13 @@ bars to exist and `NaN > x` is False rather than unknown - the same bug this
 project already shipped once in a market filter that read as "below its
 average" for thirty years it had no data for.
 
-**Intraday, and the cost hurdle that defines it.** The minute archive holds 21
-sessions and grows by one a day, so no intraday strategy here can be validated
-for roughly a year. What CAN be settled now is whether one is possible at all,
+**Intraday, and the cost hurdle that defines it.** The minute archive grows by
+one session a day and is still short: as of 2026-09-11 the longest-collected
+symbols (SPY, TQQQ, XLF) hold 71-73 sessions back to 2026-05-27, while the
+median symbol holds 21, because the broad universe was only added in September
+and a Yahoo minute fetch reaches back 29 days. So no intraday strategy here can
+be validated for roughly a year, and a test spanning the whole universe is
+limited by the 21, not the 73. What CAN be settled now is whether one is possible at all,
 because that turns on the size of a move against the cost of capturing it, and
 a short sample estimates a move distribution far better than it estimates an
 edge.
@@ -704,13 +708,21 @@ lower-priced underlying, where an at-the-money option costs a fraction as much -
 at the cost of a wider spread on a less liquid chain, which is the trade-off to
 measure next rather than assume.
 
-**Survivorship, measured.** The archive holds 309 symbols and almost every test
-here uses one or two, which invites a fair question: why collect them if they
-are not traded? Part of the answer was an oversight - the two strategies that
-exist to RANK a universe had not been re-run since dividends were restored or
-since the engine bug that left momentum's absolute filter inoperative. The
-larger part is that 273 of those symbols cannot support the test anyone would
-want to run on them.
+**Survivorship, measured.** The archive holds **550 symbols** on daily bars as
+of 2026-09-11 - it grows every time the collectors run, so that figure is dated
+rather than fixed - and almost every test here uses one or two, which invites a
+fair question: why collect them if they are not traded? Part of the answer was
+an oversight: the two strategies that exist to RANK a universe had not been
+re-run since dividends were restored or since the engine bug that left
+momentum's absolute filter inoperative.
+
+The larger part is that only **34** of them can support the test anyone would
+want to run. That is `etf_wide`, the one universe flagged `mild`; every stock
+list is flagged SEVERE, `largecap250` being 273 of them. The universe sizes are
+code, so they are pinned by a test; the archive count is not, which is why it
+is given with a date. An earlier version of this paragraph said 309 and 273,
+having conflated the archive's size with largecap250's, and the first number
+had rotted by 241 symbols before anyone re-read it.
 
 The stock lists are 2026 index membership, so every company that failed is
 absent. Running identical code over the identical window on a clean ETF
