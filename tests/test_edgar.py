@@ -115,7 +115,8 @@ def test_an_impossible_date_is_rejected_not_clamped():
     assert edgar.expiration_date("the Offer will expire on February 31, 2026") is None
 
 
-@pytest.mark.parametrize("ua", [None, "", "Bipbip Research", "no-at-sign"])
+@pytest.mark.parametrize("ua", [None, "", "Bipbip Research", "no-at-sign",
+                                "   ", "\n\n"])
 def test_fetching_without_a_contact_address_is_refused(ua):
     """The SEC blocks anonymous automated access, so failing here with a clear
     message beats being silently throttled or banned in CI."""
@@ -123,6 +124,36 @@ def test_fetching_without_a_contact_address_is_refused(ua):
         edgar.full_text_search("odd lot", user_agent=ua)
     with pytest.raises(ValueError, match="contact address"):
         edgar.fetch_document("https://example.com/x.htm", user_agent=ua)
+
+
+def test_a_user_agent_pasted_across_two_lines_still_sends():
+    """The collector's real first failure, pinned.
+
+    A contact address entered into a CI variable box over two lines arrives
+    carrying CR and LF. `requests` refuses to send a header containing either,
+    so the run died on its FIRST call with an InvalidHeader traceback - the
+    variable was set correctly by any reasonable reading and the collector
+    still could not start. Collapsing the whitespace is also what stops a
+    newline in a header value being an injection, so it is right either way.
+    """
+    ua = edgar._require_user_agent("Bipbip Research \r\nike49285@gmail.com")
+    assert ua == "Bipbip Research ike49285@gmail.com"
+    assert "\r" not in ua and "\n" not in ua
+
+
+def test_the_normalised_agent_is_what_actually_goes_on_the_wire():
+    """Normalising and then sending the ORIGINAL would fix nothing."""
+    sent = {}
+
+    class _Capture:
+        def get(self, url, params=None, headers=None, timeout=None):
+            sent.update(headers)
+            raise RuntimeError("stop here; the header is what is under test")
+
+    with pytest.raises(RuntimeError):
+        edgar.full_text_search("odd lot", user_agent="Bipbip\r\n t@e.com",
+                               session=_Capture())
+    assert sent["User-Agent"] == "Bipbip t@e.com"
 
 
 def test_a_search_hit_becomes_a_fetchable_url():
