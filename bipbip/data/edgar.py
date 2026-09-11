@@ -29,6 +29,30 @@ tradeable rate to be a minority of an already small flow, and count filings and
 tradeable filings separately - conflating them would overstate the opportunity
 by roughly four to one on the only sample there is so far.
 
+THE FIRST MEASURED FLOW, and it is the number that decides whether any of this
+is worth doing. Thirty days of SC TO-I, 2026-08-12 to 2026-09-11:
+
+    26  documents matched "odd lot" on the form filter
+     8  distinct filings archived
+     6  carry an odd-lot provision
+     2  are exchange-listed issuers        (ABUS, NFJ)
+     1  is BOTH listed and odd-lot         (ABUS)
+
+So the actionable rate is on the order of ONE filing a month, not the "stocks
+under about $5" the capital note above might suggest. That is not fatal - the
+position is 99 shares and the holding period is weeks, so one a month is a
+cadence a small account can actually work - but it does decide the shape of
+everything downstream. There is no portfolio here and no diversification; there
+is a queue. Anything built on this has to survive being a single position at a
+time, which is the opposite of what CLAUDE.md's sizing section assumes when it
+warns that correlated positions are one bet. Here there is only one bet because
+there is only one opportunity.
+
+One month is also one month. Tender flow is lumpy and seasonal, so treat this
+as an order of magnitude rather than a rate until the archive is a year deep -
+which is the entire reason it is being collected now rather than when the
+capital exists.
+
 ARCHITECTURE, AND WHY IT IS SPLIT THIS WAY. EDGAR is unreachable from the
 research session (every sec.gov endpoint returns a connection failure through
 the proxy) and reachable from the CI runner, which is how every bar and chain in
