@@ -178,6 +178,25 @@ def _require_user_agent(user_agent: str | None) -> str:
     return ua
 
 
+def search_params(query: str, forms=TENDER_FORMS, date_from: str | None = None,
+                  date_to: str | None = None) -> dict:
+    """The query EDGAR actually receives, built in one place so it is testable.
+
+    `forms` of None omits the filter entirely, which is what the canary below
+    needs: a query with no form restriction must return something over any
+    30-day window, so an empty result from it means the ENDPOINT is wrong
+    rather than the period being quiet.
+    """
+    params = {"q": query}
+    if forms:
+        params["forms"] = ",".join(forms)
+    if date_from:
+        params["dateRange"] = "custom"
+        params["startdt"] = date_from
+        params["enddt"] = date_to or date_from
+    return params
+
+
 def full_text_search(query: str, forms=TENDER_FORMS, date_from: str | None = None,
                      date_to: str | None = None, user_agent: str | None = None,
                      session=None) -> list[dict]:
@@ -190,15 +209,31 @@ def full_text_search(query: str, forms=TENDER_FORMS, date_from: str | None = Non
     import requests
 
     ua = _require_user_agent(user_agent)
-    params = {"q": query, "forms": ",".join(forms)}
-    if date_from:
-        params["dateRange"] = "custom"
-        params["startdt"] = date_from
-        params["enddt"] = date_to or date_from
+    params = search_params(query, forms, date_from, date_to)
     get = (session or requests).get
     r = get(FTS_URL, params=params, headers={"User-Agent": ua}, timeout=30)
     r.raise_for_status()
     return r.json().get("hits", {}).get("hits", [])
+
+
+def total_hits(query: str, forms=TENDER_FORMS, date_from: str | None = None,
+               date_to: str | None = None, user_agent: str | None = None,
+               session=None) -> int:
+    """How many documents EDGAR says MATCHED, not how many it returned.
+
+    The search is paged, so `len(hits)` caps at a page and cannot distinguish
+    "ten matches" from "ten thousand". The total is what a canary needs.
+    """
+    import requests
+
+    ua = _require_user_agent(user_agent)
+    params = search_params(query, forms, date_from, date_to)
+    get = (session or requests).get
+    r = get(FTS_URL, params=params, headers={"User-Agent": ua}, timeout=30)
+    r.raise_for_status()
+    total = r.json().get("hits", {}).get("total", 0)
+    # Elasticsearch reports this either as a bare int or as {"value": n}.
+    return int(total.get("value", 0)) if isinstance(total, dict) else int(total)
 
 
 def fetch_document(url: str, user_agent: str | None = None, session=None) -> str:

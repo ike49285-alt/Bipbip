@@ -49,6 +49,49 @@ def existing(path: pathlib.Path) -> set:
         return {r["accession"] for r in csv.DictReader(fh)}
 
 
+def probe(query, start, end, ua):
+    """Which parameter is voiding the search, answered in one CI run.
+
+    sec.gov is unreachable from a research session, so a wrong parameter can
+    only be diagnosed here - and diagnosing it by changing one thing per run
+    costs a round trip each time. This varies them together instead and prints
+    a count for every cell, so the empty column names the culprit.
+
+    The suspects, in order of likelihood: "SC TO-I/A" may not be a valid value
+    for the `forms` filter (EDGAR folds amendments under the root form), and a
+    single invalid entry can void the whole filter; the date parameters may
+    need `dateRange=custom` or may reject it; and the quoted phrase may need to
+    be unquoted.
+    """
+    cases = [
+        ("both forms, dates", dict(forms=edgar.TENDER_FORMS,
+                                   date_from=start.isoformat(),
+                                   date_to=end.isoformat())),
+        ("root form only, dates", dict(forms=("SC TO-I",),
+                                       date_from=start.isoformat(),
+                                       date_to=end.isoformat())),
+        ("no form filter, dates", dict(forms=None,
+                                       date_from=start.isoformat(),
+                                       date_to=end.isoformat())),
+        ("both forms, no dates", dict(forms=edgar.TENDER_FORMS)),
+        ("root form only, no dates", dict(forms=("SC TO-I",))),
+        ("no form filter, no dates", dict(forms=None)),
+    ]
+    print(f"probing {edgar.FTS_URL}\n")
+    print(f"{'case':>28} {'query':>12} {'total':>8}")
+    for label, kw in cases:
+        for q in (query, query.strip('"')):
+            try:
+                n = edgar.total_hits(q, user_agent=ua, **kw)
+                print(f"{label:>28} {q:>12} {n:>8}", flush=True)
+            except Exception as exc:
+                print(f"{label:>28} {q:>12} {type(exc).__name__}: "
+                      f"{str(exc)[:60]}", flush=True)
+            time.sleep(1.0 / edgar.SEC_RATE_LIMIT_PER_SEC)
+    print("\nA row reading 0 where a neighbour reads many names the parameter "
+          "that voids the search.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", type=int, default=7,
@@ -58,6 +101,10 @@ def main():
                     help="full-text query; the default finds the provision "
                          "directly, but the FILING is what gets parsed")
     ap.add_argument("--out", default=str(OUT))
+    ap.add_argument("--probe", action="store_true",
+                    help="do not collect; print hit counts across a matrix of "
+                         "query parameters so ONE run identifies which one "
+                         "voids the search")
     a = ap.parse_args()
 
     ua = os.environ.get("SEC_USER_AGENT")
@@ -72,9 +119,36 @@ def main():
     print(f"EDGAR {edgar.TENDER_FORMS} matching {a.query} "
           f"{start} -> {end}", flush=True)
 
+    if a.probe:
+        return probe(a.query, start, end, ua)
+
     hits = edgar.full_text_search(a.query, date_from=start.isoformat(),
                                   date_to=end.isoformat(), user_agent=ua)
     print(f"  {len(hits)} hits", flush=True)
+
+    # THE CANARY. Zero hits reads exactly like a quiet period, and the first
+    # real run of this collector returned zero over a THIRTY-day window - which
+    # is not credible for SC TO-I and was therefore a broken query wearing a
+    # quiet week's clothes. The only way to tell the two apart is to ask a
+    # question that cannot legitimately be empty: the same text and dates with
+    # NO form filter at all. EDGAR indexes thousands of documents a day, so if
+    # that is also zero the endpoint or the parameters are wrong, not the
+    # calendar.
+    if not hits:
+        control = edgar.total_hits(a.query, forms=None,
+                                   date_from=start.isoformat(),
+                                   date_to=end.isoformat(), user_agent=ua)
+        print(f"  canary: {control} documents match {a.query} with no form "
+              f"filter over the same dates", flush=True)
+        if control == 0:
+            raise SystemExit(
+                f"EDGAR returned NOTHING for {a.query} over {start} -> {end} "
+                f"even with no form filter. That is not a quiet period - the "
+                f"endpoint ({edgar.FTS_URL}) or the parameters are wrong. Run "
+                f"with --probe to see which parameter voids the query.")
+        print(f"  ({control} unfiltered, 0 on {edgar.TENDER_FORMS}: the form "
+              f"filter is what is empty, which is a real quiet period)",
+              flush=True)
 
     # The response SHAPE is the one thing that cannot be verified from a
     # research session, because sec.gov is unreachable there. If EDGAR returns

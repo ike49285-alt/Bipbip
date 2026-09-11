@@ -27,6 +27,10 @@ on:
         description: "End date YYYY-MM-DD (blank = today)"
         required: false
         default: ""
+      probe:
+        description: "Diagnose the query instead of collecting (true/false)"
+        required: false
+        default: "false"
 
 permissions:
   contents: write
@@ -60,7 +64,8 @@ jobs:
         run: |
           python scripts/collect_tenders.py \
             --days "${{ github.event.inputs.days || '7' }}" \
-            ${{ github.event.inputs.end && format('--end {0}', github.event.inputs.end) || '' }}
+            ${{ github.event.inputs.end && format('--end {0}', github.event.inputs.end) || '' }} \
+            ${{ github.event.inputs.probe == 'true' && '--probe' || '' }}
 
       - name: Commit
         run: |
