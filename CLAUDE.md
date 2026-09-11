@@ -276,8 +276,9 @@ premium is negative in 14% of windows and the worst is −26.0 points against a
 mean of +3.3, and that eight-to-one ratio is precisely what is being paid for.
 **The vehicle decides it**: one half-spread costs 0.1 vol points on SPY, 7.8 on
 TQQQ, 18.6 on SOXL — where it eats the whole premium. The repo's earlier
-"selling premium is approximately zero" was measured on TQQQ only, so it was a
-statement about the vehicle. **And it is not yet a strategy**: turning vol
+"selling premium is approximately zero" was measured on TQQQ only, so the
+vehicle is part of why — but that attribution was too generous to it, and the
+correction is below. **And it is not yet a strategy**: turning vol
 points into dollars needs a structure that pays its own spread and owns its own
 tail, the window is 4.7 years and one regime containing 2022 but not 2008 or
 March 2020, and VIX itself is not tradeable. `scripts/variance_premium.py`.
@@ -296,6 +297,40 @@ That was this repo's own `sorted(glob)[-1]` defect — the one that stopped
 written the same session it was documented. The chain is now pinned with
 `--chain` and the default mode sweeps every snapshot. **A single-snapshot
 structure price is one draw, not a measurement.**
+
+**And `spread_edge.py` was worse than that diagnosis, which was itself wrong.**
+Pinning the chain does not restore its committed "6 of 53 spreads positive,
+none clearing its own confidence interval". On the ORIGINAL snapshot it now
+reads 45 of 53 positive and 42 of them flagged `EDGE`. The glob explains only
+the COUNT drifting 53 → 84 as new snapshots landed; the SIGN came from
+somewhere else entirely.
+
+The historical sample is vol-matched — forward moves drawn only from days whose
+realised vol is within ±15% of an anchor — and that anchor was
+`vol.dropna().iloc[-1]`, the last bar in the BAR archive rather than the day the
+chain was quoted. So every bar collected silently re-anchored the whole sample.
+The result is monotonic in it, on one fixed chain:
+
+    anchor   0.25  0.30  0.35  0.40  0.45  0.50  0.55  0.60
+    positive   82    82    77    67    48    29    12     9   (of 84)
+    EDGE       78    80    73    53    28    12     1     0
+
+TQQQ's realised vol fell 0.43 → 0.31 on 2026-09-09, and the published verdict
+walked from "approximately zero" to "EDGE" on that alone. **The anchor was a
+free parameter nobody had declared**, which is this file's own "an arbitrary
+seed is a free parameter" in a different costume.
+
+Naming the return source explains why the sign is not a finding. The CREDIT
+carries today's IMPLIED vol; the LOSSES come from days matched on REALISED vol.
+The gap between those is the variance risk premium — already measured directly
+above at +3.32 points, and already shown not to convert once a structure pays
+its own spread. It is at its widest exactly when realised has just collapsed
+and implied has not yet followed, which is the regime standing on the day this
+re-ran. So the honest reading of `spread_edge.py` is **not** that selling
+short-dated TQQQ call spreads is an edge; it is that a vol-matched backtest
+paid at today's quotes measures the premium twice. The anchor now defaults to
+the vol standing on the chain's own quote date, `--anchor` overrides it, and
+the sensitivity curve above prints on every run rather than one column of it.
 
 Three things survive the sweep because they hold on every snapshot: the
 vol-matched arm beats full-history on all nine by 8–18 points of on-risk return

@@ -11,8 +11,17 @@ WHY IT WAS WORTH RE-ASKING. The repo already closed "selling defined-risk
 premium" as approximately zero - but measured it only on TQQQ, whose options
 quote 11.2% of mid near the money against SPY's 2.3%. Converted through ATM
 vega, one half-spread costs 0.1 vol points on SPY, 7.8 on TQQQ and 18.6 on
-SOXL, where it consumes the entire premium. That conclusion was about the
-vehicle, not the premium.
+SOXL, where it consumes the entire premium.
+
+That conclusion was about the vehicle rather than the premium - and it turned
+out not to be about the premium in a second, larger way. `spread_edge.py` drew
+its historical sample only from days matching TODAY'S realised vol, anchored on
+the last bar in the archive, so its verdict moved with every bar collected: on
+one fixed chain it runs from 82 of 84 spreads positive at an anchor of 0.25 to
+9 at 0.60. "Approximately zero" was the reading at the anchor standing that
+day, not a property of selling premium. What that construction measures is this
+very premium - credit at today's implied, losses at matched realised - which is
+the other reason it was worth asking directly instead.
 
 MEASUREMENT. VIX at each date against the volatility SPY actually realised over
 the FOLLOWING 21 sessions - not the trailing window, which would only measure
