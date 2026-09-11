@@ -292,3 +292,134 @@ def test_an_unpriced_bar_cannot_overwrite_a_good_one(tmp_path):
     store.append("SPY", unpriced)
 
     assert store.load("SPY")["close"].iloc[3] == pytest.approx(good)
+
+
+# ---------------------------------------------------------------------------
+# The cost model's arithmetic. Mutation testing left 6 of 22 alive here, and
+# the live one that mattered was `proceeds = shares * price` becoming
+# `shares / price`: the SEC fee's BASE could be wrong by orders of magnitude
+# with the whole suite green. Cost is subtracted from every result this repo
+# produces, so an error here moves every number at once and in one direction.
+# ---------------------------------------------------------------------------
+
+def test_the_sec_fee_is_charged_on_notional_not_on_some_other_combination():
+    """27.80 per million of PROCEEDS, on sells. At 100 shares of $500 that is
+    $50,000 of notional and $1.39 of fee - computed here from the published
+    rate rather than from the function under test."""
+    c = CostModel(commission_per_trade=0.0, finra_taf_per_share=0.0)
+    fee = c.fees("sell", 100.0, 500.0)
+    assert fee == pytest.approx(50_000.0 * 27.80 / 1e6)
+    assert fee == pytest.approx(1.39)
+
+
+def test_the_sec_fee_scales_with_both_shares_and_price():
+    """`shares / price` happens to be close to `shares * price` for no inputs
+    at all, but a single test at one size cannot tell them apart if the number
+    is never checked against an independent calculation. Doubling each input
+    independently must double the fee."""
+    c = CostModel(commission_per_trade=0.0, finra_taf_per_share=0.0)
+    base = c.fees("sell", 100.0, 500.0)
+    assert c.fees("sell", 200.0, 500.0) == pytest.approx(2 * base)
+    assert c.fees("sell", 100.0, 1000.0) == pytest.approx(2 * base)
+
+
+def test_the_finra_fee_is_per_share_and_capped():
+    """Per SHARE, not per dollar - so it is unchanged by price - and capped, or
+    a large order would be charged without limit."""
+    c = CostModel(commission_per_trade=0.0, sec_fee_per_million=0.0,
+                  finra_taf_per_share=0.000166, finra_taf_max=8.30)
+    assert c.fees("sell", 1000.0, 10.0) == pytest.approx(0.166)
+    assert c.fees("sell", 1000.0, 900.0) == pytest.approx(0.166)   # price-blind
+    assert c.fees("sell", 10_000_000.0, 10.0) == pytest.approx(8.30)  # capped
+
+
+def test_regulatory_fees_are_charged_on_sells_only():
+    """The asymmetry is the point: charging buys too would roughly double the
+    modelled regulatory cost of every round trip."""
+    c = CostModel(commission_per_trade=0.0)
+    assert c.fees("buy", 100.0, 500.0) == 0.0
+    assert c.fees("sell", 100.0, 500.0) > 0.0
+
+
+def test_commission_is_charged_on_both_sides():
+    c = CostModel(commission_per_trade=1.25, sec_fee_per_million=0.0,
+                  finra_taf_per_share=0.0)
+    assert c.fees("buy", 10.0, 100.0) == pytest.approx(1.25)
+    assert c.fees("sell", 10.0, 100.0) == pytest.approx(1.25)
+
+
+def test_a_round_trip_counts_both_legs_of_slippage_and_both_fees():
+    """Recomputed from the parts rather than trusting the aggregate, because
+    the aggregate is the number every result in this repo is charged."""
+    c = CostModel(commission_per_trade=0.50)
+    px, sh = 500.0, 100.0
+    buy = c.fill_price("buy", px, "SPY")
+    sell = c.fill_price("sell", px, "SPY")
+    expected = ((buy - sell) * sh
+                + c.fees("buy", sh, buy) + c.fees("sell", sh, sell)) / (px * sh) * 1e4
+    assert c.round_trip_cost_bps("SPY", px, sh) == pytest.approx(expected, rel=1e-12)
+
+
+def test_the_round_trip_is_never_free_and_grows_with_the_spread():
+    c = CostModel()
+    spy = c.round_trip_cost_bps("SPY")
+    tqqq = c.round_trip_cost_bps("TQQQ")
+    other = c.round_trip_cost_bps("SOMETHING_UNLISTED")
+    assert 0 < spy < tqqq < other      # 1.0 < 2.5 < 3.0 bps of slippage
+
+
+def test_a_zero_or_negative_notional_costs_nothing_rather_than_dividing_by_it():
+    c = CostModel()
+    assert c.round_trip_cost_bps("SPY", 0.0, 100.0) == 0.0
+    assert c.round_trip_cost_bps("SPY", 500.0, 0.0) == 0.0
+    assert c.round_trip_cost_bps("SPY", -10.0, 100.0) == 0.0
+
+
+def test_a_fill_is_always_worse_than_the_reference_price():
+    """The direction of slippage. Inverting it turns a cost into a subsidy, and
+    a backtest would simply look better."""
+    c = CostModel()
+    assert c.fill_price("buy", 100.0, "SPY") > 100.0
+    assert c.fill_price("sell", 100.0, "SPY") < 100.0
+
+
+def test_an_unknown_side_is_refused_rather_than_treated_as_a_buy():
+    with pytest.raises(ValueError, match="side must be"):
+        CostModel().fill_price("hold", 100.0, "SPY")
+
+
+def test_slippage_lookup_is_case_insensitive_and_falls_back_to_default():
+    c = CostModel(slippage_bps={"SPY": 1.0, "default": 7.0})
+    assert c.slippage_for("spy") == 1.0
+    assert c.slippage_for("SPY") == 1.0
+    assert c.slippage_for("ZZZZ") == 7.0
+
+
+def test_from_config_reads_a_nested_costs_block_or_a_flat_one():
+    """Both shapes are accepted, so both are pinned: `{"costs": {...}}` as the
+    config file supplies it, and a bare dict as callers pass it."""
+    nested = CostModel.from_config({"costs": {"commission_per_trade": 2.0}})
+    flat = CostModel.from_config({"commission_per_trade": 2.0})
+    assert nested.commission_per_trade == 2.0
+    assert flat.commission_per_trade == 2.0
+
+
+def test_from_config_on_an_empty_or_missing_block_uses_the_documented_defaults():
+    """A config with no costs section must not silently produce a zero-cost
+    model, which would make every backtest look profitable."""
+    for cfg in ({}, {"costs": None}, {"costs": {}}):
+        c = CostModel.from_config(cfg)
+        assert c.sec_fee_per_million == 27.80
+        assert c.finra_taf_per_share == 0.000166
+        assert c.slippage_for("TQQQ") == 2.5
+        assert c.round_trip_cost_bps("SPY") > 0
+
+
+def test_a_sub_dollar_notional_still_costs_something():
+    """The guard is `notional <= 0`, not `<= 1`, and the distinction is real
+    here: the account this project is sized for holds $2.10, so a fractional
+    order worth less than a dollar is an ordinary case rather than a corner.
+    Treating it as free would make the smallest trades look the cheapest."""
+    c = CostModel()
+    assert c.round_trip_cost_bps("SPY", price=0.50, shares=1.0) > 0
+    assert c.round_trip_cost_bps("SPY", price=1.00, shares=0.5) > 0
