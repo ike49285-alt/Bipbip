@@ -282,14 +282,27 @@ points into dollars needs a structure that pays its own spread and owns its own
 tail, the window is 4.7 years and one regime containing 2022 but not 2008 or
 March 2020, and VIX itself is not tradeable. `scripts/variance_premium.py`.
 
-**And the vol points do not become money.** `scripts/premium_structure.py`
-prices real SPY verticals at real bid/ask against 1,409 non-overlapping
-6-session windows since 1993. Every structure LOSES on the full sample — the
-iron condor runs −4.9% to −8.9% on risk, loses in 55% of windows, and its worst
-window costs 64–95% of capital at risk. **Kelly on that distribution is zero.**
-Every structure wins vol-matched (+2.9% to +12.0%), and the gap between those
-two columns is the finding: it is a bet on the regime persisting, not on a
-premium. Read the vol-matched column with care — it applies TODAY'S quotes to
+**And the vol points do not become money — but be careful how that is
+stated.** `scripts/premium_structure.py` prices real SPY verticals at real
+bid/ask against every non-overlapping window since 1993. On ONE snapshot it
+looked decisive: every structure losing, the iron condor at −4.9% to −8.9% on
+risk, Kelly zero. Priced on **all nine archived snapshots**, the same condor
+runs **−7.9% to +1.9%, sd 4.7 points, four positive and five negative** — the
+sign set by the day, not the strategy. SPY fell ~$4 and VIX went 16.46→17.84
+between the 9th and the 10th, the credit rose ~215→~260, and it flipped.
+
+That was this repo's own `sorted(glob)[-1]` defect — the one that stopped
+`spread_edge.py` reproducing its committed result — recurring in a script
+written the same session it was documented. The chain is now pinned with
+`--chain` and the default mode sweeps every snapshot. **A single-snapshot
+structure price is one draw, not a measurement.**
+
+Three things survive the sweep because they hold on every snapshot: the
+vol-matched arm beats full-history on all nine by 8–18 points of on-risk return
+(so the position is a bet on the regime persisting, not on a premium); the worst
+window costs **59–95%** of capital at risk; and even where Kelly is positive it
+is 3.7–5.8%, so quarter-Kelly wants roughly **$28,000 behind $408 of risk**.
+Read the vol-matched column with care regardless — it applies TODAY'S quotes to
 historical windows, and implied vol moves with the regime, so it is not a
 backtest and a period split cannot repair a mis-specified comparison.
 

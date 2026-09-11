@@ -36,41 +36,49 @@ time in this project - but the Kelly fraction of a capped-loss, fat-left-tail
 payoff is small, and one spread is ONE BET. The output reports the growth-
 optimal fraction and what a quarter of it implies at the current balance.
 
-RESULT: the vol points do NOT become money, and the way they fail is the
-useful part. SPY at 762.96, 6 sessions to 2026-09-17, 1,409 non-overlapping
-windows since 1993 (459 vol-matched).
+RESULT, AND THE CORRECTION THAT MATTERS MOST. Priced on ONE snapshot this
+looked decisive - every structure losing on the full sample, the iron condor at
+-4.9% to -8.9% on risk, Kelly zero. Priced on every archived snapshot instead,
+the same 1%-wide-5 condor reads:
 
-    iron condor       full history          vol-matched
-    1.0% wide 5     -31.9 (-7.9% on risk)  +45.9 (+11.4%)
-    1.0% wide 10    -68.5 (-8.2%)         +100.0 (+12.0%)
-    2.0% wide 5     -41.5 (-8.9%)          +35.6  (+7.6%)
-    3.0% wide 10    -60.6 (-6.1%)          +28.8  (+2.9%)
+    2026-09-09        -6.9%   -7.8%   -6.9%   -6.9%   (five snapshots)
+    2026-09-10        -7.9%   +1.6%   +1.2%   +1.9%   +1.9%
 
-Every structure loses on the full sample and every one wins vol-matched, and
-the gap between those columns is the whole finding: this is a bet on the regime
-persisting, not on a premium.
+Range -7.9% to +1.9%, sd 4.7 points, FOUR positive and FIVE negative. The sign
+is set by the day: SPY fell about $4 and VIX went 16.46 to 17.84, the credit
+rose from ~215 to ~260, and the structure flipped. Nothing about the strategy
+changed.
+
+So the single-snapshot result was never a measurement, and neither sign is a
+finding. This is the same defect this session found in spread_edge.py - taking
+`sorted(glob)[-1]` makes the answer depend on which file happens to be newest -
+reproduced here by the author who had just documented it. The chain is now
+pinned with --chain, and the default mode sweeps every snapshot and reports the
+dispersion rather than one draw from it.
+
+WHAT SURVIVES THE SWEEP, because it holds on every snapshot:
+
+  - the vol-matched arm beats the full-sample arm on all nine, by 8 to 18
+    points of on-risk return. That gap is the real finding: the position is a
+    bet on the regime persisting, not on a premium.
+  - the tail. The worst window costs 59% to 95% of capital at risk.
+  - the capital arithmetic. Even where Kelly is positive it is 3.7% to 5.8%,
+    so quarter-Kelly wants roughly $28,000 behind $408 of risk.
 
 THE VOL-MATCHED COLUMN IS NOT A BACKTEST, AND SHOULD NOT BE READ AS ONE. It
 applies TODAY'S option prices to historical windows. Implied vol moves with the
 regime, so in a historical calm window the option would have been priced
-differently - probably cheaper, since today's 17.7% implied sits against 8.4%
-trailing. The test therefore sells one specific, possibly rich, quote into a
+differently - probably cheaper, since today's implied sits well above trailing
+realised. The test therefore sells one specific, possibly rich, quote into a
 distribution drawn from other periods. Doing it properly needs the implied vol
 that prevailed at each historical date, which needs historical chains this
-archive does not have. It survives a period split (early t=3.40, late t=2.87)
-but a period split cannot fix a mis-specified comparison.
+archive does not have. A period split cannot repair a mis-specified comparison.
 
 WHAT THE DE-DRIFT COLUMN CATCHES. Short PUT spreads look roughly break-even on
-full history (-0.1% to -1.5% on risk) and their de-drifted P&L is -10 to -36
-dollars. So the break-even is SPY's upward drift, not the variance premium -
-the equity premium wearing a short-vol costume. Naming which of the three a
-result is, before believing it, is exactly what that column is for.
-
-THE TAIL, MEASURED. Worst window costs 64% to 95% of capital at risk, and the
-condor loses in 55% of full-sample windows. Kelly on the full-sample
-distribution is ZERO: the growth-optimal bet is not to place it. Even on the
-favourable vol-matched arm, quarter-Kelly wants about $4,500 of capital behind
-$403 of risk - against a balance of $2.10 and a planned $500.
+full history and are meaningfully negative once the sample's mean return is
+removed. The break-even is SPY's upward drift - the equity premium wearing a
+short-vol costume. Naming which of the three a result is, before believing it,
+is exactly what that column is for.
 """
 import sys, pathlib, glob, argparse
 
@@ -85,11 +93,21 @@ MULT = 100          # shares per contract
 SEC_FEE_BPS = 0.278  # charged on the sale leg
 
 
-def chain_and_spot(symbol="SPY"):
+def chain_files(symbol="SPY"):
     files = sorted(glob.glob(f"data/chains/{symbol}_*.parquet"))
     if not files:
         raise SystemExit(f"no archived chain for {symbol}")
-    ch = pd.read_parquet(files[-1])
+    return files
+
+
+def chain_and_spot(symbol="SPY", path=None):
+    """One snapshot. `path` PINS it - taking the newest makes the answer depend
+    on which file happens to be latest, which is how spread_edge.py stopped
+    reproducing its own committed result, and how this script briefly did too:
+    the same structure read -7.9% on one snapshot and +1.9% on another four
+    hours later, because SPY fell $4 and the credit rose with the vol."""
+    files = chain_files(symbol)
+    ch = pd.read_parquet(path or files[-1])
     spot = implied_spot(ch)
     if not np.isfinite(spot):
         raise SystemExit("parity could not price the chain")
@@ -159,13 +177,75 @@ def kelly_fraction(pnl, risk):
     return float((lo + hi) / 2)
 
 
+def sweep(symbol="SPY", otm=0.01, width=5.0):
+    """One structure, priced on every archived snapshot.
+
+    The point of the default being this rather than a single chain: the same
+    condor read -7.9% and +1.9% on snapshots four hours apart. Reporting either
+    alone would be reporting a draw as if it were the distribution.
+    """
+    d = BarStore("data/bars").load(symbol, "1d")["close"]
+    print(f"{symbol}: one {otm:.0%}-OTM, {width:.0f}-wide iron condor priced on "
+          f"EVERY archived snapshot\n")
+    print(f"{'chain':<30}{'spot':>9}{'sess':>6}{'credit':>8}{'E[P&L]':>9}"
+          f"{'on risk':>9}{'Kelly':>8}")
+    vals = []
+    for f in chain_files(symbol):
+        try:
+            ch, spot, asof, _ = chain_and_spot(symbol, f)
+        except SystemExit:
+            continue
+        q = ch[(ch.bid > 0) & (ch.ask > 0)]
+        if q.empty:
+            continue
+        exp = sorted(q["exp"].unique())[-1]
+        sess = int(np.busday_count(asof.date(), pd.Timestamp(exp).date()))
+        if sess < 1:
+            continue
+        g = (q[q["exp"] == exp].drop_duplicates(subset=["side", "strike"])
+             .set_index(["side", "strike"]).sort_index())
+        pk = round(spot * (1 - otm) / 5) * 5
+        ck = round(spot * (1 + otm) / 5) * 5
+        pp = price_spread(g, pk, pk - width, "put")
+        cc = price_spread(g, ck, ck + width, "call")
+        name = pathlib.Path(f).name
+        if not pp or not cc:
+            print(f"{name:<30}{spot:>9.2f}{sess:>6}   not priceable")
+            continue
+        term = spot * (1 + forward_returns(d, sess))
+        pnl = (spread_pnl(term, pk, pk - width, pp[0], "put")
+               + spread_pnl(term, ck, ck + width, cc[0], "call"))
+        risk = max(pp[1], cc[1])
+        vals.append(pnl.mean() / risk)
+        print(f"{name:<30}{spot:>9.2f}{sess:>6}{pp[0]+cc[0]:>8.0f}"
+              f"{pnl.mean():>+9.1f}{vals[-1]:>+8.1%}"
+              f"{kelly_fraction(pnl, risk):>8.1%}")
+    if not vals:
+        raise SystemExit("nothing priceable on any snapshot")
+    v = np.array(vals)
+    print(f"\nacross {len(v)} snapshots: {v.min():+.1%} to {v.max():+.1%}, "
+          f"sd {v.std(ddof=1):.1%}, "
+          f"{int((v>0).sum())} positive / {int((v<0).sum())} negative")
+    print("A structure whose sign changes between snapshots hours apart is not")
+    print("being measured by any one of them. Pin with --chain to see detail.")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--symbol", default="SPY")
     ap.add_argument("--balance", type=float, default=2.10)
+    ap.add_argument("--chain", default=None,
+                    help="PIN one snapshot. Without it the sweep runs, because "
+                         "a single snapshot is one draw from a distribution "
+                         "whose sign changes day to day.")
+    ap.add_argument("--sweep", action="store_true", default=None,
+                    help="price one structure on EVERY snapshot (default "
+                         "unless --chain is given)")
     a = ap.parse_args()
+    if a.sweep or (a.sweep is None and not a.chain):
+        return sweep(a.symbol)
 
-    ch, spot, asof, path = chain_and_spot(a.symbol)
+    ch, spot, asof, path = chain_and_spot(a.symbol, a.chain)
     q = ch[(ch.bid > 0) & (ch.ask > 0)].copy()
     exp = sorted(q["exp"].unique())[-1]
     sess = int(np.busday_count(asof.date(), pd.Timestamp(exp).date()))
