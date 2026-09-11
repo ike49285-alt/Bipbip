@@ -7,7 +7,7 @@ import numpy as np
 import pandas as pd
 
 from ..core import indicators as ind
-from .features import FEATURE_COLUMNS, build_features
+from .features import build_features
 from .labels import triple_barrier_labels
 
 

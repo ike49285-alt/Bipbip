@@ -7,11 +7,10 @@ trend and therefore largely restate one another?
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
-import numpy as np, pandas as pd
 
 from swing_compare import stats, START
 from bipbip.core.costs import CostModel
-from bipbip.core.panel import build_panel, load_panel
+from bipbip.core.panel import build_panel
 from bipbip.core.portfolio import PortfolioEngine, PortfolioStrategy
 from bipbip.data.store import BarStore
 from bipbip.strategies.ichimoku import IchimokuCloud, IchimokuStochastic

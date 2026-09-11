@@ -17,13 +17,33 @@ import numpy as np
 import pandas as pd
 
 from bipbip.data.store import BarStore
-from bipbip.data.webull import (rescale_to_adjusted, robust_factors,
+from bipbip.data.webull import (robust_factors,
                                 verify_factors, reconcile_sessions, drop_leaked_closes)
 
-RESULTS = os.path.expanduser(
-    "~/.claude/projects/-home-user-Bipbip/"
-    "67fd2659-0adf-539d-b6d6-3b1c7d213011/tool-results")
+#: Where the harness spills large MCP results. The session id is part of the
+#: path, so pinning one - as this did - makes the ingest runnable in exactly the
+#: session that wrote it and nowhere else; the id it carried had already been
+#: reaped. Resolution order is explicit argument, then $BIPBIP_TOOL_RESULTS,
+#: then every session directory present, newest last so later dumps win.
+#: Two wildcards, not one: the layout is projects/<project>/<session>/tool-results.
+RESULTS_GLOB = "~/.claude/projects/*/*/tool-results"
 TZ = "America/New_York"
+
+
+def results_dirs(explicit: str | None = None) -> list:
+    """Directories to read dumped Webull responses from."""
+    if explicit:
+        return [os.path.expanduser(explicit)]
+    env = os.environ.get("BIPBIP_TOOL_RESULTS")
+    if env:
+        return [os.path.expanduser(p) for p in env.split(os.pathsep) if p]
+    found = sorted(d for d in glob.glob(os.path.expanduser(RESULTS_GLOB))
+                   if os.path.isdir(d))
+    if not found:
+        raise SystemExit(
+            f"no tool-results directory under {RESULTS_GLOB}; pass one "
+            f"explicitly or set BIPBIP_TOOL_RESULTS")
+    return found
 
 
 #: Minutes between consecutive bars, per timeframe we ingest.
@@ -49,12 +69,14 @@ def _spacing_minutes(rows: list) -> float:
     return float(gaps.mode().iloc[0]) if len(gaps) else float("nan")
 
 
-def collect(symbol: str, timeframe: str) -> pd.DataFrame:
+def collect(symbol: str, timeframe: str, results: str | None = None) -> pd.DataFrame:
     want = SPACING.get(timeframe)
     if want is None:
         raise ValueError(f"unknown timeframe {timeframe!r}")
+    dumps = [f for d in results_dirs(results)
+             for f in glob.glob(f"{d}/mcp-Webull-get_stock_bars-*.txt")]
     frames, skipped = [], 0
-    for f in sorted(glob.glob(f"{RESULTS}/mcp-Webull-get_stock_bars-*.txt")):
+    for f in sorted(dumps):
         try:
             blob = json.load(open(f))
         except Exception:
@@ -81,8 +103,8 @@ def collect(symbol: str, timeframe: str) -> pd.DataFrame:
     return out[~out.index.duplicated(keep="last")].sort_index()
 
 
-def main(symbol: str, timeframe: str) -> None:
-    raw = collect(symbol, timeframe)
+def main(symbol: str, timeframe: str, results: str | None = None) -> None:
+    raw = collect(symbol, timeframe, results)
     if raw.empty:
         print(f"no dumped bars found for {symbol}")
         return
@@ -112,7 +134,7 @@ def main(symbol: str, timeframe: str) -> None:
           f"({n_bad/len(report):.1%})")
     if n_bad:
         worst = report[report["bad"]].sort_values("close_err", ascending=False)
-        print(f"  worst close errors: "
+        print("  worst close errors: "
               + ", ".join(f"{d.date()} {e:.1%}"
                           for d, e in worst["close_err"].head(5).items()))
     cleaned = drop_leaked_closes(raw, report)
@@ -164,4 +186,5 @@ def rescale_to_adjusted_with(raw, factors):
 
 if __name__ == "__main__":
     main(sys.argv[1] if len(sys.argv) > 1 else "TQQQ",
-         sys.argv[2] if len(sys.argv) > 2 else "30m")
+         sys.argv[2] if len(sys.argv) > 2 else "30m",
+         sys.argv[3] if len(sys.argv) > 3 else None)

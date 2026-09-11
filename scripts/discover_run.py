@@ -2,7 +2,6 @@
 import sys, pathlib, time
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-import numpy as np, pandas as pd
 
 from bipbip.core.costs import CostModel
 from bipbip.core.panel import load_panel
@@ -50,7 +49,7 @@ def main():
         print(f"{top_k:>6} {cost:>10.2f}b {r['excess_bps']:>+8.1f}b "
               f"{r['t_stat']:>7.2f} {r['hit_rate']:>5.0%} {r['auc']:>6.3f} "
               f"{r['rebalances']:>11,}")
-        print(f"       folds: "
+        print("       folds: "
               + "  ".join(f"{f['excess_bps']:+.0f}" for f in r["folds"]))
 
     if not results:

@@ -4,7 +4,7 @@ import pandas as pd
 import pytest
 
 from bipbip.core import BacktestEngine, CashAccount, CostModel
-from bipbip.core.strategy import Context, Strategy
+from bipbip.core.strategy import Strategy
 from bipbip.core.types import HOLD, Intent
 from bipbip.data import make_intraday_bars
 from bipbip.strategies import HTFExitFilter, get_strategy

@@ -35,6 +35,22 @@ TICK = 0.01
 HORIZONS = (1, 5, 15, 30)
 
 
+def _non_overlapping(idx, horizon):
+    """Indices into `idx` whose forward windows do not overlap.
+
+    Fills are found at nearly every bar, so measuring drift over H minutes at
+    every one of them reuses the same H minutes H times. CLAUDE.md records a
+    t-statistic walking 1.60 -> 5.55 -> 10.78 on exactly this. Step by the
+    horizon instead and each minute of tape is counted once.
+    """
+    keep, last = [], -10**9
+    for k, i in enumerate(idx):
+        if i >= last + horizon:
+            keep.append(k)
+            last = i
+    return np.array(keep, dtype=int)
+
+
 def main():
     t0 = time.time()
     b = BarStore("data/bars").load("TQQQ", "1m").dropna()
@@ -50,7 +66,7 @@ def main():
           f"posting both sides earns it instead\n")
 
     print(f"{'wait':>6} {'side':>5} {'fill rate':>10} {'captured':>10} "
-          f"{'drift@15':>10} {'net':>9} {'vs crossing':>13}")
+          f"{'drift@15':>10} {'net':>9} {'+/-95':>8} {'vs crossing':>13} {'n':>8}")
     for wait in (1, 5, 15, 30):
         for side, name in ((1, "buy"), (-1, "sell")):
             # Post at the touch: a bid half a tick under the last price, or an
@@ -76,14 +92,20 @@ def main():
             # Drift: where the mid went afterwards, signed by the position.
             drift = side * (c[idx + H] - c[idx]) / entry * 1e4
             net = cap + drift
-            se = net.std(ddof=1) / np.sqrt(len(net))
+            # One observation per 15-minute window. Sampling every bar would
+            # overlap fourteen minutes out of fifteen and narrow this error by
+            # roughly sqrt(H) on no new information.
+            keep = _non_overlapping(idx, H)
+            net_i = net[keep]
+            se = 1.96 * net_i.std(ddof=1) / np.sqrt(len(net_i))
             print(f"{wait:>5}m {name:>5} {filled.mean():>9.1%} "
                   f"{cap.mean():>+9.2f}b {drift.mean():>+9.2f}b "
-                  f"{net.mean():>+8.2f}b {net.mean()+half_bps:>+12.2f}b")
-    print(f"\n(net = half spread captured + drift over the following 15 minutes;")
+                  f"{net_i.mean():>+8.2f}b {se:>8.2f} "
+                  f"{net_i.mean()+half_bps:>+12.2f}b {len(net_i):>8,}")
+    print("\n(net = half spread captured + drift over the following 15 minutes;")
     print(f" 'vs crossing' adds the {half_bps:.2f} bps you would have PAID instead)")
 
-    print(f"\ndrift after a passive BUY fill, by horizon (1-minute wait):")
+    print("\ndrift after a passive BUY fill, by horizon (1-minute wait):")
     level = c - half
     filled = (np.r_[lo[1:], np.nan] <= level) & (np.r_[day[1:], -1] == day)
     print(f"{'horizon':>9} {'n':>8} {'drift':>9} {'+/-95%':>9} {'net of capture':>16}")
@@ -96,8 +118,12 @@ def main():
         d = (c[i + H] - c[i]) / level[ok] * 1e4
         cap = (c[i] - level[ok]) / level[ok] * 1e4
         tot = d + cap
+        # Non-overlapping: one observation per H-minute window, so a 30-minute
+        # horizon does not borrow the same tape thirty times.
+        keep = _non_overlapping(i, H)
+        d, tot = d[keep], tot[keep]
         se = 1.96 * d.std(ddof=1) / np.sqrt(len(d))
-        print(f"{H:>8}m {ok.sum():>8,} {d.mean():>+8.2f}b {se:>8.2f} "
+        print(f"{H:>8}m {len(d):>8,} {d.mean():>+8.2f}b {se:>8.2f} "
               f"{tot.mean():>+15.2f}b")
     print(f"\ntotal {time.time()-t0:.0f}s")
 

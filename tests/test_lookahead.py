@@ -4,7 +4,6 @@ A backtest that peeks at future bars produces beautiful, worthless results.
 These tests attack that directly: they mutate the future and assert the past
 does not move.
 """
-import numpy as np
 import pandas as pd
 import pytest
 

@@ -23,7 +23,6 @@ about the three costs that make leveraged funds different from leverage:
 """
 from __future__ import annotations
 
-import numpy as np
 import pandas as pd
 
 #: Typical expense ratio for a 3x US equity ETF.

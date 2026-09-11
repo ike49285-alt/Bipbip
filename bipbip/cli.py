@@ -165,7 +165,6 @@ def cmd_train(args, cfg) -> int:
     the backtest at the bottom, because only that one has paid a spread and
     obeyed the settlement rules.
     """
-    import numpy as np
 
     # Imported here, not at module scope: `fetch` and `coverage` must keep
     # working when scikit-learn is absent, so a missing ML dependency can
@@ -447,7 +446,7 @@ def cmd_options(args, cfg) -> int:
     if moves:
         print(f"  median |underlying move| per trade: {np.median(moves):.1f} bps")
 
-    print(f"\n  Sensitivity to the volatility assumption (it is modelled, not observed):")
+    print("\n  Sensitivity to the volatility assumption (it is modelled, not observed):")
     print(f"{'IV premium':>12}{'mean IV':>12}{'0DTE return':>14}")
     for prem in [0.85, 1.0, 1.15, 1.35, 1.6]:
         _, sw = express_in_options(bars, res.trades, args.symbol, kind=args.kind,
@@ -585,7 +584,6 @@ def cmd_chains(args, cfg) -> int:
 
 def cmd_fundamentals(args, cfg) -> int:
     """Fetch non-price data, and report honestly on what is unavailable."""
-    import json
 
     from .data.fundamentals import (FundamentalsStore, fetch_earnings_dates,
                                     fetch_sectors, probe_news)

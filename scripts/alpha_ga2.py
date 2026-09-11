@@ -54,13 +54,12 @@ import sys, pathlib, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-import numpy as np, pandas as pd
+import numpy as np
 
 from bipbip.core.indicators import atr
 from bipbip.data.store import BarStore
 from bipbip.ml.barriers import barrier_labels
-from bipbip.ml.symbolic import (AlphaSearch, Node, clone, crossover, evaluate,
-                                mutate, random_tree)
+from bipbip.ml.symbolic import (AlphaSearch, evaluate)
 
 LEVERED = ["TQQQ", "SOXL", "TNA", "SPXL", "UPRO", "LABU",
            "SQQQ", "SOXS", "TZA", "SPXS", "SPXU"]

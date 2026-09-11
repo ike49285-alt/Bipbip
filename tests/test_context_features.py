@@ -1,9 +1,8 @@
 """Non-price features: earnings timing, sector relatives, macro broadcast."""
 import numpy as np
 import pandas as pd
-import pytest
 
-from bipbip.ml.context_features import (CONTEXT_COLUMNS, build_context,
+from bipbip.ml.context_features import (build_context,
                                         earnings_features, sector_features)
 
 

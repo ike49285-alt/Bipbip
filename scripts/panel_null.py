@@ -49,7 +49,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 import numpy as np, pandas as pd
 
 from bipbip.ml.discover import make_gbm_regressor
-from scripts.barrier_panel import BASKET, CROSS_BPS, load
+from scripts.barrier_panel import BASKET, load
 
 
 def evaluate(df, cols, tr, L, S, H, sym, seed=0, shuffle=False):

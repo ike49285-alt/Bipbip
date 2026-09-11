@@ -52,9 +52,17 @@ jobs:
 
       - name: Snapshot chains
         run: |
+          # 25, not 6. SPY and QQQ list an expiry nearly every weekday, so
+          # "nearest six" reached only EIGHT days out on them - and they are the
+          # two vehicles where the variance premium survives its own spread
+          # (2.3% and 2.8% of mid, against TQQQ's 11.2%). The premium is measured
+          # against 21 sessions, so an archive capped at 8 days could never
+          # answer the question it is being collected for, however long it ran.
+          # 25 weekday expiries reaches ~35 calendar days; TQQQ and SOXL list
+          # fewer, so they simply take everything out to a few months.
           python -m bipbip.cli chains \
             --symbols ${{ github.event.inputs.symbols || 'TQQQ SPY QQQ SOXL' }} \
-            --expiries 6
+            --expiries 25
 
       - name: Commit snapshots
         run: |

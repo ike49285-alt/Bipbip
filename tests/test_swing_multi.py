@@ -133,6 +133,23 @@ def test_dual_momentum_does_not_trade_mid_month():
     dates = pd.DatetimeIndex([getattr(t, "date", None) or t["date"] for t in res.trades])
     # ~28 months in the post-warmup window; one switch a month is the ceiling.
     assert len(res.trades) <= 40, f"{len(res.trades)} trades is not monthly"
+    # A count alone does not test the name: forty trades all on the 15th would
+    # pass it, and this panel only produces three trades, so the ceiling above
+    # is never the binding constraint. Assert the timing instead.
+    #
+    # The signal fires on the first session of a month and the engine fills on
+    # the next bar, so a rebalance lands on session 1 or 2 - never later. A
+    # trade deeper into the month means the month-start gate has leaked.
+    sessions = pd.DatetimeIndex(panel.dates)
+    rank = {d: list(sessions[sessions.to_period("M") == d.to_period("M")]).index(d) + 1
+            for d in dates}
+    late = {str(d.date()): r for d, r in rank.items() if r > 2}
+    assert not late, f"rebalanced mid-month (session-of-month): {late}"
+    # And at most one rebalance date per month, whatever the trade count.
+    per_month = pd.Series(dates).groupby(dates.to_period("M")).nunique()
+    assert (per_month <= 1).all(), (
+        f"traded on multiple dates within a month: "
+        f"{per_month[per_month > 1].to_dict()}")
 
 
 # --------------------------------------------------------------------------

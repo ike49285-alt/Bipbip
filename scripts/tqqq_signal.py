@@ -25,8 +25,8 @@ COST_BPS = 1.67          # measured from the live quote: penny wide on $72
 
 
 def features(bars):
-    o, h, l, c, v = (bars["open"], bars["high"], bars["low"],
-                     bars["close"], bars["volume"])
+    h, l, c, v = (bars["high"], bars["low"],
+                  bars["close"], bars["volume"])
     ha = ind.heikin_ashi(bars)
     st = ind.full_stochastic(bars, 14, 1, 3)
     ich = ind.ichimoku(bars, 9, 26, 52, 26)

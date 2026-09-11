@@ -9,7 +9,7 @@ import pandas as pd
 import pytest
 
 from bipbip.core.costs import CostModel
-from bipbip.core.panel import build_panel, load_panel
+from bipbip.core.panel import build_panel
 from bipbip.core.portfolio import PortfolioEngine
 from bipbip.data.universe import UNIVERSES, get_universe
 from bipbip.strategies.cross_sectional import EqualWeightBuyHold

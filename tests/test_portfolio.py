@@ -1,10 +1,9 @@
 """Cross-sectional portfolio engine."""
 import numpy as np
 import pandas as pd
-import pytest
 
 from bipbip.core.costs import CostModel
-from bipbip.core.panel import Panel, build_panel
+from bipbip.core.panel import build_panel
 from bipbip.core.portfolio import PortfolioEngine, PortfolioStrategy
 
 

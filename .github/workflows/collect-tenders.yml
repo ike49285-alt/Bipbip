@@ -1,0 +1,93 @@
+name: Collect tender offers
+
+# Issuer tender offers (SC TO-I) very often carry an ODD LOT PROVISION -
+# holders of fewer than 100 shares are exempt from proration, so when an offer
+# is oversubscribed the institutions are cut back and the odd-lot holder is
+# filled in full. That is an advantage which exists BECAUSE an account is small.
+#
+# This runs here rather than in a research session for the same reason the bar
+# and chain collectors do: sec.gov is unreachable through the session proxy and
+# reachable from a runner.
+#
+# Unlike a price bar, a tender offer cannot be reconstructed later. It exists in
+# the filing on the day it is made and nowhere else, so the archive is only ever
+# as deep as the day collection started. Hence daily, and hence now.
+
+on:
+  schedule:
+    # Once on weekday evenings, after filings for the day are in.
+    - cron: "30 23 * * 1-5"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "Look back this many days"
+        required: false
+        default: "7"
+      end:
+        description: "End date YYYY-MM-DD (blank = today)"
+        required: false
+        default: ""
+
+permissions:
+  contents: write
+
+concurrency:
+  group: collect-tenders
+  cancel-in-progress: false
+
+jobs:
+  tenders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Collect
+        env:
+          # The SEC blocks automated access that does not identify itself, so
+          # this is a condition of use rather than politeness. Kept in a
+          # repository variable so the address is not hardcoded in the tree.
+          SEC_USER_AGENT: ${{ vars.SEC_USER_AGENT }}
+        run: |
+          python scripts/collect_tenders.py \
+            --days "${{ github.event.inputs.days || '7' }}" \
+            ${{ github.event.inputs.end && format('--end {0}', github.event.inputs.end) || '' }}
+
+      - name: Commit
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add data/tenders.csv
+          if git diff --cached --quiet -- data/tenders.csv; then
+            echo "No new filings."
+            exit 0
+          fi
+          git commit -m "Tender offers $(date -u +%Y-%m-%d)"
+          # Replay onto the remote tip rather than rebasing, matching the other
+          # collectors: they may commit concurrently and this file is appended
+          # to rather than merged.
+          data_commit="$(git rev-parse HEAD)"
+          for attempt in 1 2 3; do
+            git fetch origin "${GITHUB_REF_NAME}" || { sleep $((attempt * 5)); continue; }
+            git reset --hard "origin/${GITHUB_REF_NAME}"
+            git checkout "${data_commit}" -- data/tenders.csv
+            git add data/tenders.csv
+            if git diff --cached --quiet; then
+              echo "Remote already has it."
+              exit 0
+            fi
+            git commit -m "Tender offers $(date -u +%Y-%m-%d)"
+            git push origin "HEAD:${GITHUB_REF_NAME}" && exit 0
+            sleep $((attempt * 5))
+          done
+          echo "Could not push tender offers." >&2
+          exit 1

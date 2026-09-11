@@ -15,7 +15,6 @@ tell a model that learned something from a model that learned the index.
 import sys, pathlib
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-import numpy as np, pandas as pd
 
 from bipbip.core.costs import CostModel
 from bipbip.core.panel import load_panel

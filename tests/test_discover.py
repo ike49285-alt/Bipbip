@@ -3,7 +3,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from bipbip.core.panel import build_panel, load_panel
+from bipbip.core.panel import build_panel
 from bipbip.ml.discover import build_cross_sectional
 
 

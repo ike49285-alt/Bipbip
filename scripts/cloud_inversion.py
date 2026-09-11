@@ -88,7 +88,7 @@ import sys, pathlib, time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
-import numpy as np, pandas as pd
+import numpy as np
 
 from bipbip.core.indicators import ichimoku
 from bipbip.core.stats import ols_cluster
@@ -173,7 +173,7 @@ def report(base, label, higher_rule):
         return None
 
     r = fit(y, h, l, dates)
-    b, se, t = r["beta"], r["se"], r["t"]
+    b, t = r["beta"], r["t"]
 
     print(f"\n  {label}   {len(y):,} obs, {r['clusters']:,} dates, "
           f"forward {FWD} bars")

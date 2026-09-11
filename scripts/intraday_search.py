@@ -25,7 +25,6 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import numpy as np, pandas as pd
 
-from bipbip.core.costs import CostModel
 from bipbip.data.store import BarStore
 
 COST_BPS = 2.28          # SPY modelled round trip

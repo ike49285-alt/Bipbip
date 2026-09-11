@@ -251,6 +251,17 @@ def test_daily_and_intraday_agree_on_the_same_date(tmp_path):
         assert len(row) == 1, f"no daily bar on {day}"
         assert float(row["close"].iloc[0]) == pytest.approx(expected)
 
+        # The intraday half of "agree". Comparing the daily bar only against
+        # `closes` re-checks a list this test built before storing anything;
+        # the corruption being guarded against is a date shift on the JOIN, so
+        # the last intraday bar of the session has to be read back out of the
+        # store and matched to the daily bar sharing its date.
+        session = m[[t.date() == day for t in m.index]]
+        assert not session.empty, f"no intraday bars on {day}"
+        assert float(session["close"].iloc[-1]) == pytest.approx(
+            float(row["close"].iloc[0])), (
+            f"daily close and last intraday close disagree on {day}")
+
 
 def test_store_rejects_a_bar_that_has_volume_but_no_prices(tmp_path):
     """A counted-but-unsettled session must never enter the archive.

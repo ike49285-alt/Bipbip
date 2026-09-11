@@ -18,9 +18,9 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 
 import numpy as np, pandas as pd
 
+from bipbip.data.chain_features import implied_spot
 from bipbip.data.store import BarStore
 
-SPOT = 71.365
 MULT = 100
 
 
@@ -35,13 +35,28 @@ def main():
     cur = float(vol.dropna().iloc[-1])
     hist = float(np.log(d).diff().mean())
 
-    ch = pd.read_parquet(sorted(glob.glob("data/chains/TQQQ_*.parquet"))[-1])
+    chain_file = sorted(glob.glob("data/chains/TQQQ_*.parquet"))[-1]
+    ch = pd.read_parquet(chain_file)
+    # Spot from the chain's OWN put-call parity, not a constant typed into the
+    # source. The hardcoded 71.365 was 15 cents from this snapshot's parity
+    # price and 34 cents from the earliest one, and CLAUDE.md records a
+    # separately-fetched quote being 20 cents off - enough to shift every
+    # moneyness in the chain. Here it decides which strikes count as out of the
+    # money AND the level of the whole terminal distribution.
+    spot = implied_spot(ch)
+    if not np.isfinite(spot):
+        raise SystemExit(f"parity could not price {chain_file}")
+    # The reference date likewise comes from the snapshot rather than a literal.
+    # fetched_at is UTC and an evening pull lands on the NEXT UTC day, so it is
+    # converted to exchange time before the trading date is taken.
+    asof = (pd.Timestamp(ch["fetched_at"].max())
+            .tz_convert("America/New_York").tz_localize(None).normalize())
     ch["expiry"] = pd.to_datetime(ch["expiry"])
     calls = ch[(ch.side == "call") & (ch.bid > 0) & (ch.openInterest >= 100)]
     calls = calls.sort_values("strike").groupby(["expiry", "strike"]).first().reset_index()
 
-    print(f"TQQQ {SPOT:.2f}, realised vol {cur:.1%}, "
-          f"{len(calls)} liquid call strikes")
+    print(f"TQQQ {spot:.3f} (put-call parity, {asof.date()}), "
+          f"realised vol {cur:.1%}, {len(calls)} liquid call strikes")
     print("short call spreads, credit taken at bid/ask (not mid), "
           "drift assumption +15%/yr\n")
     print(f"{'spread':>16} {'sess':>5} {'credit':>7} {'risk':>6} {'E[P&L]':>8} "
@@ -50,17 +65,17 @@ def main():
     mu = np.log1p(0.15) / 252
     rows = []
     for exp, grp in calls.groupby("expiry"):
-        lo = pd.Timestamp("2026-09-09") + pd.Timedelta(days=1)
+        lo = asof + pd.Timedelta(days=1)
         n = len(pd.bdate_range(lo, pd.Timestamp(exp).tz_localize(None).normalize()))
         if not 1 <= n <= 6:
             continue
         fwd = np.exp(np.log(d.shift(-n) / d) - hist * n + mu * n) - 1.0
         v = vol.reindex(d.index)
         m = ((v > cur * 0.85) & (v < cur * 1.15) & np.isfinite(fwd)).to_numpy()
-        term = SPOT * (1.0 + fwd.to_numpy()[m])
+        term = spot * (1.0 + fwd.to_numpy()[m])
         g = grp.set_index("strike")
         for short_k in g.index:
-            if short_k < SPOT:                     # sell out of the money only
+            if short_k < spot:                     # sell out of the money only
                 continue
             for width in (1.0, 2.0, 3.0):
                 long_k = short_k + width

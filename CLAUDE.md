@@ -233,6 +233,104 @@ timeframes** — a rally with a bullish cloud under it running into a bearish on
 above — carries nothing once both trends are held out: the 2×2 interaction is
 p=0.12 at best and 0.37 after Bonferroni, and its sign flips across pairs.
 
+**Rotation — holding what is running and selling what is flagging — is closed,
+and volume does not rescue it.** Rule-based momentum was already negative on the
+clean 34-ETF universe (top-5/top-10 at 8.82%/8.93% against buy-and-hold SPY's
+10.84%, and turnover is not the reason: cutting it fivefold moves 8.82% to
+8.64%), and a decile sort on ~300 symbols found the ordering runs *backwards*.
+The model form had never been measured — both earlier runs of the
+cross-sectional ranker were retracted — so `scripts/rotation_null.py` ran it
+properly: 34 clean ETFs, daily, 21-bar horizon, 240 non-overlapping monthly
+rebalances, the null repeating the whole top-k selection, 100 shuffles.
+
+    arm            real    null mean   null sd   null p90   >= real   p
+    price only   +21.53      +10.28     11.76     +27.05    17/100   0.178
+    price+volume +21.80      +10.98     10.40     +22.90    14/100   0.149
+
+Neither reaches its own null's ninetieth percentile. **Adding four volume
+features bought +0.28 bps — 0.026 of one null standard deviation.** The
+hypothesis that participation carries what price does not is measured, not
+assumed: `volume_trend`, `dollar_volume`, `volume_price_corr` and
+`up_volume_share` were added for this and contributed nothing.
+
+The null's centre is the finding to remember. It sits at **+11 bps, not zero**,
+because excess is measured against the cross-sectional MEDIAN and holding
+everything earns the mean-minus-median spread of a right-skewed cross-section —
++13.38 bps gross, +11.54 after cost. A random picker collects the same thing.
+So a positive `excess_bps` is not evidence of anything, and the bar is equal
+weight, exactly as the README's ranking work already concluded from the other
+direction.
+
+**The one measured positive in this project, and it is a RISK PREMIUM rather
+than an edge.** VIX against the volatility SPY actually realised over the
+following 21 sessions, sampled one observation per holding period:
+**+3.32 vol points, sd 5.98, n=56, t=4.15.** It survives everything that killed
+the others — both halves (+2.88 and +3.75), every individual year, and dropping
+the 2022 bear market makes it *stronger* (+3.95, t=4.40). Distribution-free,
+positive in 48 of 56 windows, binomial p=2.3e-08. Sampling daily instead would
+have reported t=19.75; the ratio to the honest number is 4.76 against
+sqrt(21)=4.58, which is this file's first trap reproducing to two digits.
+
+Three things keep it honest. **The tail is the product, not a caveat**: the
+premium is negative in 14% of windows and the worst is −26.0 points against a
+mean of +3.3, and that eight-to-one ratio is precisely what is being paid for.
+**The vehicle decides it**: one half-spread costs 0.1 vol points on SPY, 7.8 on
+TQQQ, 18.6 on SOXL — where it eats the whole premium. The repo's earlier
+"selling premium is approximately zero" was measured on TQQQ only, so it was a
+statement about the vehicle. **And it is not yet a strategy**: turning vol
+points into dollars needs a structure that pays its own spread and owns its own
+tail, the window is 4.7 years and one regime containing 2022 but not 2008 or
+March 2020, and VIX itself is not tradeable. `scripts/variance_premium.py`.
+
+**And the vol points do not become money — but be careful how that is
+stated.** `scripts/premium_structure.py` prices real SPY verticals at real
+bid/ask against every non-overlapping window since 1993. On ONE snapshot it
+looked decisive: every structure losing, the iron condor at −4.9% to −8.9% on
+risk, Kelly zero. Priced on **all nine archived snapshots**, the same condor
+runs **−7.9% to +1.9%, sd 4.7 points, four positive and five negative** — the
+sign set by the day, not the strategy. SPY fell ~$4 and VIX went 16.46→17.84
+between the 9th and the 10th, the credit rose ~215→~260, and it flipped.
+
+That was this repo's own `sorted(glob)[-1]` defect — the one that stopped
+`spread_edge.py` reproducing its committed result — recurring in a script
+written the same session it was documented. The chain is now pinned with
+`--chain` and the default mode sweeps every snapshot. **A single-snapshot
+structure price is one draw, not a measurement.**
+
+Three things survive the sweep because they hold on every snapshot: the
+vol-matched arm beats full-history on all nine by 8–18 points of on-risk return
+(so the position is a bet on the regime persisting, not on a premium); the worst
+window costs **59–95%** of capital at risk; and even where Kelly is positive it
+is 3.7–5.8%, so quarter-Kelly wants roughly **$28,000 behind $408 of risk**.
+Read the vol-matched column with care regardless — it applies TODAY'S quotes to
+historical windows, and implied vol moves with the regime, so it is not a
+backtest and a period split cannot repair a mis-specified comparison.
+
+Two things there generalise. Short PUT spreads look break-even on full history
+(−0.1% to −1.5%) and are −10 to −36 dollars **de-drifted** — the break-even is
+SPY's upward drift, the equity premium wearing a short-vol costume, which is
+what naming the return source before believing it is for. And the capital
+arithmetic: even the favourable arm's quarter-Kelly wants ~$4,500 behind $403
+of risk, against a $2.10 balance and a planned $500.
+
+**The searches were hunting in the wrong half of the day.** Splitting each
+daily bar into its two disjoint legs on the 34 clean ETFs, within-symbol:
+overnight (close→open, held through a gap you cannot trade out of) beats
+intraday (open→close) in **27 of 34**, median **+8.71%** a year against
+**−1.27%**, paired difference +9.03% at t=5.52. SPY is +10.0% against +0.7%;
+QQQ +13.9% against −2.7%; XLK +15.0% against −3.9%. Documented in the
+literature, never measured here — and it reframes every negative above: the
+intraday searches were competing for a share of roughly zero drift.
+
+It is **not a trade**. Overnight-only is a round trip every session, 252 × 1.35
+bps = 3.4% a year against buy-and-hold's zero; net of that it beats
+buy-and-hold in 6 of 34, median −2.21%, and Sharpe is 0.50 against 0.49. And it
+decays monotonically to exactly the cost line — SPY's gap runs +22.5% (1993–99),
++9.5% (2000s), +4.1% (2010s), **+3.3% (2020s) against a 3.4% cost**. That is an
+effect competed down to the friction protecting it, which is also why the
+NightShares ETFs productised it in 2022 and closed in 2023.
+`scripts/overnight_split.py`.
+
 One thing that keeps replicating, and is a reason *not* to trade rather than a
 trade: Ichimoku's bullish readings select bad days. The four-confirmation
 system returns 3.33% against 10.75% for holding, and measured directly a
@@ -240,7 +338,7 @@ bullish 30-minute cloud is followed by ~43 bps worse returns than a bearish
 one. It decays hard — −70.7 bps in the first third of the archive, −27.2 and
 insignificant in the last five years.
 
-**There is no live result.** The one that stood longest — a barrier-labelled
+**There is still no live result** - the premium above is a measured quantity, not a traded one. The candidate that stood longest — a barrier-labelled
 GBM on a 20-ETF levered panel — did not survive a properly powered null.
 Against 100 shuffles on the common grid (the 91.2% of rows on timestamps every
 symbol shares): real **+1.25 bps**, null mean +0.11, **null sd 1.02**, and the

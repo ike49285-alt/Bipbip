@@ -1,10 +1,8 @@
 """Swing mode: positions that survive the closing bell."""
 import numpy as np
 import pandas as pd
-import pytest
 
 from bipbip.core import BacktestEngine, CashAccount, CostModel
-from bipbip.core import metrics as M
 from bipbip.data import make_intraday_bars
 from bipbip.data.sessions import EXCHANGE_TZ
 from bipbip.strategies import get_strategy

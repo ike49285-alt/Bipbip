@@ -91,7 +91,7 @@ def main():
     cost = cost[keep]
     print(f"{len(syms)} symbols, {len(X):,} samples, {len(names)} features "
           f"({time.time()-t0:.0f}s)")
-    print(f"gross returns; each symbol's measured spread charged after direction\n")
+    print("gross returns; each symbol's measured spread charged after direction\n")
 
     search = RuleSearch(X, fwd, names, min_trades=500, seed=7,
                         max_fraction=0.25, cost_bps=cost)
@@ -110,7 +110,7 @@ def main():
     # asks for something arithmetically unreachable - and the last run printed
     # "not separable" for a winner that beat all ten nulls by a factor of six.
     # Report the separation directly and say what the floor is.
-    floor = 1.0 / (res.p_value and (round(1.0 / res.p_value)) or 1)
+    floor = 1.0 / (res.null_runs + 1) if res.null_runs else float("nan")
     if not np.isfinite(res.null_best):
         print("VERDICT: no usable null runs; the result means nothing.")
     elif res.fitness <= res.null_best:
@@ -118,11 +118,12 @@ def main():
         print("generates. Nothing found.")
     else:
         ratio = res.fitness / res.null_best if res.null_best > 0 else float("inf")
-        print(f"VERDICT: winner beat all {len(res.history) and ''}null runs, "
+        print(f"VERDICT: winner beat all {res.null_runs} null runs, "
               f"t={res.fitness:.1f} against a null best of {res.null_best:.1f} "
               f"({ratio:.1f}x).")
-        print(f"  p={res.p_value:.3f} is the FLOOR for this many null runs, not")
-        print("  a weak result. Separation is the number that matters.")
+        print(f"  p={res.p_value:.3f} is the FLOOR ({floor:.3f} = 1/{res.null_runs + 1}) "
+              f"for this many null runs,")
+        print("  not a weak result. Separation is the number that matters.")
         print("  This is NOT a green light: 20 sessions, and every apparent")
         print("  edge in this project so far has been an accounting artefact.")
     print(f"\ntotal {time.time()-t0:.0f}s")

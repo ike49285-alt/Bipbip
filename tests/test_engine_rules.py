@@ -1,7 +1,6 @@
 """Engine invariants: things that must hold for every strategy, always."""
 import datetime as dt
 
-import numpy as np
 import pandas as pd
 import pytest
 

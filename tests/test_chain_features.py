@@ -89,6 +89,22 @@ def test_atm_iv_does_not_average_a_call_against_a_put_of_different_strikes():
     assert out["n_sides"] == 2
 
 
+@pytest.mark.parametrize("dte", [1, 2, 3, 5, 7, 10])
+def test_atm_iv_inverts_on_the_same_clock_the_chain_was_priced_on(dte):
+    """The chain is priced on trading time, so it must be inverted on it.
+
+    This function used dte/365 while the rest of the module used
+    _trading_years, and on the real TQQQ snapshots that overstated ATM vol by
+    20.4% - 70.2% against 58.3%. The old test could not see it: it ran only at
+    dte=7, which is the one horizon where the two clocks nearly agree (5/252
+    against 7/365, about 3% apart in T, under 2% in vol). At one to three days
+    the same mismatch is 20%, so the short horizons are the ones that bite -
+    and short-dated is exactly what this project prices.
+    """
+    ch = _chain(spot=100.0, vol=0.40, dte=dte)
+    assert atm_iv_from_quotes(ch)["atm_iv"] == pytest.approx(0.40, abs=0.01)
+
+
 def test_snapshot_features_derives_its_own_spot():
     ch = _chain(spot=100.0, vol=0.40, dte=7)
     f = snapshot_features(ch, realised_vol=0.30)
