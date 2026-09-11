@@ -172,8 +172,22 @@ def test_the_new_features_reach_the_model_as_ranks_too():
 # The rotation harness.
 # --------------------------------------------------------------------------
 
-def _ranker_panel(n_symbols=24, n=900, seed=11):
-    """A panel wide enough for the ranker's fold and basket minimums."""
+def _ranker_panel(n_symbols=14, n=900, seed=11):
+    """A panel wide enough for the ranker's fold and basket minimums.
+
+    It was 24 symbols, which made this the slowest file in the suite by a wide
+    margin - over two and a half minutes against about a second for a typical
+    file - because the equivalence test below fits the ranker FOUR times, once
+    through `procedure` and once per `top_k`. Fourteen runs it in eight seconds
+    and still clears every minimum: `min_symbols` is 10 below and the largest
+    basket is 10.
+
+    THE BAR COUNT STAYS AT 900 and is not a spare knob. The splitter needs
+    `n_splits * 20` usable fold timestamps, and those are counted AFTER the
+    21-bar horizon and the embargo are taken out, so a first attempt at 420
+    bars produced "no usable folds" and the test failed rather than running
+    fast. Symbols are the free dimension here; sessions are not.
+    """
     rng = np.random.default_rng(seed)
     idx = pd.date_range("2015-01-02", periods=n, freq="B")
     closes, volumes = {}, {}
