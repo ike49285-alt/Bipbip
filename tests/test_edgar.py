@@ -259,3 +259,18 @@ def test_total_hits_reads_both_shapes_elasticsearch_uses(payload, expected):
 
     assert edgar.total_hits("odd lot", user_agent="T t@e.com",
                             session=_Sess()) == expected
+
+
+def test_the_form_filter_names_the_root_form_only():
+    """Measured live, and it is the opposite of what it looks like.
+
+    Naming the amendment alongside the root form does not widen the search -
+    EDGAR's filter matches on root_form, which already covers amendments, so
+    listing "SC TO-I/A" INTERSECTS instead. The probe run recorded 4,409
+    documents for the root form undated against 992 for the pair, and with a
+    date range the pair returned ZERO against the root form's 26. That zero was
+    reported by the first real collection run as a quiet month.
+    """
+    assert edgar.TENDER_FORMS == ("SC TO-I",)
+    assert edgar.TENDER_AMENDMENT_FORM not in edgar.TENDER_FORMS
+    assert edgar.search_params("odd lot")["forms"] == "SC TO-I"

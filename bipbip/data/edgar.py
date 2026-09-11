@@ -42,8 +42,18 @@ FTS_URL = "https://efts.sec.gov/LATEST/search-index"
 #: ten a second. Both are conditions of use rather than suggestions.
 SEC_RATE_LIMIT_PER_SEC = 10
 
-#: Issuer tender offer, and its amendments.
-TENDER_FORMS = ("SC TO-I", "SC TO-I/A")
+#: Issuer tender offer. The ROOT form only, and that is not an oversight -
+#: EDGAR's `forms` filter matches on root_form, which already folds the
+#: amendments (SC TO-I/A) in. Naming the amendment explicitly does not widen
+#: the search, it INTERSECTS: measured live, "SC TO-I" alone returns 4,409
+#: documents undated where "SC TO-I,SC TO-I/A" returns 992, and once dates are
+#: added the pair returns ZERO against the root form's 26. That zero is what
+#: the first real collection run reported as a quiet month.
+TENDER_FORMS = ("SC TO-I",)
+
+#: Kept only so the amendment's form string has a name. Do NOT add it to a
+#: `forms` filter; see above.
+TENDER_AMENDMENT_FORM = "SC TO-I/A"
 
 _TAG = re.compile(r"<[^>]+>")
 _WS = re.compile(r"[\s ]+")
@@ -233,6 +243,9 @@ def total_hits(query: str, forms=TENDER_FORMS, date_from: str | None = None,
     r.raise_for_status()
     total = r.json().get("hits", {}).get("total", 0)
     # Elasticsearch reports this either as a bare int or as {"value": n}.
+    # It also SATURATES: EDGAR caps the reported total at 10,000, so this is a
+    # lower bound on a broad query. That is fine for every use here - the
+    # canary only asks whether it is zero - but it is not a document count.
     return int(total.get("value", 0)) if isinstance(total, dict) else int(total)
 
 
