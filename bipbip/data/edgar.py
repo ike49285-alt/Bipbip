@@ -42,6 +42,9 @@ FTS_URL = "https://efts.sec.gov/LATEST/search-index"
 #: ten a second. Both are conditions of use rather than suggestions.
 SEC_RATE_LIMIT_PER_SEC = 10
 
+#: Documents EDGAR returns per page of full-text search results.
+PAGE_SIZE = 10
+
 #: Issuer tender offer. The ROOT form only, and that is not an oversight -
 #: EDGAR's `forms` filter matches on root_form, which already folds the
 #: amendments (SC TO-I/A) in. Naming the amendment explicitly does not widen
@@ -209,8 +212,8 @@ def search_params(query: str, forms=TENDER_FORMS, date_from: str | None = None,
 
 def full_text_search(query: str, forms=TENDER_FORMS, date_from: str | None = None,
                      date_to: str | None = None, user_agent: str | None = None,
-                     session=None) -> list[dict]:
-    """Hits from EDGAR full-text search. Raises rather than returning nothing.
+                     session=None, max_pages: int = 10) -> list[dict]:
+    """Hits from EDGAR full-text search, PAGED. Raises rather than returning nothing.
 
     A silent empty list here would look identical to "no tender offers this
     week", which is a normal and expected result - so a transport failure has
@@ -219,11 +222,30 @@ def full_text_search(query: str, forms=TENDER_FORMS, date_from: str | None = Non
     import requests
 
     ua = _require_user_agent(user_agent)
-    params = search_params(query, forms, date_from, date_to)
     get = (session or requests).get
-    r = get(FTS_URL, params=params, headers={"User-Agent": ua}, timeout=30)
-    r.raise_for_status()
-    return r.json().get("hits", {}).get("hits", [])
+    out, seen = [], set()
+    # EDGAR returns TEN documents a page. The first real run collected 8 rows
+    # from a window the probe said held 26 matches, and the shortfall was
+    # silent: a full page looks exactly like a complete result. Page until a
+    # page comes back short or the cap is reached.
+    for start in range(0, max_pages * PAGE_SIZE, PAGE_SIZE):
+        params = search_params(query, forms, date_from, date_to)
+        if start:
+            params["from"] = start
+        r = get(FTS_URL, params=params, headers={"User-Agent": ua}, timeout=30)
+        r.raise_for_status()
+        page = r.json().get("hits", {}).get("hits", [])
+        for h in page:
+            ident = h.get("_id", "")
+            # A page boundary can repeat a document if the index shifts under
+            # the query; de-duplicating here keeps the caller's count honest.
+            if ident and ident in seen:
+                continue
+            seen.add(ident)
+            out.append(h)
+        if len(page) < PAGE_SIZE:
+            break
+    return out
 
 
 def total_hits(query: str, forms=TENDER_FORMS, date_from: str | None = None,
@@ -278,7 +300,14 @@ def hit_to_row(hit: dict) -> dict:
         "accession": accession,
         "cik": cik,
         "company": (src.get("display_names") or [""])[0],
-        "form": src.get("root_form") or src.get("file_type"),
+        # EDGAR full-text search indexes DOCUMENTS, so a hit is usually an
+        # exhibit - the Offer to Purchase - and `file_type` reads "EX-99.(A)"
+        # rather than the filing's form. root_form is the filing, which is what
+        # the archive is about; file_type is kept separately rather than
+        # overwriting it, because the first run wrote "EX-99" into a column
+        # named `form` and that would read as the filing type later.
+        "form": src.get("root_form") or "",
+        "doc_type": src.get("file_type") or "",
         "filed": src.get("file_date"),
         "url": url,
     }

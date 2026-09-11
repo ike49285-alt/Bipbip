@@ -37,16 +37,32 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 from bipbip.data import edgar
 
 OUT = pathlib.Path("data/tenders.csv")
-FIELDS = ["accession", "cik", "company", "form", "filed", "url",
+FIELDS = ["accession", "cik", "company", "form", "doc_type", "filed", "url",
           "odd_lot", "price_low", "price_high", "dutch_auction", "expires",
           "chars", "collected_at"]
 
 
 def existing(path: pathlib.Path) -> set:
+    """Accessions already archived, after checking the header still matches.
+
+    Appending rows with a different field set to a CSV written under an older
+    one silently MISALIGNS every column from the first change onward, and a
+    misaligned archive is worse than no archive because it looks fine. The
+    schema has changed once already (doc_type was added when the first run
+    revealed `form` was being filled with the exhibit type), so this refuses
+    rather than appends.
+    """
     if not path.exists():
         return set()
     with path.open() as fh:
-        return {r["accession"] for r in csv.DictReader(fh)}
+        rdr = csv.DictReader(fh)
+        if rdr.fieldnames and list(rdr.fieldnames) != FIELDS:
+            raise SystemExit(
+                f"{path} was written with a different schema and appending "
+                f"would misalign every column.\n  on disk: {rdr.fieldnames}\n"
+                f"  expected: {FIELDS}\nDelete the file to re-collect, or "
+                f"migrate it; the archive is cheap to rebuild from EDGAR.")
+        return {r["accession"] for r in rdr}
 
 
 def probe(query, start, end, ua):

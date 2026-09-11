@@ -112,9 +112,28 @@ into what actually moves the position:
   reach it *by expiry*, not at some point on the way.
 
 The cheap ones are cheap because they are unlikely. This repo measured the
-gradient across an entire chain: expectation falls monotonically with
-moneyness, from indistinguishable-from-zero near the money to −100% far out.
+gradient across an entire chain and it is monotonic in moneyness, as expected
+return on premium paid at the ask:
+
+    deep ITM (<−5%)   −9.8%      OTM (0..+5%)     −70.3%
+    ITM (−5..0%)     −35.3%      OTM (+5..+10%)   −89.9%
+                                 far OTM (>+10%)  −94.9%
+
 **The contracts a small account can afford are the ones priced worst.**
+
+These numbers are a CORRECTION. The earlier reading — "indistinguishable from
+zero near the money" — was an artifact of a hardcoded spot. `chain_edge.py`
+carried `SPOT_NOW = 71.365`, a live mid taken on the 9th, while its
+`sorted(glob)[-1]` had advanced the chain to the 10th, where put-call parity
+says **69.213**. Two dollars of phantom spot FABRICATES intrinsic value, and
+every strike from 40 to 67 was scored "cheap" at up to **+73% of premium**
+because its ask sat below an intrinsic value that existed only at the wrong
+spot. At parity not one of them is below intrinsic, and every one of those rows
+reads OVERPRICED. The corrected table is strictly worse for the buyer than the
+claim it replaces, so the conclusion is unchanged and better supported — but
+nothing on that chain was ever near zero. The script now derives spot from the
+chain's own parity, drops quotes below intrinsic rather than scoring them, and
+anchors its comparable-week sample on the chain's quote date.
 
 Time to expiry runs on a **trading** clock, not a calendar one. Weekends carry
 no variance. Pricing two calendar days as 2/365 rather than 2 sessions/252
