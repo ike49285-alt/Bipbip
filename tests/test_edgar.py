@@ -215,3 +215,47 @@ def test_an_unrecognised_response_shape_is_loud_not_a_quiet_week():
     """
     unusable = [{"id": "wrong-key", "source": {"cik": "320193"}}]
     assert all(edgar.hit_to_row(h)["url"] is None for h in unusable)
+
+
+def test_the_form_filter_is_omitted_entirely_rather_than_sent_empty():
+    """The canary depends on this. A control query has to be genuinely
+    unfiltered; sending `forms=` would restrict it to nothing and the canary
+    would confirm a breakage that was its own doing."""
+    assert "forms" not in edgar.search_params("odd lot", forms=None)
+    assert edgar.search_params("odd lot", forms=("SC TO-I",))["forms"] == "SC TO-I"
+
+
+def test_dates_are_only_sent_when_asked_for():
+    bare = edgar.search_params("odd lot")
+    assert "startdt" not in bare and "dateRange" not in bare
+    dated = edgar.search_params("odd lot", date_from="2026-08-12",
+                                date_to="2026-09-11")
+    assert dated["dateRange"] == "custom"
+    assert (dated["startdt"], dated["enddt"]) == ("2026-08-12", "2026-09-11")
+
+
+def test_a_missing_end_date_means_a_single_day_not_an_open_range():
+    p = edgar.search_params("odd lot", date_from="2026-08-12")
+    assert p["startdt"] == p["enddt"] == "2026-08-12"
+
+
+@pytest.mark.parametrize("payload,expected", [
+    ({"hits": {"total": {"value": 1234}}}, 1234),   # elasticsearch object form
+    ({"hits": {"total": 7}}, 7),                    # bare int form
+    ({"hits": {}}, 0),
+    ({}, 0),
+])
+def test_total_hits_reads_both_shapes_elasticsearch_uses(payload, expected):
+    """`len(hits)` caps at one page, so it cannot tell ten matches from ten
+    thousand - the canary needs the TOTAL. Elasticsearch reports it as a bare
+    int in older versions and as {"value": n} in newer ones, and reading only
+    one shape would silently return 0 and fire the canary on a healthy feed."""
+    class _Resp:
+        def raise_for_status(self): pass
+        def json(self): return payload
+
+    class _Sess:
+        def get(self, *a, **k): return _Resp()
+
+    assert edgar.total_hits("odd lot", user_agent="T t@e.com",
+                            session=_Sess()) == expected
