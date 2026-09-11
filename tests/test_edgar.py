@@ -420,3 +420,38 @@ def test_appending_to_an_archive_with_a_different_schema_is_refused(tmp_path):
     good = tmp_path / "ok.csv"
     good.write_text(",".join(ct.FIELDS) + "\n")
     assert ct.existing(good) == set()
+
+
+
+def test_a_migration_derives_what_it_can_rather_than_leaving_it_blank(tmp_path):
+    """The ticker was inside `company` the whole time.
+
+    A migration that writes every new column blank is lossless but lazy: it
+    would leave `listed` - the field that decides whether a filing is even
+    reachable - empty for every row predating it, and nothing would ever fill
+    them in, because a row already in the archive is skipped by accession.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "collect_tenders",
+        pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        / "collect_tenders.py")
+    ct = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ct)
+
+    old = tmp_path / "t.csv"
+    old.write_text(
+        "accession,cik,company,filed,url\n"
+        "A,1,Arbutus Biopharma Corp  (ABUS)  (CIK 0001447380),2026-09-01,http://x\n"
+        "B,2,Ares Private Markets Fund  (CIK 0001876006),2026-09-01,http://y\n")
+    assert ct.existing(old) == {"A", "B"}
+
+    import csv as _csv
+    with old.open() as fh:
+        rows = {r["accession"]: r for r in _csv.DictReader(fh)}
+    assert rows["A"]["ticker"] == "ABUS" and rows["A"]["listed"] == "True"
+    assert rows["B"]["ticker"] == "" and rows["B"]["listed"] == "False"
+    # The form is a fact about how this archive is built, not a guess.
+    assert rows["A"]["form"] == "SC TO-I"
+    # Nothing that needs the document back is invented.
+    assert rows["A"]["price_low"] == "" and rows["A"]["expires"] == ""

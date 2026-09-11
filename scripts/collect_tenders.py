@@ -43,6 +43,33 @@ FIELDS = ["accession", "cik", "company", "ticker", "listed", "form",
           "chars", "collected_at"]
 
 
+def backfill(row: dict) -> dict:
+    """Fill columns a migration can DERIVE, and only those.
+
+    A migration that writes every new column blank is lossless but lazy: the
+    ticker was sitting inside `company` the whole time ("Arbutus Biopharma Corp
+    (ABUS) (CIK ...)"), so leaving `listed` empty would have left the archive's
+    most important field unpopulated for every row predating it. Deriving it is
+    not guessing - it is the same pure function the collector applies to a
+    fresh row, run against data already stored.
+
+    `form` is filled the same way and for the same reason: this archive only
+    ever contains rows collected under the SC TO-I filter, so the form is a
+    fact about how the file is built rather than an inference about the filing.
+
+    Anything NOT derivable from what is stored stays blank. Re-fetching the
+    document to recover a price would be a different operation with a different
+    cost, and quietly doing it inside a schema migration would be a surprise.
+    """
+    if not row.get("ticker") and row.get("company"):
+        row["ticker"] = edgar.ticker_from_display(row["company"])
+    if row.get("listed") in ("", None):
+        row["listed"] = edgar.is_listed(row)
+    if not row.get("form"):
+        row["form"] = edgar.TENDER_FORMS[0]
+    return row
+
+
 def existing(path: pathlib.Path) -> set:
     """Accessions already archived, after checking the header still matches.
 
@@ -74,14 +101,14 @@ def existing(path: pathlib.Path) -> set:
         # header with the new columns blank. Appending instead would misalign
         # every column from the first new one onward, and a misaligned archive
         # is worse than none because it still looks fine.
+        added = [c for c in FIELDS if c not in on_disk]
         print(f"  migrating {path.name}: {len(on_disk)} columns -> "
-              f"{len(FIELDS)}, adding {[c for c in FIELDS if c not in on_disk]}",
-              flush=True)
+              f"{len(FIELDS)}, adding {added}", flush=True)
         with path.open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=FIELDS)
             w.writeheader()
             for r in rows:
-                w.writerow({k: r.get(k, "") for k in FIELDS})
+                w.writerow(backfill({k: r.get(k, "") for k in FIELDS}))
 
     return {r["accession"] for r in rows}
 
