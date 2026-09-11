@@ -220,6 +220,22 @@ expensive to miss.
 - **An arbitrary seed is a free parameter.** Changing only the model seed moved
   a headline margin by sd 0.204 bps, against a claimed effect of ~1 bps. If a
   result moves when you reseed, that movement belongs in the error bar.
+- **A script that answers "what does the newest data say" gets quoted as if it
+  were a fixed measurement.** Three option scripts here did the same two
+  things: take the newest chain with `sorted(glob)[-1]`, and anchor a
+  vol-matched historical sample on `series.iloc[-1]`, the last row of the BAR
+  archive. Both re-point themselves every time a collector runs, so the
+  committed number stops reproducing and nobody notices until someone re-runs
+  it. It is not a rare slip — it is what you write when the question is "price
+  this now", and the harm arrives when the answer is pasted into a document
+  that outlives the day. The anchor is worse than the glob because it is
+  invisible: `spread_edge.py`'s verdict walked from "approximately zero" to
+  "EDGE" on it alone, and `chain_edge.py`'s whole near-the-money half was an
+  artifact of a spot constant left behind by one day. **Pin the snapshot, take
+  the anchor from the snapshot's own date, and print the sensitivity curve
+  rather than one column of it.** Where an anchor is latent today (the archive
+  and the chain happen to agree), pin it with a test rather than an inspection
+  — `premium_structure.py` was latent and is now pinned.
 - **A silent fallback is how a null gets contaminated.** A permutation looked
   up `(symbol, permuted timestamp)` and, when the pair did not exist, fell back
   to the row's own index — handing it back its TRUE label. 23.4% of every

@@ -259,7 +259,18 @@ def main():
     r = np.log(d / d.shift(1))
     trail = (r.rolling(20).std() * np.sqrt(252)).to_numpy()
     idx = np.arange(0, len(d) - sess, sess)
-    cur = trail[-1]
+    # Anchored on the CHAIN'S quote date, not the bar archive's last row. The
+    # two are independent once --chain can pin an older snapshot, and reading
+    # the tail silently re-anchors the whole comparison every time bars land -
+    # the same defect found in spread_edge.py and chain_edge.py, where the
+    # published verdict moved from "approximately zero" to "EDGE" on it alone.
+    day = pd.DatetimeIndex([pd.Timestamp(x.date()) for x in d.index])
+    upto = np.flatnonzero(day <= asof)
+    if len(upto) == 0:
+        raise SystemExit(f"no daily bars on or before {asof.date()}")
+    cur = trail[upto[-1]]
+    if not np.isfinite(cur):
+        raise SystemExit("trailing vol is undefined at the chain's quote date")
     keep = np.isfinite(trail[idx]) & (trail[idx] > cur * 0.7) & (trail[idx] < cur * 1.3)
     fwd_calm = fwd_all[keep]
 
