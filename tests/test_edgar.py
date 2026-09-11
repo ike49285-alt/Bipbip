@@ -11,6 +11,7 @@ the middle of sentences, &nbsp; instead of spaces, the operative phrase split
 across markup - because that is exactly what defeats a naive regex.
 """
 import datetime as dt
+import pathlib
 
 import pytest
 
@@ -274,3 +275,95 @@ def test_the_form_filter_names_the_root_form_only():
     assert edgar.TENDER_FORMS == ("SC TO-I",)
     assert edgar.TENDER_AMENDMENT_FORM not in edgar.TENDER_FORMS
     assert edgar.search_params("odd lot")["forms"] == "SC TO-I"
+
+
+class _Pager:
+    """EDGAR-shaped paging: ten documents a page, `from` selects the offset."""
+
+    def __init__(self, n_docs):
+        self.n = n_docs
+        self.offsets = []
+
+    def get(self, url, params=None, headers=None, timeout=None):
+        start = int(params.get("from", 0))
+        self.offsets.append(start)
+        page = [{"_id": f"000-{i}:doc{i}.htm", "_source": {"ciks": ["1"]}}
+                for i in range(start, min(start + edgar.PAGE_SIZE, self.n))]
+
+        class _R:
+            def raise_for_status(self): pass
+            def json(self): return {"hits": {"hits": page}}
+        return _R()
+
+
+def test_search_pages_past_the_first_ten_results():
+    """The shortfall that was silent. The first real run wrote 8 rows from a
+    window the probe said held 26 matches, because EDGAR returns ten documents
+    a page and a FULL page looks exactly like a complete result."""
+    pager = _Pager(26)
+    hits = edgar.full_text_search("odd lot", user_agent="T t@e.com",
+                                  session=pager)
+    assert len(hits) == 26
+    assert pager.offsets[:3] == [0, 10, 20]
+
+
+def test_paging_stops_on_a_short_page_rather_than_asking_forever():
+    pager = _Pager(14)
+    assert len(edgar.full_text_search("odd lot", user_agent="T t@e.com",
+                                      session=pager)) == 14
+    assert pager.offsets == [0, 10]        # stopped after the short page
+
+
+def test_an_exactly_full_final_page_still_terminates():
+    """20 documents is two full pages; the third comes back empty and ends it.
+    Stopping only on a short page would otherwise loop to the cap."""
+    pager = _Pager(20)
+    assert len(edgar.full_text_search("odd lot", user_agent="T t@e.com",
+                                      session=pager)) == 20
+    assert pager.offsets == [0, 10, 20]
+
+
+def test_paging_is_capped_so_a_broad_query_cannot_run_away():
+    pager = _Pager(10_000)
+    hits = edgar.full_text_search("odd lot", user_agent="T t@e.com",
+                                  session=pager, max_pages=3)
+    assert len(hits) == 30
+
+
+def test_the_filing_form_is_not_overwritten_by_the_exhibit_type():
+    """Full-text search indexes DOCUMENTS, so a hit is usually an exhibit and
+    file_type reads "EX-99.(A)(1)". The first real run wrote that into a column
+    named `form`, where it would later read as the filing's type."""
+    row = edgar.hit_to_row({
+        "_id": "0001104659-26-104051:tm_ex99-a1d.htm",
+        "_source": {"ciks": ["0001661458"], "display_names": ["Highlands REIT"],
+                    "root_form": "SC TO-I", "file_type": "EX-99.(A)(1)",
+                    "file_date": "2026-09-01"},
+    })
+    assert row["form"] == "SC TO-I"
+    assert row["doc_type"] == "EX-99.(A)(1)"
+
+
+def test_appending_to_an_archive_with_a_different_schema_is_refused(tmp_path):
+    """A misaligned archive is worse than no archive because it looks fine.
+
+    The schema changed once already - doc_type was added when the first real
+    run revealed `form` was being filled with the exhibit type - so a file
+    written under the old header is a real case, not a hypothetical.
+    """
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "collect_tenders",
+        pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        / "collect_tenders.py")
+    ct = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ct)
+
+    stale = tmp_path / "tenders.csv"
+    stale.write_text("accession,cik,company,form,filed,url\nA,1,X,SC TO-I,,\n")
+    with pytest.raises(SystemExit, match="different schema"):
+        ct.existing(stale)
+
+    good = tmp_path / "ok.csv"
+    good.write_text(",".join(ct.FIELDS) + "\n")
+    assert ct.existing(good) == set()
