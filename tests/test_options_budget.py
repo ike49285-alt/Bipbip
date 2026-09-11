@@ -160,3 +160,157 @@ def test_readme_options_tables_are_internally_consistent():
     assert costs == sorted(costs), "cost should rise with expiry"
     # And the affordable corner is the worst corner.
     assert costs[0] > 50.0, "the section claims no ATM contract is affordable"
+
+
+# ---------------------------------------------------------------------------
+# bipbip/options/pricing.py against scipy. Mutation testing put this module at
+# 18%: eight of forty-five deliberate defects detected. It is separate code
+# from the Black-Scholes in chain_features, and it is what prices the greeks.
+# scipy is the oracle because it is already a declared dependency and already
+# tested - a hand-written reference risks pinning a wrong constant.
+# ---------------------------------------------------------------------------
+
+def _bs_reference(S, K, T, r, sigma, kind):
+    """Textbook Black-Scholes, written here independently of the module."""
+    from scipy.stats import norm
+    import math
+    d1 = (math.log(S / K) + (r + 0.5 * sigma ** 2) * T) / (sigma * math.sqrt(T))
+    d2 = d1 - sigma * math.sqrt(T)
+    if kind == "call":
+        return S * norm.cdf(d1) - K * math.exp(-r * T) * norm.cdf(d2)
+    return K * math.exp(-r * T) * norm.cdf(-d2) - S * norm.cdf(-d1)
+
+
+@pytest.mark.parametrize("S,K,T,r,sigma", [
+    (100.0, 100.0, 1.0, 0.04, 0.20),
+    (100.0, 90.0, 0.5, 0.04, 0.30),
+    (100.0, 110.0, 0.25, 0.00, 0.60),
+    (640.0, 640.0, 1.0 / 252, 0.04, 0.13),      # the docstring's 0DTE case
+    (50.0, 55.0, 2.0, 0.05, 0.15),
+])
+@pytest.mark.parametrize("kind", ["call", "put"])
+def test_the_price_matches_scipy_across_the_surface(S, K, T, r, sigma, kind):
+    from bipbip.options import pricing
+    k = pricing.CALL if kind == "call" else pricing.PUT
+    got = float(pricing.price(S, K, T, r, sigma, k))
+    assert got == pytest.approx(_bs_reference(S, K, T, r, sigma, kind), rel=1e-9)
+
+
+@pytest.mark.parametrize("S,K,T,r,sigma", [
+    (100.0, 100.0, 1.0, 0.04, 0.20),
+    (100.0, 90.0, 0.5, 0.04, 0.30),
+    (120.0, 100.0, 0.25, 0.02, 0.45),
+])
+def test_put_call_parity_holds_between_the_two_legs(S, K, T, r, sigma):
+    """C - P = S - K*exp(-rT), by construction and with no model assumption.
+    CLAUDE.md calls this the most reliable tool available; it is also the one
+    relation a sign error in either leg cannot survive."""
+    import math
+    from bipbip.options import pricing
+    c = float(pricing.price(S, K, T, r, sigma, pricing.CALL))
+    p = float(pricing.price(S, K, T, r, sigma, pricing.PUT))
+    assert c - p == pytest.approx(S - K * math.exp(-r * T), rel=1e-9)
+
+
+def test_an_expired_option_is_worth_exactly_intrinsic():
+    """The docstring's promise. Extrinsic value is zero at expiry, so anything
+    above intrinsic there is money invented by the model."""
+    from bipbip.options import pricing
+    assert float(pricing.price(110.0, 100.0, 0.0, 0.04, 0.2, pricing.CALL)) \
+        == pytest.approx(10.0)
+    assert float(pricing.price(90.0, 100.0, 0.0, 0.04, 0.2, pricing.CALL)) \
+        == pytest.approx(0.0)
+    assert float(pricing.price(90.0, 100.0, 0.0, 0.04, 0.2, pricing.PUT)) \
+        == pytest.approx(10.0)
+
+
+def test_the_clock_is_trading_time_not_calendar_time():
+    """The module's central claim, checked as arithmetic: one session is
+    1/252 of a year, not 1/365, and a full year of sessions is exactly 1.0."""
+    from bipbip.options.pricing import (TRADING_MINUTES_PER_YEAR,
+                                        minutes_to_years)
+    assert TRADING_MINUTES_PER_YEAR == pytest.approx(252 * 390)
+    assert float(minutes_to_years(390)) == pytest.approx(1.0 / 252)
+    assert float(minutes_to_years(TRADING_MINUTES_PER_YEAR)) == pytest.approx(1.0)
+
+
+def test_the_trading_clock_prices_a_zero_dte_call_near_its_traded_level():
+    """The docstring's worked example: SPY at $640, 13% vol, one session to
+    expiry is about $2.10 on a trading clock and about $0.91 on a calendar one.
+    Getting this backwards under-prices every short-dated option and makes an
+    options backtest look far too profitable."""
+    from bipbip.options import pricing
+    trading = float(pricing.price(640.0, 640.0, 1.0 / 252, 0.04, 0.13,
+                                  pricing.CALL))
+    calendar = float(pricing.price(640.0, 640.0, 1.0 / 365, 0.04, 0.13,
+                                   pricing.CALL))
+    assert trading > calendar
+    assert 1.5 < trading < 3.0
+
+
+def test_delta_matches_the_numerical_derivative_of_the_price():
+    """Each greek is checked against a bump of the price, so a wrong greek
+    cannot agree with a right price."""
+    from bipbip.options import pricing
+    S, K, T, r, v = 100.0, 100.0, 0.5, 0.04, 0.25
+    h = 1e-4
+    up = float(pricing.price(S + h, K, T, r, v, pricing.CALL))
+    dn = float(pricing.price(S - h, K, T, r, v, pricing.CALL))
+    assert float(pricing.delta(S, K, T, r, v, pricing.CALL)) \
+        == pytest.approx((up - dn) / (2 * h), rel=1e-5)
+
+
+def test_gamma_matches_the_numerical_second_derivative():
+    from bipbip.options import pricing
+    S, K, T, r, v = 100.0, 100.0, 0.5, 0.04, 0.25
+    h = 1e-2
+    up = float(pricing.price(S + h, K, T, r, v, pricing.CALL))
+    mid = float(pricing.price(S, K, T, r, v, pricing.CALL))
+    dn = float(pricing.price(S - h, K, T, r, v, pricing.CALL))
+    assert float(pricing.gamma(S, K, T, r, v)) \
+        == pytest.approx((up - 2 * mid + dn) / h ** 2, rel=1e-3)
+
+
+def test_vega_matches_the_numerical_derivative_in_volatility():
+    from bipbip.options import pricing
+    S, K, T, r, v = 100.0, 100.0, 0.5, 0.04, 0.25
+    h = 1e-6
+    up = float(pricing.price(S, K, T, r, v + h, pricing.CALL))
+    dn = float(pricing.price(S, K, T, r, v - h, pricing.CALL))
+    assert float(pricing.vega(S, K, T, r, v)) \
+        == pytest.approx((up - dn) / (2 * h), rel=1e-4)
+
+
+def test_theta_is_negative_for_a_long_option_and_grows_toward_expiry():
+    """Decay is a cost to the holder, and it accelerates - the property that
+    makes short-dated out-of-the-money contracts brutal. A positive theta here
+    would pay a buyer for waiting."""
+    from bipbip.options import pricing
+    far = float(pricing.theta_per_minute(100.0, 100.0, 0.5, 0.04, 0.25,
+                                         pricing.CALL))
+    near = float(pricing.theta_per_minute(100.0, 100.0, 1.0 / 252, 0.04, 0.25,
+                                          pricing.CALL))
+    assert far < 0 and near < 0
+    assert near < far
+
+
+def test_a_call_is_monotone_in_spot_and_in_volatility():
+    """Two properties no correct pricer can violate, and which a sign error in
+    d1 or d2 breaks while still matching at a single point."""
+    from bipbip.options import pricing
+    px = [float(pricing.price(s, 100.0, 0.5, 0.04, 0.25, pricing.CALL))
+          for s in (80.0, 95.0, 100.0, 105.0, 120.0)]
+    assert px == sorted(px)
+    vol = [float(pricing.price(100.0, 100.0, 0.5, 0.04, v, pricing.CALL))
+           for v in (0.05, 0.15, 0.30, 0.60)]
+    assert vol == sorted(vol)
+
+
+def test_a_call_never_exceeds_the_underlying_nor_falls_below_intrinsic():
+    """The two no-arbitrage bounds. CLAUDE.md: an option cannot trade below
+    intrinsic value."""
+    from bipbip.options import pricing
+    for S in (60.0, 100.0, 150.0):
+        c = float(pricing.price(S, 100.0, 0.75, 0.04, 0.3, pricing.CALL))
+        assert c <= S + 1e-9
+        assert c >= max(0.0, S - 100.0) - 1e-9
