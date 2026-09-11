@@ -142,8 +142,13 @@ overstated short-dated implied vol here by twelve points.
 ## Costs, and who collects them
 
 - The **spread** is the dominant cost at small size. Crossing it pays the
-  market maker; posting a resting order and getting filled earns it. Round
-  trip on TQQQ: ~2.82 bps crossing, plus a 0.278 bps SEC fee on sales.
+  market maker; posting a resting order and getting filled earns it. Crossing
+  costs one tick spread over the symbol's own price, so it is quoted per
+  symbol and it MOVES AS THE PRICE DOES — measured from the 1-minute archive:
+  **SPY 0.133 bps, QQQ 0.140, TQQQ 1.354** round trip, plus a 0.278 bps SEC fee
+  on sales. The 2.82 bps this file carried for TQQQ was correct when written
+  and TQQQ has since roughly doubled, which halves a fixed cent spread in basis
+  points. A cost in bps is not a constant.
 - **Options spreads are enormous** relative to premium — 14.5% of mid on a
   short-dated TQQQ call, about a thousand times the stock's.
 - The catch on posting is **adverse selection**: a resting bid fills precisely
@@ -392,13 +397,27 @@ QQQ +13.9% against −2.7%; XLK +15.0% against −3.9%. Documented in the
 literature, never measured here — and it reframes every negative above: the
 intraday searches were competing for a share of roughly zero drift.
 
-It is **not a trade**. Overnight-only is a round trip every session, 252 × 1.35
-bps = 3.4% a year against buy-and-hold's zero; net of that it beats
-buy-and-hold in 6 of 34, median −2.21%, and Sharpe is 0.50 against 0.49. And it
-decays monotonically to exactly the cost line — SPY's gap runs +22.5% (1993–99),
-+9.5% (2000s), +4.1% (2010s), **+3.3% (2020s) against a 3.4% cost**. That is an
-effect competed down to the friction protecting it, which is also why the
-NightShares ETFs productised it in 2022 and closed in 2023.
+**Whether it is a trade is NOT settled, and this file previously said it was.**
+The claim was "252 × 1.35 bps = 3.4% a year, and the 2020s gap of +3.3% sits
+just under it — competed down to its own friction". That is a tidy story
+resting on a number with no derivation anywhere in the repo. 1.35 bps is
+**TQQQ's** round-trip crossing; `overnight_split.py` applied it to 34 ETFs
+benchmarked on SPY, whose crossing is **0.133 bps** — ten times smaller — while
+commenting it as "an SPY-class name". The verdict moves across the range the
+repo can actually derive:
+
+    quoted crossing (floor)   0.133 bps → 0.34%/yr    20 of 34 beat B&H, median +1.03%
+    modelled retail all-in    2.28  bps → 5.75%/yr     4 of 34, median −4.61%
+    poor fills                6.28  bps → 15.8%/yr     0 of 34, median −14.33%
+
+SPY's decade gaps are unchanged — +22.5%, +9.5%, +4.1%, +3.3% — and the last
+one **clears** the crossing floor by ten times while failing the modelled cost.
+The decay is real; "to exactly the cost line" was an artifact of which cost.
+
+What would settle it has not been measured: overnight-only trades the closing
+and opening **auctions**, and their cost is neither the quoted spread nor
+continuous-book slippage. Until then this is open rather than closed, and the
+script prints all three columns instead of choosing one.
 `scripts/overnight_split.py`.
 
 One thing that keeps replicating, and is a reason *not* to trade rather than a
@@ -437,5 +456,7 @@ fifth of the effect being claimed.
 The execution question — whether a resting order keeps its half spread after
 adverse selection — is therefore no longer decisive for any particular
 strategy. It is still worth measuring, because it sets what ANY intraday idea
-here has to clear: crossing costs ~1.35 bps round trip, which is larger than
-every gross effect this repo has ever measured.
+here has to clear. Note the figure that belongs there is the one for the symbol
+actually traded: 1.354 bps round trip on TQQQ, but 0.133 on SPY. The levered
+funds are where crossing is expensive, and they are also where the intraday
+searches were run.

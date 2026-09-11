@@ -22,9 +22,22 @@ intraday searches were hunting in the half of the day where the equity premium
 does not accrue. A strategy long an index intraday is holding it through the
 window that historically pays approximately nothing.
 
-IT IS NOT TRADEABLE, AND THE ARITHMETIC IS EXACT. Overnight-only means a round
-trip every session - about 252 x 1.35 bps = 3.4% a year - against buy-and-hold's
-zero. After that:
+WHETHER IT IS TRADEABLE IS NOT SETTLED, AND THE EARLIER TEXT HERE SAID IT WAS.
+Overnight-only means a round trip every session, and the annual cost is 252
+times whatever one round trip costs - which is exactly the number this script
+used to assert and never derive. It read 1.35 bps, described as "an SPY-class
+name"; that is TQQQ's crossing cost, and SPY's is 0.133. The conclusion moves
+across the plausible range rather than surviving it:
+
+    quoted crossing   0.133 bps -> 0.34%/yr   the 2020s gap of +3.3% clears it
+    modelled retail   2.28  bps -> 5.75%/yr   no decade since the 2000s clears
+    poor fills        6.28  bps -> 15.8%/yr   nothing clears
+
+So "it decays to exactly the cost line" was an artifact of a number sitting
+between the two the repo can actually derive. What would settle it is the cost
+of trading the closing and opening AUCTIONS, which is neither the quoted spread
+nor continuous-book slippage, and which has not been measured here. After the
+cost question, and independent of it:
 
     overnight-net beats buy-and-hold in 6 of 34 ETFs
     median edge -2.21% a year
@@ -57,8 +70,31 @@ import numpy as np, pandas as pd
 from bipbip.data.store import BarStore
 from bipbip.data.universe import get_universe
 
-#: Round-trip cost of crossing on an SPY-class name, from CLAUDE.md.
-ROUND_TRIP_BPS = 1.35
+#: Round-trip crossing costs, in basis points, DERIVED rather than asserted:
+#: one tick spread over the symbol's own mean price in the 1-minute archive,
+#: the same calculation `scripts/adverse_selection.py` performs.
+#:
+#: The constant that stood here was 1.35, commented "an SPY-class name, from
+#: CLAUDE.md". It is TQQQ's number. SPY's is 0.133 - ten times smaller - and
+#: this study is 34 ETFs benchmarked on SPY, so the cost line was overstated by
+#: an order of magnitude. CLAUDE.md's own 2.82 for TQQQ is the same figure from
+#: when TQQQ averaged ~$35; it now averages ~$74 in the archive, so a spread
+#: fixed in cents has halved in basis points. Both numbers were right when
+#: written and neither was re-derived.
+CROSSING_BPS = {"SPY": 0.133, "QQQ": 0.140, "TQQQ": 1.354}
+
+#: The cost this conclusion is reported against. Crossing the quoted spread is
+#: a FLOOR, not an estimate: it assumes every fill lands at the quote with no
+#: latency and no adverse selection, which README already flags. The cost model
+#: charges SPY 2.28 bps all-in, and the truth for an overnight strategy is
+#: neither, because overnight-only trades the closing and opening AUCTIONS
+#: rather than the continuous book. That measurement has not been made here, so
+#: the sensitivity is printed instead of one column being chosen.
+COST_SCENARIOS = (
+    ("quoted crossing (floor)", 0.133),
+    ("modelled retail all-in", 2.28),
+    ("poor fills", 6.28),
+)
 SESSIONS = 252
 
 
@@ -88,12 +124,14 @@ def main():
         if len(b) < 1500:
             continue
         on, day, tot = legs(b)
-        net = on - ROUND_TRIP_BPS / 1e4
-        rows.append({"sym": s, "years": len(on) / SESSIONS,
-                     "on": cagr(on), "day": cagr(day), "tot": cagr(tot),
-                     "net": cagr(net), "sh_on": sharpe(net), "sh_bh": sharpe(tot)})
+        row = {"sym": s, "years": len(on) / SESSIONS,
+               "on": cagr(on), "day": cagr(day), "tot": cagr(tot)}
+        for label, bps in COST_SCENARIOS:
+            net = on - bps / 1e4
+            row[f"net@{bps}"] = cagr(net)
+            row[f"sh@{bps}"] = sharpe(net)
+        rows.append(row)
     r = pd.DataFrame(rows)
-    r["edge"] = r["net"] - r["tot"]
 
     print("WHERE THE RETURN ACCRUES, within-symbol on the clean ETF universe\n")
     print(f"{'sym':<6}{'years':>7}{'overnight':>11}{'intraday':>10}{'total':>9}")
@@ -110,25 +148,41 @@ def main():
     print(f"  paired difference {d.mean():+.2%}  "
           f"t={d.mean()/d.std(ddof=1)*np.sqrt(len(d)):.2f}")
 
-    print(f"\nNET OF THE DAILY ROUND TRIP ({SESSIONS} x {ROUND_TRIP_BPS} bps = "
-          f"{SESSIONS*ROUND_TRIP_BPS/100:.1f}% a year against buy-and-hold's zero):")
-    print(f"  overnight-net beats buy-and-hold in "
-          f"{int((r['edge'] > 0).sum())} of {len(r)}, median {r['edge'].median():+.2%}")
-    print(f"  Sharpe {r['sh_on'].median():.2f} against {r['sh_bh'].median():.2f}, "
-          f"better in {int((r['sh_on'] > r['sh_bh']).sum())} of {len(r)}")
+    # A round trip every session, so the annual cost is 252x one round trip.
+    # The scenario is printed as a COLUMN rather than chosen, because the
+    # verdict changes across a range the repo cannot currently narrow.
+    print(f"\nNET OF A DAILY ROUND TRIP, across execution assumptions "
+          f"({SESSIONS} sessions a year):\n")
+    print(f"{'assumption':<26}{'bps':>6}{'cost/yr':>9}"
+          f"{'beats B&H':>11}{'median edge':>13}")
+    for label, bps in COST_SCENARIOS:
+        edge = r[f"net@{bps}"] - r["tot"]
+        print(f"{label:<26}{bps:>6.3f}{SESSIONS*bps/100:>8.2f}%"
+              f"{int((edge > 0).sum()):>7} of {len(r)}{edge.median():>+13.2%}")
 
     print("\nDECAY - the reason it is not a trade (SPY by decade):")
     b = st.load("SPY", "1d").dropna()
     on, day, _ = legs(b)
     idx = pd.DatetimeIndex(b.index)[1:]
     f = pd.DataFrame({"on": on, "day": day}, index=idx)
+    a = cc = 0.0
     for lo, hi in ((1993, 1999), (2000, 2009), (2010, 2019), (2020, 2026)):
-        s = f[(f.index.year >= lo) & (f.index.year <= hi)]
-        a, c = cagr(s["on"].to_numpy()), cagr(s["day"].to_numpy())
-        print(f"  {lo}-{hi}  overnight {a:>+7.1%}  intraday {c:>+7.1%}  "
-              f"gap {a-c:>+7.1%}")
-    print(f"\n  the last decade's gap is below the {SESSIONS*ROUND_TRIP_BPS/100:.1f}% "
-          f"it costs to capture. Competed down to its own friction.")
+        sl = f[(f.index.year >= lo) & (f.index.year <= hi)]
+        a, cc = cagr(sl["on"].to_numpy()), cagr(sl["day"].to_numpy())
+        print(f"  {lo}-{hi}  overnight {a:>+7.1%}  intraday {cc:>+7.1%}  "
+              f"gap {a-cc:>+7.1%}")
+    print("\n  whether the last decade's gap survives depends on which cost "
+          "is right:")
+    gap = a - cc                      # a FRACTION, e.g. 0.033 for +3.3%
+    for label, bps in COST_SCENARIOS:
+        # Same units on both sides. Comparing a fraction against a percent is
+        # a factor of 100 and reads as a confident verdict either way.
+        cost = SESSIONS * bps / 1e4
+        print(f"    {label:<26} {cost:>7.2%}/yr  "
+              f"{'the gap CLEARS it' if gap > cost else 'the gap does not clear it'}")
+    print("\n  Overnight-only trades the closing and opening AUCTIONS, whose "
+          "cost is neither the\n  quoted spread nor continuous-book slippage. "
+          "Until that is measured, this is open.")
 
 
 if __name__ == "__main__":
