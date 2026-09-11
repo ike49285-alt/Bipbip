@@ -1,5 +1,12 @@
 """Is TQQQ's volatility predictable, and is a 5DTE option priced for it?
 
+The implied vol below is a CONSTANT read off one quote on one day, while the
+"weeks that looked like this one" band is anchored on the archive's last
+session. Those two drift apart every time bars are collected, so the comparison
+slowly becomes one between a stale quote and a current regime. The anchor date
+is printed for that reason; `scripts/variance_premium.py` asks the same
+question without a frozen quote and is the better tool for it.
+
 Direction at thirty minutes is a coin flip - the search over fifteen years gets
 50.0% against a 52.5% break-even. Volatility is a different question. It
 clusters, so today's tells you something about tomorrow's, and an option is a
@@ -83,9 +90,11 @@ def main():
               f"{nxt.quantile(.25):>6.1%} {nxt.quantile(.75):>6.1%} "
               f"{(nxt > hs[m]).mean():>14.1%}")
 
-    iv = 0.4603      # the quoted implied vol on the $75 5DTE call
+    iv = 0.4603      # the quoted implied vol on the $75 5DTE call, one day
+    anchor_date = h.dropna().index[-1]
     cur = float(h.iloc[-1])
-    print(f"\ncurrent trailing-week realised vol : {cur:.1%}")
+    print(f"\ntrailing-week realised vol as of {anchor_date.date()}: {cur:.1%}"
+          f"  (the archive's last session, not the quote's day)")
     print(f"implied vol quoted on the 5DTE call: {iv:.1%}")
     band = (hs > cur * 0.8) & (hs < cur * 1.2)
     nxt = fs[band]

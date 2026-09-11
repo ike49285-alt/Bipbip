@@ -455,3 +455,62 @@ def test_a_migration_derives_what_it_can_rather_than_leaving_it_blank(tmp_path):
     assert rows["A"]["form"] == "SC TO-I"
     # Nothing that needs the document back is invented.
     assert rows["A"]["price_low"] == "" and rows["A"]["expires"] == ""
+
+
+def test_derived_columns_are_filled_even_when_the_header_already_matches(tmp_path):
+    """The bug in the first version of the backfill, pinned.
+
+    Deriving only inside the migration branch left these columns empty
+    permanently: an earlier run added them blank, so the header then MATCHED,
+    the branch was skipped, and a row already in the archive is never revisited
+    because it is skipped by accession. The archive would have carried an empty
+    `listed` column for its whole life.
+    """
+    import importlib.util, csv as _csv
+    spec = importlib.util.spec_from_file_location(
+        "collect_tenders",
+        pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        / "collect_tenders.py")
+    ct = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ct)
+
+    f = tmp_path / "t.csv"
+    # Correct header ALREADY - only the derived values are missing.
+    row = {k: "" for k in ct.FIELDS}
+    row["accession"] = "A"
+    row["company"] = "Arbutus Biopharma Corp  (ABUS)  (CIK 0001447380)"
+    with f.open("w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=ct.FIELDS)
+        w.writeheader()
+        w.writerow(row)
+
+    assert ct.existing(f) == {"A"}
+    with f.open() as fh:
+        got = next(_csv.DictReader(fh))
+    assert got["ticker"] == "ABUS"
+    assert got["listed"] == "True"
+    assert got["form"] == "SC TO-I"
+
+
+def test_a_clean_archive_is_not_rewritten_on_every_run(tmp_path):
+    """Normalising every load must not mean touching the file every load."""
+    import importlib.util, csv as _csv
+    spec = importlib.util.spec_from_file_location(
+        "collect_tenders",
+        pathlib.Path(__file__).resolve().parents[1] / "scripts"
+        / "collect_tenders.py")
+    ct = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ct)
+
+    f = tmp_path / "t.csv"
+    row = {k: "" for k in ct.FIELDS}
+    row.update(accession="A", company="Ares Fund  (CIK 1)", ticker="",
+               listed="False", form="SC TO-I")
+    with f.open("w", newline="") as fh:
+        w = _csv.DictWriter(fh, fieldnames=ct.FIELDS)
+        w.writeheader()
+        w.writerow(row)
+
+    before = f.read_text()
+    assert ct.existing(f) == {"A"}
+    assert f.read_text() == before

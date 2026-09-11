@@ -87,30 +87,39 @@ def existing(path: pathlib.Path) -> set:
         on_disk = list(rdr.fieldnames or [])
         rows = list(rdr)
 
-    if on_disk and on_disk != FIELDS:
-        unknown = [c for c in on_disk if c not in FIELDS]
-        if unknown:
-            # A column that no longer exists cannot be carried forward without
-            # deciding what it meant, and guessing is how an archive quietly
-            # stops meaning what it says.
-            raise SystemExit(
-                f"{path} has columns this collector does not know: {unknown}.\n"
-                f"  on disk: {on_disk}\n  expected: {FIELDS}\n"
-                f"Migrate or delete it; appending would misalign every row.")
-        # Additions only, so the migration is lossless: rewrite under the new
-        # header with the new columns blank. Appending instead would misalign
-        # every column from the first new one onward, and a misaligned archive
-        # is worse than none because it still looks fine.
+    unknown = [c for c in on_disk if c not in FIELDS]
+    if unknown:
+        # A column that no longer exists cannot be carried forward without
+        # deciding what it meant, and guessing is how an archive quietly stops
+        # meaning what it says.
+        raise SystemExit(
+            f"{path} has columns this collector does not know: {unknown}.\n"
+            f"  on disk: {on_disk}\n  expected: {FIELDS}\n"
+            f"Migrate or delete it; appending would misalign every row.")
+
+    # Normalise EVERY row on EVERY load, not only when the header changes.
+    # Running the derivation solely inside the migration branch is how these
+    # columns stayed empty: the previous run added them blank, so the header
+    # then MATCHED, the branch was skipped, and the rows were stuck that way
+    # permanently - a row already present is never revisited, because it is
+    # skipped by accession. Rewriting only when something actually changed
+    # keeps the file untouched on a normal run.
+    fixed = [backfill({k: r.get(k, "") for k in FIELDS}) for r in rows]
+    changed = (on_disk != FIELDS
+               or any(str(a.get(k, "")) != str(b.get(k, ""))
+                      for a, b in zip(rows, fixed) for k in FIELDS))
+    if on_disk and changed:
         added = [c for c in FIELDS if c not in on_disk]
-        print(f"  migrating {path.name}: {len(on_disk)} columns -> "
-              f"{len(FIELDS)}, adding {added}", flush=True)
+        print(f"  normalising {path.name}: {len(on_disk)} columns -> "
+              f"{len(FIELDS)}"
+              + (f", adding {added}" if added else ", filling derived columns"),
+              flush=True)
         with path.open("w", newline="") as fh:
             w = csv.DictWriter(fh, fieldnames=FIELDS)
             w.writeheader()
-            for r in rows:
-                w.writerow(backfill({k: r.get(k, "") for k in FIELDS}))
+            w.writerows(fixed)
 
-    return {r["accession"] for r in rows}
+    return {r["accession"] for r in fixed}
 
 
 def probe(query, start, end, ua):
