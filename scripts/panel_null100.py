@@ -285,8 +285,16 @@ def main():
 
     import multiprocessing as mp
     jobs = [(s, 0, a.method) for s in range(1, a.runs + 1)]
-    out = pathlib.Path(a.out)
-    out.parent.mkdir(parents=True, exist_ok=True)
+    # Write to a TEMPORARY file and rename only on success. Opening the real
+    # path in "w" truncates the committed result the instant this starts, so an
+    # interrupted run - a timeout, Ctrl-C, an OOM kill - leaves a partial file
+    # where the evidence used to be. That happened: a 90-second cap during an
+    # audit sweep cut this file from 203 rows to 40, and git was the only thing
+    # that noticed. A null that takes minutes to compute should not be able to
+    # destroy its own record by being stopped.
+    final = pathlib.Path(a.out)
+    final.parent.mkdir(parents=True, exist_ok=True)
+    out = final.with_name(final.name + ".partial")
     nulls = []
     with out.open("w", newline="") as fh:
         w = csv.writer(fh)
@@ -325,6 +333,10 @@ def main():
     print(f"z against null spread   {z:.2f}")
     print("\nVERDICT:", "separable from the procedure (p<0.05)" if p < 0.05
           else "NOT separable from the procedure at p<0.05")
+    # The run completed, so the temporary file becomes the record. os.replace
+    # is atomic on the same filesystem: there is no instant at which the
+    # committed result is half-written.
+    os.replace(out, final)
     print(f"\ntotal {(time.time()-t0)/60:.1f}m -> {a.out}")
 
 

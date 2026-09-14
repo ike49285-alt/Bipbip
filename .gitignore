@@ -24,3 +24,8 @@ out/
 # Never commit broker credentials
 secrets.yaml
 credentials.json
+
+# Interrupted result writes. A null that takes minutes should never leave a
+# half-written file where a committed result was; scripts write here and
+# rename atomically on success.
+*.partial
