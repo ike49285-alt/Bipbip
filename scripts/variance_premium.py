@@ -144,14 +144,15 @@ def main():
     print(f"  negative in {int((non < 0).sum())} of {len(non)} windows; "
           f"worst {non.min():+.1f}p on {non.idxmin().date()}")
 
-    try:
-        from scipy import stats
-        pos = int((non > 0).sum())
-        p = stats.binomtest(pos, len(non), 0.5, alternative="greater").pvalue
-        print(f"\nsign test (assumes no distribution): positive in {pos}/{len(non)}, "
-              f"p={p:.2e}")
-    except Exception:
-        pass
+    # scipy is a declared dependency, so a failure here is a real failure and
+    # not a missing optional package. Swallowing it removed the sign test from
+    # the output entirely - and that test is what supports the p=2.3e-08 this
+    # result is quoted with, so its absence has to be loud.
+    from scipy import stats
+    pos = int((non > 0).sum())
+    p = stats.binomtest(pos, len(non), 0.5, alternative="greater").pvalue
+    print(f"\nsign test (assumes no distribution): positive in {pos}/{len(non)}, "
+          f"p={p:.2e}")
 
     print("\nThis is a RISK PREMIUM, not an edge. It pays for holding the tail,")
     print("it is not a forecast, and it does not survive a vehicle whose spread")

@@ -127,8 +127,14 @@ def probe_news(symbols, sample: int = 5) -> dict:
                     try:
                         stamps.append(pd.Timestamp(v, unit="s") if isinstance(v, (int, float))
                                       else pd.Timestamp(v).tz_localize(None))
-                    except Exception:
-                        pass
+                    except (ValueError, TypeError, OverflowError):
+                        # Try the NEXT key rather than giving up on this item.
+                        # The break used to sit outside the try, so the first
+                        # non-empty field won even when it failed to parse -
+                        # one malformed pubDate meant providerPublishTime was
+                        # never consulted, and the item silently counted as
+                        # undated.
+                        continue
                     break
         report["checked"].append({"symbol": sym, "items": len(items),
                                   "dated": len(stamps)})
