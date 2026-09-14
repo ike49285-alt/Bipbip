@@ -16,6 +16,10 @@ bonds appeared to return nothing at all, and the entire premise is that their
 return is real.
 """
 import sys, pathlib
+# Repo ROOT first so `bipbip` resolves, then scripts/ for sibling
+# imports. Only the second was here, so this ran only when something
+# else had already fixed the path - an accident of import order.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import numpy as np, pandas as pd

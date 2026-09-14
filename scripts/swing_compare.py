@@ -4,7 +4,14 @@ Everything runs through the SAME engine with the SAME cost model, so the only
 difference between rows is the decision rule. Buy-and-hold is itself run as a
 strategy rather than computed from raw prices, so it pays entry cost too.
 """
-import sys
+import sys, pathlib
+
+# Every other script that imports bipbip does this; this one did not, so it
+# raised ModuleNotFoundError on any invocation - `python3 scripts/...` puts
+# scripts/ on sys.path, never the repo root. It took cross_sectional_run.py
+# down with it, which imports this module.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
+
 import numpy as np, pandas as pd
 
 from bipbip.core.costs import CostModel

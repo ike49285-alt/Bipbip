@@ -1,7 +1,8 @@
 """The cross-sectional strategies, on the universe that exists for them.
 
-The archive holds 309 symbols, and almost every test in this project has used
-one or two. That is a fair complaint: a universe is collected so a strategy can
+The archive holds 550 symbols on daily bars as of 2026-09-11 - it grows every
+time the collectors run - and almost every test in this project has used one or
+two. That is a fair complaint: a universe is collected so a strategy can
 RANK it, and the ranking strategies had not been re-run since two fixes that
 change their results directly - dividends restored to the daily bars, and the
 engine bug that made an empty target mean "hold" rather than "go to cash",
@@ -14,6 +15,10 @@ contaminated stock universe puts a number on what that is worth, which is the
 only honest way to read any result from the stock lists at all.
 """
 import sys, pathlib
+
+# Two entries, and both are needed: the repo ROOT so `bipbip` resolves, and
+# scripts/ so the sibling import below does. Only the second was here.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 

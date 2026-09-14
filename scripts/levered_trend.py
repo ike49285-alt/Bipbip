@@ -10,6 +10,10 @@ is both how it is done in practice and the only causal way to do it.
 """
 import sys
 import numpy as np, pandas as pd
+# Repo ROOT first so `bipbip` resolves, then scripts/ for sibling
+# imports. Only the second was here, so this ran only when something
+# else had already fixed the path - an accident of import order.
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent))
 
 from swing_compare import stats, HDR, show, START

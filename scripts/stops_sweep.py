@@ -10,6 +10,10 @@ Every combination is run against the SAME strategy with stops off, so the only
 difference in each row is the stop.
 """
 import sys, pathlib
+# Repo ROOT first so `bipbip` resolves, then scripts/ for sibling
+# imports. Only the second was here, so this ran only when something
+# else had already fixed the path - an accident of import order.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 import numpy as np, pandas as pd

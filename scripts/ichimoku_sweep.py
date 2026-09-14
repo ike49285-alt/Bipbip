@@ -5,6 +5,10 @@ four confirmations add anything to each other, given that all four measure
 trend and therefore largely restate one another?
 """
 import sys, pathlib
+# Repo ROOT first so `bipbip` resolves, then scripts/ for sibling
+# imports. Only the second was here, so this ran only when something
+# else had already fixed the path - an accident of import order.
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[1]))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
 
