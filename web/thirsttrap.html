@@ -787,34 +787,48 @@ const HTTP_ERRORS = {
 async function converseRemote(history, constraints, signal){
   const headers = {"Content-Type": "application/json"};
   if (MODEL.key) headers["Authorization"] = "Bearer " + MODEL.key;
+  const messages = [{role: "system", content: conversationSystem(constraints)}, ...history.slice(-12)];
 
-  let response;
+  async function ask(jsonMode){
+    const body = {model: MODEL.model, messages};
+    if (jsonMode) body.response_format = {type: "json_object"};
+
+    let response;
+    try {
+      response = await fetch(MODEL.url, {method: "POST", headers, signal, body: JSON.stringify(body)});
+    } catch (e) {
+      // A blocked cross-origin request and a dead network look identical here.
+      throw new Error("Couldn't reach " + new URL(MODEL.url).host
+        + ". Either it's unreachable, or it refuses requests from a browser (CORS). "
+        + "Try a different provider in the sidebar.");
+    }
+
+    if (!response.ok){
+      let detail = "";
+      try { detail = (await response.json())?.error?.message || ""; } catch (e) { /* no body */ }
+      const err = new Error((HTTP_ERRORS[response.status] || "Provider returned " + response.status)
+        + (detail ? " \u2014 " + detail : ""));
+      err.status = response.status;
+      err.detail = detail;
+      throw err;
+    }
+
+    const data = await response.json();
+    const text = data?.choices?.[0]?.message?.content;
+    if (!text) throw new Error("The provider replied with no content.");
+    return parseTurn(text);
+  }
+
   try {
-    response = await fetch(MODEL.url, {
-      method: "POST", headers, signal,
-      body: JSON.stringify({
-        model: MODEL.model,
-        messages: [{role: "system", content: conversationSystem(constraints)}, ...history.slice(-12)],
-        response_format: {type: "json_object"},
-      }),
-    });
+    return await ask(true);
   } catch (e) {
-    // A blocked cross-origin request and a dead network look identical here.
-    throw new Error("Couldn't reach " + new URL(MODEL.url).host
-      + ". Either it's unreachable, or it refuses requests from a browser (CORS).");
+    // Not every model accepts JSON mode. parseTurn keeps prose as conversation,
+    // so dropping the constraint degrades rather than fails -- worth one retry.
+    const rejectsJsonMode = e.status === 400
+      && /response_format|json/i.test(e.detail || e.message || "");
+    if (!rejectsJsonMode) throw e;
+    return await ask(false);
   }
-
-  if (!response.ok){
-    let detail = "";
-    try { detail = (await response.json())?.error?.message || ""; } catch (e) { /* no body */ }
-    throw new Error(HTTP_ERRORS[response.status] || ("Provider returned " + response.status)
-      + (detail ? " — " + detail : ""));
-  }
-
-  const data = await response.json();
-  const text = data?.choices?.[0]?.message?.content;
-  if (!text) throw new Error("The provider replied with no content.");
-  return parseTurn(text);
 }
 
 /* ---------- rendering ---------- */
