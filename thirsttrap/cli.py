@@ -139,11 +139,14 @@ def cmd_personas(_: argparse.Namespace) -> int:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="thirsttrap",
-        description="Generate candidate posts for X and rank them by a stated prior.",
+        description=(
+            "Talk to a local model about what happened; it drafts posts and ranks "
+            "them by a prior that learns from what you keep."
+        ),
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    gen = sub.add_parser("gen", help="generate candidates and rank them (needs API access)")
+    gen = sub.add_parser("gen", help="one-shot: draft from a topic, no conversation")
     gen.add_argument("topic", help="what the posts should be about")
     gen.add_argument(
         "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
@@ -163,13 +166,13 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("-b", "--breakdown", action="store_true", help="show component scores")
     gen.set_defaults(func=cmd_gen)
 
-    sc = sub.add_parser("score", help="score text you already have (no API access needed)")
+    sc = sub.add_parser("score", help="score text you wrote yourself (no model needed)")
     sc.add_argument("text", nargs="*", help="one or more posts; omit to read lines from stdin")
     sc.add_argument("-b", "--breakdown", action="store_true", help="show component scores")
     sc.set_defaults(func=cmd_score)
 
-    ch = sub.add_parser("chat", help="interactive session -- refine a batch by talking to it")
-    ch.add_argument("topic", nargs="*", help="optional opening topic")
+    ch = sub.add_parser("chat", help="converse in the terminal (needs a local model)")
+    ch.add_argument("topic", nargs="*", help="optional opening line")
     ch.add_argument(
         "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
     )
@@ -193,7 +196,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     ch.set_defaults(func=cmd_chat)
 
-    sv = sub.add_parser("serve", help="local web UI in your browser")
+    sv = sub.add_parser("serve", help="converse in your browser (needs a local model)")
     sv.add_argument("--port", type=int, default=8765, help="port (default 8765)")
     sv.add_argument(
         "--host-bind", default="127.0.0.1",
