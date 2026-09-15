@@ -111,6 +111,8 @@ button.why{padding:3px 8px}
 .msave{border-color:var(--accent);color:var(--accent)}
 .mnote{margin:7px 0 0;font-size:11px;line-height:1.45;color:var(--faint)}
 .mnote a{color:var(--muted)}
+#mload,#mmanual{margin-top:5px;font-size:12px}
+#mmodels{font-family:var(--mono);font-size:12.5px}
 
 .composer{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);
   padding:14px 20px calc(14px + env(safe-area-inset-bottom,0px))}
@@ -151,7 +153,10 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
         <label for="mkey">API key</label>
         <input type="password" id="mkey" autocomplete="off" spellcheck="false" placeholder="paste your key">
         <label for="mmodel">Model</label>
+        <button type="button" id="mload">Load models from provider</button>
+        <select id="mmodels" hidden></select>
         <input type="text" id="mmodel" autocomplete="off" spellcheck="false">
+        <button type="button" id="mmanual" hidden>Type a model name instead</button>
         <p class="mnote" id="mnote"></p>
         <div class="mrow">
           <button type="submit" class="msave">Save</button>
@@ -838,6 +843,57 @@ async function converseRemote(history, constraints, signal){
   }
 }
 
+/* Model IDs go stale -- providers deprecate them -- so ask the account what it
+   actually has rather than shipping a guess that expires. */
+function modelsUrl(chatUrl){
+  return chatUrl.replace(/\/chat\/completions\/?$/, "/models");
+}
+
+// Providers list things this app cannot talk to: speech, embeddings, safety filters.
+const NOT_CHAT = /whisper|tts|embed|guard|moderat|rerank|distil-whisper/i;
+
+function rankModelIds(ids){
+  const score = id => {
+    let n = 0;
+    if (/70b|72b|405b|large/i.test(id)) n += 4;
+    if (/instruct|versatile|chat|it\b/i.test(id)) n += 2;
+    if (/8b|9b|7b/i.test(id)) n += 1;
+    if (/preview|deprecat|beta/i.test(id)) n -= 2;
+    return n;
+  };
+  return ids.slice().sort((a, b) => score(b) - score(a) || a.localeCompare(b));
+}
+
+async function fetchModels(){
+  const headers = {};
+  if (MODEL.key || $("mkey").value.trim()) {
+    headers["Authorization"] = "Bearer " + ($("mkey").value.trim() || MODEL.key);
+  }
+  const preset = PROVIDERS[$("mprovider").value];
+  const chatUrl = preset && preset.url ? preset.url : MODEL.url;
+  if (!chatUrl) throw new Error("Pick a provider first.");
+
+  let response;
+  try {
+    response = await fetch(modelsUrl(chatUrl), {headers});
+  } catch (e) {
+    throw new Error("Couldn't reach " + new URL(chatUrl).host
+      + " to list models. It may refuse browser requests (CORS).");
+  }
+  if (!response.ok){
+    let detail = "";
+    try { detail = (await response.json())?.error?.message || ""; } catch (e) { /* no body */ }
+    throw new Error((HTTP_ERRORS[response.status] || "Provider returned " + response.status)
+      + (detail ? " \u2014 " + detail : ""));
+  }
+
+  const data = await response.json();
+  const rows = Array.isArray(data?.data) ? data.data : (Array.isArray(data?.models) ? data.models : []);
+  const ids = rows.map(r => String(r?.id ?? r?.name ?? "")).filter(Boolean).filter(id => !NOT_CHAT.test(id));
+  if (!ids.length) throw new Error("That provider listed no chat models.");
+  return rankModelIds(ids);
+}
+
 /* ---------- rendering ---------- */
 const $ = id => document.getElementById(id);
 const state_persona = () => P.persona.replace("_", " ");
@@ -1103,6 +1159,36 @@ function openConnect(){
   $("mkey").focus({preventScroll: true});
 }
 $("st-engine").onclick = openConnect;
+
+function showModelList(ids){
+  $("mmodels").innerHTML = ids.map(id => '<option value="' + esc(id) + '">' + esc(id) + "</option>").join("");
+  // Keep what they already had if the provider still offers it.
+  $("mmodels").value = ids.includes($("mmodel").value.trim()) ? $("mmodel").value.trim() : ids[0];
+  $("mmodel").value = $("mmodels").value;
+  $("mmodels").hidden = false;
+  $("mmodel").hidden = true;
+  $("mmanual").hidden = false;
+  $("mload").textContent = "Reload list";
+}
+$("mmodels").onchange = () => { $("mmodel").value = $("mmodels").value; };
+$("mmanual").onclick = () => {
+  $("mmodels").hidden = true; $("mmodel").hidden = false; $("mmanual").hidden = true;
+};
+
+$("mload").onclick = async () => {
+  $("mload").disabled = true;
+  const original = $("mload").textContent;
+  $("mload").textContent = "Loading\u2026";
+  try {
+    showModelList(await fetchModels());
+    note("");
+  } catch (e) {
+    note(e.message + " You can still type a model name.");
+    $("mload").textContent = original;
+  } finally {
+    $("mload").disabled = false;
+  }
+};
 
 $("mtoggle").onclick = () => {
   const form = $("mform");
