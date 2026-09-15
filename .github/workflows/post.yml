@@ -1,26 +1,35 @@
 name: post
 
 # Runs on GitHub's machines, so the bot needs no computer of its own.
-# Credentials are repository secrets: encrypted, never in the repo, and
-# unreadable from a fork or a pull request.
+# Credentials are repository secrets: encrypted, and unreadable from a fork.
 on:
   schedule:
-    - cron: "17 18 * * *"   # 18:17 UTC daily, off the hour so it isn't in a stampede
+    - cron: "17 18 * * *"   # 18:17 UTC, off the hour so it isn't in the stampede
   workflow_dispatch:
     inputs:
-      dry_run:
-        description: "Build a post but do not publish it"
+      publish:
+        description: "Actually post it (leave off for a dry run)"
         type: boolean
-        default: true
+        default: false
 
 concurrency:
   group: post
   cancel-in-progress: false   # never interrupt a run that may already have posted
 
+permissions:
+  contents: write             # only to commit posted.json back
+
 jobs:
   post:
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    env:
+      CAPTION_URL: ${{ vars.CAPTION_URL }}
+      CAPTION_MODEL: ${{ vars.CAPTION_MODEL }}
+      CAPTION_KEY: ${{ secrets.CAPTION_KEY }}
+      IMAGE_URL: ${{ vars.IMAGE_URL }}
+      IMAGE_MODEL: ${{ vars.IMAGE_MODEL }}
+      IMAGE_KEY: ${{ secrets.IMAGE_KEY }}
     steps:
       - uses: actions/checkout@v4
 
@@ -28,36 +37,38 @@ jobs:
         with:
           python-version: "3.12"
 
-      # The package has no dependencies, so there is nothing to install.
-      - name: Check the persona before spending any API call
-        run: python -m thirsttrap bot --no-image
+      # No dependencies, so there is nothing to install.
+      - run: python -m pytest tests/ -q
+
+      - name: Dry run
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+        run: python -m bot --out preview.jpg --show
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
+        with:
+          name: preview
+          path: preview.jpg
+          if-no-files-found: ignore
 
       - name: Post
-        if: ${{ github.event_name == 'schedule' || inputs.dry_run == false }}
+        if: ${{ github.event_name == 'schedule' || inputs.publish }}
         env:
           X_API_KEY: ${{ secrets.X_API_KEY }}
           X_API_SECRET: ${{ secrets.X_API_SECRET }}
           X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
           X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
-          THIRSTTRAP_IMAGE_BACKEND: ${{ vars.IMAGE_BACKEND }}
-          THIRSTTRAP_IMAGE_KEY: ${{ secrets.IMAGE_KEY }}
-          THIRSTTRAP_IMAGE_MODEL: ${{ vars.IMAGE_MODEL }}
-          THIRSTTRAP_BACKEND: ${{ vars.CAPTION_BACKEND }}
-          THIRSTTRAP_HOST: ${{ vars.CAPTION_HOST }}
-          THIRSTTRAP_MODEL: ${{ vars.CAPTION_MODEL }}
-          THIRSTTRAP_KEY: ${{ secrets.CAPTION_KEY }}
-        run: python -m thirsttrap bot --post
+        run: python -m bot --post
 
-      - name: Dry run
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        env:
-          THIRSTTRAP_IMAGE_BACKEND: ${{ vars.IMAGE_BACKEND }}
-          THIRSTTRAP_IMAGE_KEY: ${{ secrets.IMAGE_KEY }}
-        run: python -m thirsttrap bot --out preview.jpg
-
-      - uses: actions/upload-artifact@v4
-        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
-        with:
-          name: preview
-          path: preview.jpg
-          if-no-files-found: ignore
+      # The runner is thrown away, so the log of what she has already said has
+      # to come back to the repo or she starts repeating herself every run.
+      - name: Remember what was posted
+        if: ${{ github.event_name == 'schedule' || inputs.publish }}
+        run: |
+          if [ -n "$(git status --porcelain posted.json)" ]; then
+            git config user.name "bot"
+            git config user.email "bot@users.noreply.github.com"
+            git add posted.json
+            git commit -m "posted $(date -u +%Y-%m-%d)"
+            git push
+          fi

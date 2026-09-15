@@ -1,292 +1,83 @@
-# thirsttrap
+# bot
 
-A writing partner that runs on your own machine. You talk to her about what
-happened; she talks back, and drafts posts when there's something worth
-drafting. A local LLM writes; a scorer that learns from what you keep decides
-what to show you. No hosted API, no API key, nothing leaves your machine.
-
-```bash
-ollama pull llama3.2
-python -m thirsttrap chat "finally quitting the job"
-```
-
-```
-thirsttrap [flirt] -- untuned
-talking to ollama llama3.2 @ http://127.0.0.1:11434
-
-> ugh I finally quit today
-about time. how did it feel walking out?
-
-> honestly it felt kind of anticlimactic
-anticlimactic is the post. that's the whole thing.
-
-1.  84.8   Nobody tells you the best part of quitting. It's how quiet 4pm gets.
-2.  77.1   You already know the answer. You're just waiting for permission.
-3.  57.8   Three years, and the walk to the lift took ninety seconds.
-
-> never use exclamation marks
-+ standing rule: never say '!'   (/forget to drop it)
-
-> /keep 1
-kept (1 total)
-learned: direct_address +0.042, length -0.037   (barely tuned (1/20 keeps))
-```
-
-**She is not a form that takes a topic and returns tweets.** The first turn
-above produced no drafts on purpose — she didn't have the detail yet, so she
-asked for it. A turn where she only talks is a normal turn. The conversation is
-real: her replies and her drafts go back to her on the next turn, so "more like
-2" and "shorter than that" resolve against what actually happened.
-
-## Backends
-
-Probed in order; the first one running wins. Override with `--backend`.
-
-| Backend | What it is | Setup |
-|---|---|---|
-| `ollama` | Ollama's API on `127.0.0.1:11434` — the default | `ollama pull llama3.2` |
-| `openai-compat` | llama.cpp's `llama-server`, LM Studio, vLLM — anything serving `/v1/chat/completions` | `llama-server -m model.gguf` |
-| `llama-cpp` | A GGUF loaded in-process, no server at all | `pip install llama-cpp-python`, then `--gguf path.gguf` |
-| `grammar` | No model — a slot grammar fallback | nothing |
+Posts one image and one caption a day to X, as a disclosed AI persona. Runs on
+GitHub Actions, so it needs no computer of its own. No dependencies — Python
+standard library only.
 
 ```bash
-python -m thirsttrap chat "leg day" --backend ollama --model mistral
-python -m thirsttrap chat "leg day" --backend openai-compat --host http://127.0.0.1:8080
-python -m thirsttrap chat "leg day" --backend llama-cpp --gguf ~/models/qwen.gguf
+python -m bot                 # dry run: builds a post, publishes nothing
+python -m bot --out p.jpg     # ...and keep the image to look at
+python -m bot --show          # ...and show every caption it considered
+python -m bot --post          # publish
 ```
 
-Or set `THIRSTTRAP_BACKEND`, `THIRSTTRAP_MODEL`, `THIRSTTRAP_HOST`, `THIRSTTRAP_GGUF`.
-`/backend` in a session says which one is answering.
+## The persona
 
-**You don't have to name a model.** With Ollama, leaving `--model` off makes it
-ask the server what you've actually pulled and use the first one — guessing a
-name you never pulled is the most common way this fails, and asking is free.
+`persona.json` — a name, a `look`, a `voice`, and lists of `scenes` and
+`topics`. Each run picks a scene and a topic, preferring ones it hasn't used
+recently, writes captions about the topic, and generates an image of the look
+in the scene.
 
-**The package itself has no dependencies.** HTTP to the local server is
-`urllib` from the standard library; `llama-cpp-python` is an optional extra
-needed only by the in-process backend.
-
-**If no model is found it falls back to the grammar** — a slot grammar over
-rhetorical frames that needs nothing installed. It's genuinely worse: more
-formulaic, doesn't understand your topic, just arranges your words in shapes
-that read well. It exists so the tool still runs, and it says so in the header.
-
-## The bot
-
-`thirsttrap bot` makes one post: an AI-generated image of a persona you define,
-a caption written and ranked by the rest of this package, published to X.
-`.github/workflows/post.yml` runs it on a daily cron, so it needs no computer
-of its own and the credentials live in encrypted repository secrets rather than
-anywhere in the code.
-
-```bash
-python -m thirsttrap bot                      # dry run: builds, posts nothing
-python -m thirsttrap bot --out preview.jpg -b # keep the image, show runner-up captions
-python -m thirsttrap bot --post               # publish
+```json
+{
+  "name": "Mira",
+  "look": "dark curly hair, freckles, 35mm film grain, muted colour",
+  "voice": "playful and confident, teasing rather than pleading",
+  "scenes": ["on a fire escape in summer, the city behind her"],
+  "topics": ["quitting a job nobody liked"]
+}
 ```
 
-Edit `persona.json` — a `look`, a list of `scenes`, a list of `topics`, and a
-voice from `personas`. The scene and topic are picked by a seed derived from
-the date, so a day's post is reproducible and two runs on the same day don't
-produce different people.
+## What isn't configurable
 
-**This is built for a disclosed AI persona and assumes you will say so.** Put
-it in the account bio; X's rules require automated accounts to declare
-automation, and the version that hides it is the version that gets suspended.
-Alt text on every image starts with "AI-generated image." — that costs none of
-the 280 characters and tells anyone using a screen reader, or anyone who
-checks, what they are looking at.
+**Every image prompt ends with bounds** fixing the subject as a fictional adult
+resembling no real person. **A persona mentioning a minor, or asking for
+explicit content, is refused** — not warned about, refused, when the file
+loads and before anything is billed. Appending "adult" to a prompt that asks
+otherwise only creates a contradiction, and image models resolve contradictions
+however they like.
 
-Two limits are not settings. The image prompt always ends with bounds fixing
-the subject as a fictional adult who resembles no real person, and
-`validate_look` **refuses** a persona mentioning a minor or asking for explicit
-content — refuses, rather than appending a contradiction and hoping the model
-resolves it your way. That check runs when the persona file loads, before any
-API call is billed.
+**Alt text always begins "AI-generated image."** It costs none of the 280
+characters and tells anyone using a screen reader, or anyone who checks, what
+they're looking at.
 
-### Setting it up
+This assumes the account says it's automated in its bio. X's rules require it,
+and the version that hides it is the version that gets suspended.
 
-| Secret | What |
-|---|---|
-| `X_API_KEY`, `X_API_SECRET` | App credentials from developer.x.com |
-| `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` | Access token for the account that posts |
-| `IMAGE_KEY` | Together/OpenAI key, if not using the keyless default |
-| `CAPTION_KEY` | Groq/OpenRouter key for captions |
+## Setting it up
 
-Repository *variables* (not secrets) pick the backends: `IMAGE_BACKEND`,
-`IMAGE_MODEL`, `CAPTION_BACKEND`, `CAPTION_HOST`, `CAPTION_MODEL`.
-
-Run the workflow manually with **Dry run** ticked first — it builds a post,
-uploads the image as an artifact you can look at, and publishes nothing.
-
-Images default to Pollinations, which needs no key at all, so a dry run works
-before you sign up for anything. Captions fall back to the grammar if no
-caption model is reachable, so a dead provider delays a post rather than
-skipping one.
-
-**Unverified:** X's API was unreachable from where this was built, so nothing
-here has posted a real tweet. The OAuth 1.0a signing is checked against X's own
-published test vector, and every guard is tested, but whether your API tier
-permits media upload is something only your first `--post` will tell you.
-
-## Two ways to talk to it
-
-```bash
-python -m thirsttrap serve        # web UI at 127.0.0.1:8765, your local model
-python -m thirsttrap chat "leg day"               # terminal
-```
-
-`serve` binds loopback on purpose: it is an unauthenticated endpoint that
-drives a language model. `--host-bind` opens it wider, deliberately.
-
-## No computer? Use the browser version
-
-The Pages site converses on a phone with nothing installed and nothing hosted.
-Open it, tap **Connect a model** in the sidebar, and paste a free API key:
-
-| Provider | Free key | Model | Card at signup? |
-|---|---|---|---|
-| **Groq** | console.groq.com/keys | `llama-3.3-70b-versatile` | No — Google/GitHub sign-in |
-| **Gemini** | aistudio.google.com/apikey | `gemini-2.0-flash` | No — Google sign-in |
-| Cerebras | cloud.cerebras.ai | `llama3.1-8b` | No |
-| OpenRouter | openrouter.ai/keys | `…llama-3.3-70b-instruct:free` | Often asks for a spend limit or card |
-
-Start with **Groq** — free, no card, and it serves open-weights Llama. Gemini is
-the other card-free option but runs Google's own model rather than open weights.
-OpenRouter is listed last on purpose: it routes to the most models, but it now
-tends to want payment details before it will issue a key.
-
-Signup flows change, and these notes will go stale. If one provider gets awkward,
-switch in the same panel — the key and model are the only things that differ.
-
-**The key stays on your device.** It lives in that browser's `localStorage`,
-is sent only to the provider you picked, and is never committed or uploaded.
-The page is public, but there is no shared secret in it — anyone else who
-opens it brings their own key, or gets the grammar.
-
-Any OpenAI-compatible endpoint works via **Custom**, including Ollama on a
-machine you control. Without a key the page still drafts, using the grammar —
-it just can't converse.
-
-One caveat I could not test from here: a provider has to allow browser
-requests (CORS). OpenRouter and Gemini are built for it; if one refuses, the
-page says so by name and you can switch providers in the same panel.
-
-## In a browser
-
-The whole system also runs as a static page, no install and nothing billed:
-
-- **GitHub Pages** — <https://ike49285-alt.github.io/Bipbip/>
-- **Claude artifact** — <https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ>
-
-`index.html` is generated from `web/thirsttrap.html` by
-`scripts/build_pages.py`, because the artifact source deliberately has no
-`<!doctype>` or `<head>` (the artifact viewer supplies its own). Edit the
-source, then:
-
-```bash
-python scripts/build_pages.py           # regenerate index.html
-python scripts/build_pages.py --check   # CI-style staleness check
-```
-
-`test_pages.py` fails if the two drift apart.
-
-The browser version is the whole system ported
-to JavaScript: topic parsing, the slot grammar, the scorer, the ranker, the
-directive parser and the weight learning, with the profile in `localStorage`.
-
-**It spends nothing and talks to nothing.** Generation is the grammar, in the
-page — no model, no network call, no tokens, no account. That is a limit of
-the medium rather than a choice of engine: a static or sandboxed page can
-neither reach a model on your machine nor download model weights.
-
-The **Claude artifact** copy cannot converse at all — the artifact viewer
-blocks every outbound request, so it hides the connect panel and runs the
-grammar. The **Pages** copy has no such restriction, which is why the
-bring-your-own-key flow above lives there.
-
-## Use
-
-```bash
-python -m thirsttrap chat "leg day" -p gym       # interactive
-python -m thirsttrap gen "quitting" -n 12 -k 5   # one shot
-python -m thirsttrap score "You already know."   # score your own writing
-python -m thirsttrap personas
-```
-
-Just talk to her. Adjustments are things you say, not flags: `shorter`,
-`much shorter`, `one line`, `no questions`, `no emoji`, `more like 2`,
-`try deadpan`, `never use exclamation marks`, `stop using "game changer"`.
-Phrase one as a rule ("never", "always", "from now on") and it sticks.
+Repository **secrets**:
 
 | | |
 |---|---|
-| `/rules`, `/forget` | standing rules, and dropping them |
-| `/weights`, `/untune` | what she's learned, and resetting it |
-| `/keep N`, `/kept`, `/drop N`, `/save PATH` | collect and write out |
-| `/persona NAME`, `/personas`, `/backend` | voice, and which model is answering |
-| `/n N`, `/top K`, `/breakdown`, `/clear` | batch size, display, reset this turn |
-| `/again`, `/profile`, `/help`, `/quit` | |
+| `X_API_KEY`, `X_API_SECRET` | app credentials from developer.x.com |
+| `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` | access token for the posting account |
+| `CAPTION_KEY` | Groq, OpenRouter, Gemini — anything OpenAI-compatible |
+| `IMAGE_KEY` | only if your image provider needs one |
 
-## She tunes herself as you talk
+Repository **variables**: `CAPTION_URL`, `CAPTION_MODEL`, `IMAGE_URL`,
+`IMAGE_MODEL`. Captions default to Groq's endpoint; `CAPTION_MODEL` has no
+default and the bot says so rather than guessing a name that may be retired.
+Images default to Pollinations, which needs no key, so the first dry run works
+before you sign up for anything.
 
-Two mechanisms, different in kind, both persisted to
-`~/.config/thirsttrap/profile.json`.
+Run the workflow by hand with **publish** off first. It builds a post, uploads
+the image as an artifact, and posts nothing.
 
-**Rules you state.** Phrase something as a rule — "never use exclamation
-marks", "from now on, shorter" — and it's parsed into a standing constraint
-that goes into every later prompt. One-off phrasing applies to the current
-topic only. New rules print when adopted; `/rules` lists, `/forget` clears.
+## How a caption gets chosen
 
-**What you keep.** Keeping a post does two things: it joins the few-shot
-examples in the system prompt, and it shifts the ranking weights toward
-whatever distinguished it from the others on screen. `/weights` shows the
-drift against the shipped prior, `/untune` reverts.
+The model is asked for six. Hard rules drop anything unusable — too short, over
+280, hashtags, @-mentions, links, emoji, more than one exclamation mark — and
+anything resembling a recent post. `preference` then picks among what's left.
 
-The confidence label — "barely tuned (3/20 keeps)" — is not decoration. Eight
-weights fitted from a handful of binary choices is badly underdetermined, and
-the interface says so rather than letting three keeps look like a model of your
-taste.
+That function is a **preference, not a measurement**: four beliefs about what
+reads well, none tested against engagement data. It's forty lines and the
+comment says as much, so nobody later mistakes the number for evidence.
 
-**Constraints are applied twice on purpose:** asked for in the prompt, then
-enforced by filtering. Small local models ignore instructions often enough that
-asking alone doesn't work, and filtering alone wastes most of a slow batch.
+## State
 
-## What the score means
-
-The weights are a **prior** — beliefs about what travels on X (hashtags and
-links suppress reach, second person outperforms third), not a fit to engagement
-data. Practical range is roughly 40–85, not 0–100; read gaps between
-candidates, not absolute numbers.
-
-The generator is never told the rubric. If it were, the score would measure how
-well the model followed instructions it had just been handed, and every batch
-would look excellent. Format rules (length, no hashtags, no links) *are* stated,
-because they're platform facts — so `restraint` and `length` are partly
-pre-satisfied on generated text and earn their keep on text you wrote yourself.
-
-One caveat that applies only to the grammar fallback: selecting the top of a
-400-candidate pool *by score* makes the score the objective rather than a
-judgment. With a model generating, the scorer is an independent judge again.
-
-## Limits
-
-- **Small models are small.** A 7B will produce flatter copy and a duller
-  conversation than a hosted frontier model, and will sometimes drift off the
-  JSON it was asked for — when that happens the whole reply is kept as
-  conversation and the drafts are lost for that turn, because losing what she
-  said is worse.
-- **Nothing here has met a real Ollama.** The protocol, history, JSON mode,
-  model auto-detection and error surfacing are all tested against a loopback
-  server speaking Ollama's wire format, but this was built where
-  `registry.ollama.ai` is unreachable, so no actual model has ever answered.
-  Your first `ollama pull` is the real test.
-- **Directives are keyword matching**, not understanding. A fixed vocabulary is
-  recognised; anything else is treated as a new topic. Deliberate — guessing at
-  an unrecognised sentence is worse than ignoring it.
-- **A constraint nothing satisfies returns nothing** rather than quietly
-  relaxing. `/clear` backs out.
-- Text only. It doesn't post anything.
+`posted.json` holds the last 30 posts. The Actions runner is thrown away each
+run, so the workflow commits it back — without that she repeats herself.
 
 ## Tests
 
@@ -294,8 +85,11 @@ judgment. With a model generating, the scorer is an independent judge again.
 python -m pytest tests/ -q
 ```
 
-351 tests, no outbound network. Both HTTP surfaces are tested against real
-loopback servers — the model backends against one speaking Ollama's and the
-OpenAI-compatible protocol, and the web UI against its own — so sockets,
-timeouts, error handling and parsing are genuinely exercised rather than
-mocked.
+72 tests, no network. The OAuth 1.0a signing is pinned against X's own
+published test vector, because a wrong signature is a 401 with no useful body:
+every other test would pass while nothing could post.
+
+**Nothing here has posted a real tweet.** X was unreachable from where this was
+built. The signing is proven against that vector and every guard is tested, but
+whether your API tier permits media upload is something only your first
+`--post` will tell you.

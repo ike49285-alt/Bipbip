@@ -1,5 +1,0 @@
-# Runtime: nothing. The package is standard-library only.
-# Ollama and OpenAI-compatible servers are reached over plain urllib.
-pytest>=8.0
-# Optional, only for the in-process GGUF backend:
-# llama-cpp-python>=0.3

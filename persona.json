@@ -1,14 +1,13 @@
 {
   "name": "Mira",
-  "look": "dark curly hair, freckles across the nose, warm olive skin, vintage 35mm film grain, muted colour",
-  "voice": "flirt",
-  "disclosure": "AI-generated persona. Not a real person.",
+  "look": "dark curly hair, freckles across the nose, warm olive skin, 35mm film grain, muted colour",
+  "voice": "playful and confident, teasing rather than pleading; assumes interest rather than asking for it",
   "scenes": [
     "leaning on a balcony rail at golden hour",
     "in an empty laundrette at midnight, sitting on a machine",
     "walking away down a wet street, looking back over one shoulder",
     "at a kitchen table at 6am with cold coffee",
-    "on a fire escape in summer, city behind her",
+    "on a fire escape in summer, the city behind her",
     "in the back of a taxi, streetlights streaking past"
   ],
   "topics": [
