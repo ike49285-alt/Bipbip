@@ -3,6 +3,8 @@
 Generates candidate posts for X with Claude, then ranks them by a scoring prior
 so you pick from the top of a batch instead of the first thing that came out.
 
+Works one-shot from the command line, or as a conversation you refine in place.
+
 Two halves that deliberately don't talk to each other:
 
 - **`generate.py`** asks Claude for N genuinely different takes on a topic in a
@@ -24,6 +26,9 @@ Generation needs Claude API credentials — `ANTHROPIC_API_KEY`,
 ## Use
 
 ```bash
+# Talk to it -- the first thing you say is the topic, the rest is refinement
+python -m thirsttrap chat "finally quitting the job"
+
 # Generate 12 candidates, show the best 3
 python -m thirsttrap gen "finally quitting the job" -n 12 -k 3
 
@@ -41,6 +46,52 @@ python -m thirsttrap personas
 
 `-b/--breakdown` prints the per-component bars, which is the only way to tell
 *why* something ranked where it did.
+
+## Chat mode
+
+```
+> finally quitting the job
+3 candidates, showing top 3  [flirt]
+
+1.  82.8
+   Nobody tells you the best part of quitting. The silence after.
+2.  77.1
+   You already know the answer. You're just waiting for permission.
+
+> shorter, more like 2
+1.  76.0
+   You already know. You're stalling.
+2.  61.4
+   Quit at 4. Home by 5. Never felt lighter.
+3.  45.0  [near-duplicate]
+   Quit at 4. Home by 5. Never felt better.
+
+> /keep 1
+kept (1 total)
+```
+
+The conversation is real multi-turn context, so "shorter", "less earnest", or
+"more like 2" all resolve against what came before.
+
+**The numbering is shared.** After each batch is ranked, it goes back into the
+conversation numbered in the order you saw it — so post 2 on your screen is post
+2 to the model. Rank first and number second, or every reference points at the
+wrong post.
+
+| | |
+|---|---|
+| `/persona NAME` | switch voice (`/personas` lists them) |
+| `/n N`, `/top K` | batch size, how many to show |
+| `/keep N`, `/kept`, `/drop N` | pin candidates across turns |
+| `/save PATH` | write pinned posts to a file |
+| `/score TEXT` | score text locally, costs no request |
+| `/breakdown` | toggle component bars |
+| `/again` | re-run the last instruction |
+| `/reset` | forget the conversation, keep the pins |
+
+The kept list survives `/reset` and persona switches, so you can collect across
+several directions and save at the end. Commands are handled locally — only
+plain text costs an API call.
 
 ## The eight components
 
@@ -115,4 +166,4 @@ trusting them.
 python -m pytest tests/ -q
 ```
 
-83 tests, no network calls — the generator tests drive a fake client.
+128 tests, no network calls — the generator and chat tests drive a fake client.

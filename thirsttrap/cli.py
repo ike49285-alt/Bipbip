@@ -6,30 +6,9 @@ import argparse
 import sys
 
 from . import personas
-from .rank import Ranked, rank
-from .score import WEIGHTS, score_post
-
-BAR_WIDTH = 24
-
-
-def _bar(fraction: float) -> str:
-    filled = round(max(0.0, min(1.0, fraction)) * BAR_WIDTH)
-    return "#" * filled + "." * (BAR_WIDTH - filled)
-
-
-def _print_ranked(items: list[Ranked], show_breakdown: bool) -> None:
-    for i, item in enumerate(items, start=1):
-        flag = "  [near-duplicate]" if item.duplicate_of else ""
-        print(f"\n{i}. {item.final:5.1f}{flag}")
-        print(f"   {item.text}")
-
-        if show_breakdown:
-            print(f"   {len(item.text)} chars")
-            for name in sorted(item.score.components, key=lambda k: -WEIGHTS[k]):
-                value = item.score.components[name]
-                print(f"     {name:<15} {_bar(value)} {value:.2f}  (w {WEIGHTS[name]:.2f})")
-        for note in item.score.notes:
-            print(f"     ! {note}")
+from .rank import rank
+from .render import render_ranked, render_score
+from .score import score_post
 
 
 def cmd_gen(args: argparse.Namespace) -> int:
@@ -48,7 +27,8 @@ def cmd_gen(args: argparse.Namespace) -> int:
     top = ranked[: args.top] if args.top > 0 else ranked
 
     print(f"{len(candidates)} candidates, showing top {len(top)}  [{args.persona}]")
-    _print_ranked(top, show_breakdown=args.breakdown)
+    print()
+    print(render_ranked(top, breakdown=args.breakdown))
     return 0
 
 
@@ -59,17 +39,39 @@ def cmd_score(args: argparse.Namespace) -> int:
         return 2
 
     if len(texts) == 1:
-        score = score_post(texts[0])
-        print(f"{score.total:.1f}   {len(texts[0])} chars")
-        for name in sorted(score.components, key=lambda k: -WEIGHTS[k]):
-            value = score.components[name]
-            print(f"  {name:<15} {_bar(value)} {value:.2f}  (w {WEIGHTS[name]:.2f})")
-        for note in score.notes:
-            print(f"  ! {note}")
+        print(render_score(texts[0], score_post(texts[0])))
         return 0
 
-    _print_ranked(rank(texts), show_breakdown=args.breakdown)
+    print(render_ranked(rank(texts), breakdown=args.breakdown))
     return 0
+
+
+def cmd_chat(args: argparse.Namespace) -> int:
+    from .chat import HELP, Repl, Session
+
+    repl = Repl(
+        session=Session(persona=args.persona, n=args.n),
+        top=args.top,
+        breakdown=args.breakdown,
+    )
+
+    print(f"thirsttrap [{args.persona}] -- /help for commands, /quit to leave")
+    if args.topic:
+        output, _ = repl.handle(" ".join(args.topic))
+        print(output)
+
+    while True:
+        try:
+            line = input("\n> ")
+        except (EOFError, KeyboardInterrupt):
+            print()
+            return 0
+
+        output, keep_going = repl.handle(line)
+        if output:
+            print(output)
+        if not keep_going:
+            return 0
 
 
 def cmd_personas(_: argparse.Namespace) -> int:
@@ -100,6 +102,17 @@ def build_parser() -> argparse.ArgumentParser:
     sc.add_argument("text", nargs="*", help="one or more posts; omit to read lines from stdin")
     sc.add_argument("-b", "--breakdown", action="store_true", help="show component scores")
     sc.set_defaults(func=cmd_score)
+
+    ch = sub.add_parser("chat", help="interactive session -- refine a batch by talking to it")
+    ch.add_argument("topic", nargs="*", help="optional opening topic")
+    ch.add_argument("-n", type=int, default=12, help="candidates per batch (default 12)")
+    ch.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
+    ch.add_argument(
+        "-p", "--persona", default=personas.DEFAULT_PERSONA, choices=personas.names(),
+        help=f"voice preset (default {personas.DEFAULT_PERSONA})",
+    )
+    ch.add_argument("-b", "--breakdown", action="store_true", help="show component scores")
+    ch.set_defaults(func=cmd_chat)
 
     pl = sub.add_parser("personas", help="list the voice presets")
     pl.set_defaults(func=cmd_personas)
