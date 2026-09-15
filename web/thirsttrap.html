@@ -33,9 +33,19 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
 .mark em{font-style:italic;color:var(--accent)}
 .status{font-family:var(--mono);font-size:11.5px;color:var(--muted);text-align:right;line-height:1.7}
 .status b{color:var(--ink);font-weight:500}
+.statusbtn{font-family:var(--mono);font-size:11.5px;padding:2px 8px;border-radius:5px;
+  border:1px solid var(--line);background:transparent;color:var(--muted);cursor:pointer}
+.statusbtn.needs{border-color:var(--accent);color:var(--accent)}
 
-.grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:32px;align-items:start}
-@media (max-width:820px){ .grid{grid-template-columns:minmax(0,1fr);gap:24px} }
+.grid{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:20px 32px;align-items:start;
+  grid-template-areas:"main model" "main rail"}
+#modelcard{grid-area:model} main{grid-area:main} .rail{grid-area:rail}
+@media (max-width:820px){
+  .grid{grid-template-columns:minmax(0,1fr);gap:20px;grid-template-areas:"model" "main" "rail"}
+}
+/* Disconnected is the one state that needs an obvious call to action. */
+#modelcard.needs{border-color:var(--accent)}
+#modelcard.needs #mtoggle{border-color:var(--accent);color:var(--accent);font-weight:600}
 
 .eyebrow{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);
   font-weight:700;margin:0 0 10px}
@@ -125,12 +135,33 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
   <header>
     <div class="mark">thirst<em>trap</em></div>
     <div class="status">
-      <div id="st-engine">no model · grammar only</div>
+      <button type="button" id="st-engine" class="statusbtn">no model · grammar only</button>
       <div id="st-tune"><b>untuned</b> · 0 keeps</div>
     </div>
   </header>
 
   <div class="grid">
+    <div class="card" id="modelcard">
+      <p class="eyebrow">Model</p>
+      <p class="mstate" id="mstate">Not connected — using the built-in grammar.</p>
+      <button id="mtoggle" type="button">Connect a model</button>
+      <form id="mform" hidden>
+        <label for="mprovider">Provider</label>
+        <select id="mprovider"></select>
+        <label for="mkey">API key</label>
+        <input type="password" id="mkey" autocomplete="off" spellcheck="false" placeholder="paste your key">
+        <label for="mmodel">Model</label>
+        <input type="text" id="mmodel" autocomplete="off" spellcheck="false">
+        <p class="mnote" id="mnote"></p>
+        <div class="mrow">
+          <button type="submit" class="msave">Save</button>
+          <button type="button" id="mclear">Disconnect</button>
+        </div>
+        <p class="mnote">Your key is stored only on this device, and sent only to
+          the provider you picked. It is never committed, uploaded, or visible to
+          anyone else who opens this page — they bring their own.</p>
+      </form>
+    </div>
     <main>
       <p class="eyebrow">Transcript</p>
       <div id="stream"></div>
@@ -140,27 +171,6 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
     </main>
 
     <aside class="rail">
-      <div class="card" id="modelcard">
-        <p class="eyebrow">Model</p>
-        <p class="mstate" id="mstate">Not connected — using the built-in grammar.</p>
-        <button id="mtoggle" type="button">Connect a model</button>
-        <form id="mform" hidden>
-          <label for="mprovider">Provider</label>
-          <select id="mprovider"></select>
-          <label for="mkey">API key</label>
-          <input type="password" id="mkey" autocomplete="off" spellcheck="false" placeholder="paste your key">
-          <label for="mmodel">Model</label>
-          <input type="text" id="mmodel" autocomplete="off" spellcheck="false">
-          <p class="mnote" id="mnote"></p>
-          <div class="mrow">
-            <button type="submit" class="msave">Save</button>
-            <button type="button" id="mclear">Disconnect</button>
-          </div>
-          <p class="mnote">Your key is stored only on this device, and sent only to
-            the provider you picked. It is never committed, uploaded, or visible to
-            anyone else who opens this page — they bring their own.</p>
-        </form>
-      </div>
       <div class="card">
         <p class="eyebrow">Standing rules</p>
         <div id="rules"><p class="empty">None yet. Say “never use exclamation marks”.</p></div>
@@ -181,15 +191,12 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
   <div class="inner">
     <form id="form">
       <input type="text" id="line" autocomplete="off" spellcheck="false"
-             placeholder="A topic — or: shorter · no questions · more like 2 · never use exclamation marks">
+             placeholder="Tell her what happened — or: shorter · more like 2 · never use exclamation marks">
       <button class="go" type="submit" id="go">Write</button>
     </form>
     <div class="quick" id="quick"></div>
     <div class="msg" id="msg" hidden></div>
-    <p class="foot">Posts are built here, by a slot grammar — no model, no network, nothing billed.
-      It arranges your words in shapes that read well; it does not understand your topic.
-      For a real model writing the copy, run <code>python -m thirsttrap serve</code> against your
-      own Ollama — that stays on your machine too.</p>
+    <p class="foot" id="foot"></p>
   </div>
 </div>
 
@@ -837,9 +844,12 @@ const state_persona = () => P.persona.replace("_", " ");
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function renderStatus(){
-  $("st-engine").innerHTML = modelReady()
+  const ready = modelReady();
+  $("st-engine").innerHTML = ready
     ? "talking to <b>" + esc(MODEL.model) + "</b>"
-    : "<b>no model</b> \u00b7 grammar only";
+    : "tap to connect a model";
+  $("st-engine").classList.toggle("needs", !ready && !SANDBOXED);
+  $("st-engine").hidden = SANDBOXED;
   $("st-tune").innerHTML = "<b>" + confidence() + "</b> · " + P.keeps + " keep" + (P.keeps === 1 ? "" : "s") +
     " · voice <b>" + esc(state_persona()) + "</b>";
 }
@@ -1063,6 +1073,13 @@ function renderModelCard(){
     ? "Talking to " + MODEL.model + " via " + (provider ? provider.label.split(" (")[0] : new URL(MODEL.url).host) + "."
     : "Not connected \u2014 using the built-in grammar, which drafts but can't converse.";
   $("mtoggle").textContent = ready ? "Change" : "Connect a model";
+  $("modelcard").classList.toggle("needs", !ready);
+  $("foot").textContent = ready
+    ? "She runs on " + MODEL.model + ". Your key stays on this device; the ranking, "
+      + "scoring and tuning all happen in this page."
+    : "Without a model this drafts from a slot grammar \u2014 nothing billed, but it "
+      + "can't converse. It arranges your words in shapes that read well; it does not "
+      + "understand your topic.";
   renderStatus();
 }
 
@@ -1078,6 +1095,14 @@ function applyPreset(key){
     key === "ollama" ? "not needed" : "paste your key";
 }
 $("mprovider").onchange = () => applyPreset($("mprovider").value);
+
+function openConnect(){
+  const form = $("mform");
+  if (form.hidden) $("mtoggle").click();
+  $("modelcard").scrollIntoView({behavior: "smooth", block: "start"});
+  $("mkey").focus({preventScroll: true});
+}
+$("st-engine").onclick = openConnect;
 
 $("mtoggle").onclick = () => {
   const form = $("mform");
