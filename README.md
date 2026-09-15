@@ -1,8 +1,9 @@
 # thirsttrap
 
-Generates candidate posts for X with a **local** LLM, then ranks them by a
-prior that learns from what you keep. No hosted API, no API key, nothing leaves
-your machine.
+A writing partner that runs on your own machine. You talk to her about what
+happened; she talks back, and drafts posts when there's something worth
+drafting. A local LLM writes; a scorer that learns from what you keep decides
+what to show you. No hosted API, no API key, nothing leaves your machine.
 
 ```bash
 ollama pull llama3.2
@@ -11,15 +12,18 @@ python -m thirsttrap chat "finally quitting the job"
 
 ```
 thirsttrap [flirt] -- untuned
-generating with ollama llama3.2 @ http://127.0.0.1:11434
+talking to ollama llama3.2 @ http://127.0.0.1:11434
 
-> finally quitting the job
-12 candidates, showing top 3  [flirt]
+> ugh I finally quit today
+about time. how did it feel walking out?
 
-1.  84.8   Nobody tells you the best part of quitting. The silence after.
+> honestly it felt kind of anticlimactic
+anticlimactic is the post. that's the whole thing.
+
+1.  84.8   Nobody tells you the best part of quitting. It's how quiet 4pm gets.
 2.  77.1   You already know the answer. You're just waiting for permission.
+3.  57.8   Three years, and the walk to the lift took ninety seconds.
 
-> shorter, no questions
 > never use exclamation marks
 + standing rule: never say '!'   (/forget to drop it)
 
@@ -28,13 +32,19 @@ kept (1 total)
 learned: direct_address +0.042, length -0.037   (barely tuned (1/20 keeps))
 ```
 
+**She is not a form that takes a topic and returns tweets.** The first turn
+above produced no drafts on purpose — she didn't have the detail yet, so she
+asked for it. A turn where she only talks is a normal turn. The conversation is
+real: her replies and her drafts go back to her on the next turn, so "more like
+2" and "shorter than that" resolve against what actually happened.
+
 ## Backends
 
 Probed in order; the first one running wins. Override with `--backend`.
 
 | Backend | What it is | Setup |
 |---|---|---|
-| `ollama` | Ollama's API on `127.0.0.1:11434` | `ollama pull llama3.2` |
+| `ollama` | Ollama's API on `127.0.0.1:11434` — the default | `ollama pull llama3.2` |
 | `openai-compat` | llama.cpp's `llama-server`, LM Studio, vLLM — anything serving `/v1/chat/completions` | `llama-server -m model.gguf` |
 | `llama-cpp` | A GGUF loaded in-process, no server at all | `pip install llama-cpp-python`, then `--gguf path.gguf` |
 | `grammar` | No model — a slot grammar fallback | nothing |
@@ -47,6 +57,10 @@ python -m thirsttrap chat "leg day" --backend llama-cpp --gguf ~/models/qwen.ggu
 
 Or set `THIRSTTRAP_BACKEND`, `THIRSTTRAP_MODEL`, `THIRSTTRAP_HOST`, `THIRSTTRAP_GGUF`.
 `/backend` in a session says which one is answering.
+
+**You don't have to name a model.** With Ollama, leaving `--model` off makes it
+ask the server what you've actually pulled and use the first one — guessing a
+name you never pulled is the most common way this fails, and asking is free.
 
 **The package itself has no dependencies.** HTTP to the local server is
 `urllib` from the standard library; `llama-cpp-python` is an optional extra
@@ -90,9 +104,10 @@ python -m thirsttrap score "You already know."   # score your own writing
 python -m thirsttrap personas
 ```
 
-In chat, type a topic, then adjustments: `shorter`, `much shorter`, `longer`,
-`one line`, `no questions`, `no numbers`, `no emoji`, `more like 2`,
-`try deadpan`, `stop using "game changer"`.
+Just talk to her. Adjustments are things you say, not flags: `shorter`,
+`much shorter`, `one line`, `no questions`, `no emoji`, `more like 2`,
+`try deadpan`, `never use exclamation marks`, `stop using "game changer"`.
+Phrase one as a rule ("never", "always", "from now on") and it sticks.
 
 | | |
 |---|---|
@@ -146,9 +161,16 @@ judgment. With a model generating, the scorer is an independent judge again.
 
 ## Limits
 
-- **Small models are small.** A 7B will produce noticeably flatter copy than a
-  hosted frontier model. The ranker helps by throwing most of a batch away, but
-  it can't add wit that isn't there.
+- **Small models are small.** A 7B will produce flatter copy and a duller
+  conversation than a hosted frontier model, and will sometimes drift off the
+  JSON it was asked for — when that happens the whole reply is kept as
+  conversation and the drafts are lost for that turn, because losing what she
+  said is worse.
+- **Nothing here has met a real Ollama.** The protocol, history, JSON mode,
+  model auto-detection and error surfacing are all tested against a loopback
+  server speaking Ollama's wire format, but this was built where
+  `registry.ollama.ai` is unreachable, so no actual model has ever answered.
+  Your first `ollama pull` is the real test.
 - **Directives are keyword matching**, not understanding. A fixed vocabulary is
   recognised; anything else is treated as a new topic. Deliberate — guessing at
   an unrecognised sentence is worse than ignoring it.
@@ -162,7 +184,7 @@ judgment. With a model generating, the scorer is an independent judge again.
 python -m pytest tests/ -q
 ```
 
-349 tests, no outbound network. Both HTTP surfaces are tested against real
+351 tests, no outbound network. Both HTTP surfaces are tested against real
 loopback servers — the model backends against one speaking Ollama's and the
 OpenAI-compatible protocol, and the web UI against its own — so sockets,
 timeouts, error handling and parsing are genuinely exercised rather than

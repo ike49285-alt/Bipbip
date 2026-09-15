@@ -75,6 +75,11 @@ class Backend:
         raise NotImplementedError
 
     def complete(self, system: str, prompt: str) -> str:
+        """One-shot: a single user message, no history."""
+        return self.chat(system, [{"role": "user", "content": prompt}])
+
+    def chat(self, system: str, messages: list[dict], json_mode: bool = False) -> str:
+        """Continue a conversation. `messages` alternates user/assistant, ending on user."""
         raise NotImplementedError
 
     def describe(self) -> str:
@@ -85,7 +90,7 @@ class Backend:
 class OllamaBackend(Backend):
     name: str = "ollama"
     host: str = DEFAULT_OLLAMA_HOST
-    model: str = "llama3.2"
+    model: str = ""  # empty: use whatever is pulled
 
     def available(self) -> bool:
         return _reachable(f"{self.host.rstrip('/')}/api/tags")
@@ -100,30 +105,52 @@ class OllamaBackend(Backend):
         except (urllib.error.URLError, OSError, ValueError, KeyError):
             return []
 
-    def complete(self, system: str, prompt: str) -> str:
+    def resolve_model(self) -> str:
+        """Use the configured model, else the first one this Ollama has pulled.
+
+        Guessing a name the user has not pulled is the most common way this
+        fails, and asking the server is free.
+        """
+        if self.model:
+            return self.model
+        pulled = self.models()
+        if not pulled:
+            raise BackendError(
+                f"ollama at {self.host} has no models pulled -- run `ollama pull llama3.2`"
+            )
+        self.model = pulled[0]
+        return self.model
+
+    def chat(self, system: str, messages: list[dict], json_mode: bool = False) -> str:
+        payload = {
+            "model": self.resolve_model(),
+            "stream": False,
+            "messages": [{"role": "system", "content": system}, *messages],
+        }
+        if json_mode:
+            payload["format"] = "json"
+
         try:
             data = _post_json(
-                f"{self.host.rstrip('/')}/api/chat",
-                {
-                    "model": self.model,
-                    "stream": False,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                },
-                timeout=GENERATE_TIMEOUT,
+                f"{self.host.rstrip('/')}/api/chat", payload, timeout=GENERATE_TIMEOUT
             )
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = json.loads(exc.read().decode("utf-8")).get("error", "")
+            except Exception:
+                pass
+            raise BackendError(f"ollama: {detail or exc}") from exc
         except (urllib.error.URLError, OSError, ValueError) as exc:
             raise BackendError(f"ollama at {self.host}: {exc}") from exc
 
         content = (data.get("message") or {}).get("content")
         if not content:
-            raise BackendError(f"ollama returned no content (model {self.model!r} pulled?)")
+            raise BackendError(f"ollama returned no content (is {self.model!r} pulled?)")
         return content
 
     def describe(self) -> str:
-        return f"ollama {self.model} @ {self.host}"
+        return f"ollama {self.model or '(first pulled model)'} @ {self.host}"
 
 
 @dataclass
@@ -137,18 +164,18 @@ class OpenAICompatBackend(Backend):
     def available(self) -> bool:
         return _reachable(f"{self.host.rstrip('/')}/v1/models")
 
-    def complete(self, system: str, prompt: str) -> str:
+    def chat(self, system: str, messages: list[dict], json_mode: bool = False) -> str:
+        payload = {
+            "model": self.model,
+            "stream": False,
+            "messages": [{"role": "system", "content": system}, *messages],
+        }
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+
         try:
             data = _post_json(
-                f"{self.host.rstrip('/')}/v1/chat/completions",
-                {
-                    "model": self.model,
-                    "stream": False,
-                    "messages": [
-                        {"role": "system", "content": system},
-                        {"role": "user", "content": prompt},
-                    ],
-                },
+                f"{self.host.rstrip('/')}/v1/chat/completions", payload,
                 timeout=GENERATE_TIMEOUT,
             )
         except (urllib.error.URLError, OSError, ValueError) as exc:
@@ -191,15 +218,13 @@ class LlamaCppBackend(Backend):
             )
         return self._llama
 
-    def complete(self, system: str, prompt: str) -> str:
+    def chat(self, system: str, messages: list[dict], json_mode: bool = False) -> str:
         try:
             llama = self._load()
             result = llama.create_chat_completion(
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": prompt},
-                ],
+                messages=[{"role": "system", "content": system}, *messages],
                 max_tokens=1024,
+                response_format={"type": "json_object"} if json_mode else None,
             )
         except Exception as exc:  # the binding raises its own types
             raise BackendError(f"llama-cpp: {exc}") from exc
@@ -222,7 +247,7 @@ class GrammarBackend(Backend):
     def available(self) -> bool:
         return True
 
-    def complete(self, system: str, prompt: str) -> str:
+    def chat(self, system: str, messages: list[dict], json_mode: bool = False) -> str:
         raise BackendError("the grammar backend does not take prompts")
 
     def describe(self) -> str:
@@ -340,3 +365,31 @@ def parse_posts(text: str, limit: int | None = None) -> list[str]:
             posts.append(stripped)
 
     return posts[:limit] if limit else posts
+
+
+def parse_turn(text: str) -> tuple[str, list[str]]:
+    """Split a reply into what she says and what she drafted.
+
+    The model is asked for {"reply": ..., "posts": [...]}. Small models drift,
+    so anything unparseable is treated as pure conversation rather than
+    discarded -- losing her reply is worse than losing the drafts.
+    """
+    text = (text or "").strip()
+    if not text:
+        return "", []
+
+    candidate = _FENCE_RE.sub("", text).strip()
+    start, end = candidate.find("{"), candidate.rfind("}")
+    if start != -1 and end > start:
+        try:
+            data = json.loads(candidate[start : end + 1])
+        except ValueError:
+            data = None
+        if isinstance(data, dict):
+            reply = str(data.get("reply", "")).strip()
+            raw = data.get("posts")
+            posts = [str(p).strip() for p in raw if str(p).strip()] if isinstance(raw, list) else []
+            if reply or posts:
+                return reply, posts
+
+    return text, []

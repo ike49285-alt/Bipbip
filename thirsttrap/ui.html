@@ -23,6 +23,10 @@
   .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
   .chip { font-size:12px; padding:3px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--panel); }
   .chip.rule { border-color:var(--accent); color:var(--accent); }
+  .said { font-size:15px; color:var(--muted); margin:18px 0 6px; }
+  .said b { color:var(--ink); font-weight:600; }
+  .reply { font-size:16.5px; line-height:1.5; margin:0 0 14px; }
+  .draftlabel { font-size:11px; letter-spacing:.12em; text-transform:uppercase; color:var(--muted); margin-bottom:8px; }
   .post { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; }
   .post .top { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
   .score { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--muted); min-width:44px; }
@@ -50,15 +54,16 @@
   </header>
   <div class="chips" id="chips"></div>
   <div class="note" id="note" hidden></div>
-  <div id="posts"><p class="empty">Type a topic below to start.</p></div>
+  <div id="reply" class="reply"></div>
+  <div id="posts"></div>
 </div>
 
 <div class="bar">
   <form id="form">
-    <input id="line" autocomplete="off" placeholder="a topic, or: shorter / no questions / more like 2 / /help" autofocus>
+    <input id="line" autocomplete="off" placeholder="tell her what happened — or: shorter / more like 2 / /help" autofocus>
     <button class="send" type="submit">Send</button>
   </form>
-  <p class="hint">Runs against your local model. Nothing leaves this machine.</p>
+  <p class="hint">She runs on your own machine. Nothing leaves it.</p>
 </div>
 
 <script>
@@ -76,11 +81,13 @@ function render(d) {
   $("note").hidden = !d.note;
   $("note").textContent = d.note || "";
 
+  $("reply").textContent = d.reply || "";
+
   if (!d.posts.length) {
-    $("posts").innerHTML = '<p class="empty">Nothing to show.</p>';
+    $("posts").innerHTML = d.reply ? "" : '<p class="empty">Say something to start.</p>';
     return;
   }
-  $("posts").innerHTML = d.posts.map((p, i) => `
+  $("posts").innerHTML = '<p class="draftlabel">Drafts</p>' + d.posts.map((p, i) => `
     <div class="post">
       <div class="top">
         <span class="score">${p.score.toFixed(1)}</span>

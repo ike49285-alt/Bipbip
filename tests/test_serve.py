@@ -63,8 +63,9 @@ class TestApi:
         assert data["confidence"] == "untuned"
         assert data["posts"] == []
 
-    def test_a_topic_returns_scored_posts(self, base):
+    def test_saying_something_returns_a_reply_and_scored_drafts(self, base):
         data = say(base, "finally quitting the job")
+        assert data["reply"]
         assert len(data["posts"]) == 3
         post = data["posts"][0]
         assert post["text"] and isinstance(post["score"], float)
@@ -95,10 +96,12 @@ class TestApi:
     def test_an_empty_line_is_a_noop(self, base):
         assert say(base, "   ")["posts"] == []
 
-    def test_an_impossible_ask_returns_a_note_not_a_crash(self, base):
+    def test_a_standing_rule_is_enforced_on_what_comes_back(self, base):
         say(base, "finally quitting the job")
-        data = say(base, 'never say "the"')
-        assert data["note"].startswith("error:")
+        say(base, "never use exclamation marks")
+        data = say(base, "tell me more")
+        assert data["posts"]
+        assert all("!" not in p["text"] for p in data["posts"])
 
     def test_malformed_json_is_rejected_cleanly(self, base):
         opener = urllib.request.build_opener(urllib.request.ProxyHandler({}))

@@ -55,7 +55,7 @@ class Handler(BaseHTTPRequestHandler):
         STATE["last_request"] = self.request_body
 
         if STATE["status"] != 200:
-            self._send({"error": "upstream failure"}, status=STATE["status"])
+            self._send({"error": STATE.get("error", "upstream failure")}, status=STATE["status"])
             return
         if STATE["shape"] == "garbage":
             self._send({"unexpected": "shape"})
@@ -125,6 +125,116 @@ class TestOllamaBackend:
 
     def test_describe_names_model_and_host(self, server):
         assert "test-model" in OllamaBackend(host=server, model="test-model").describe()
+
+
+class TestOllamaChat:
+    def test_history_is_sent_after_the_system_message(self, server):
+        backend = OllamaBackend(host=server, model="test-model")
+        backend.chat("SYSTEM", [
+            {"role": "user", "content": "first"},
+            {"role": "assistant", "content": "reply"},
+            {"role": "user", "content": "second"},
+        ])
+        sent = STATE["last_request"]["messages"]
+        assert [m["role"] for m in sent] == ["system", "user", "assistant", "user"]
+        assert sent[0]["content"] == "SYSTEM"
+        assert sent[-1]["content"] == "second"
+
+    def test_json_mode_sets_ollamas_format_field(self, server):
+        OllamaBackend(host=server, model="m").chat("s", [{"role": "user", "content": "x"}], json_mode=True)
+        assert STATE["last_request"]["format"] == "json"
+
+    def test_format_is_absent_when_json_mode_is_off(self, server):
+        OllamaBackend(host=server, model="m").chat("s", [{"role": "user", "content": "x"}])
+        assert "format" not in STATE["last_request"]
+
+    def test_complete_still_works_as_a_single_turn(self, server):
+        OllamaBackend(host=server, model="m").complete("sys", "prompt")
+        sent = STATE["last_request"]["messages"]
+        assert [m["role"] for m in sent] == ["system", "user"]
+
+    def test_an_unset_model_resolves_to_the_first_pulled_one(self, server):
+        backend = OllamaBackend(host=server)
+        assert backend.resolve_model() == "test-model"
+        assert backend.model == "test-model"
+
+    def test_a_configured_model_is_not_overridden(self, server):
+        backend = OllamaBackend(host=server, model="mine")
+        assert backend.resolve_model() == "mine"
+
+    def test_a_server_with_nothing_pulled_says_what_to_run(self, server):
+        import thirsttrap.llm as llm
+
+        backend = OllamaBackend(host=server)
+        original = llm.OllamaBackend.models
+        llm.OllamaBackend.models = lambda self: []
+        try:
+            with pytest.raises(BackendError, match="ollama pull"):
+                backend.resolve_model()
+        finally:
+            llm.OllamaBackend.models = original
+
+    def test_ollamas_own_error_text_is_surfaced(self, server):
+        STATE["status"] = 404
+        STATE["error"] = 'model "llama3.2" not found, try pulling it first'
+        with pytest.raises(BackendError, match="not found, try pulling"):
+            OllamaBackend(host=server, model="llama3.2").chat("s", [{"role": "user", "content": "x"}])
+
+    def test_describe_names_the_fallback_when_no_model_is_set(self):
+        assert "first pulled" in OllamaBackend().describe()
+
+
+class TestOpenAICompatChat:
+    def test_history_is_sent(self, server):
+        OpenAICompatBackend(host=server).chat("SYS", [
+            {"role": "user", "content": "a"}, {"role": "assistant", "content": "b"},
+            {"role": "user", "content": "c"},
+        ])
+        assert [m["role"] for m in STATE["last_request"]["messages"]] == \
+            ["system", "user", "assistant", "user"]
+
+    def test_json_mode_uses_response_format(self, server):
+        OpenAICompatBackend(host=server).chat("s", [{"role": "user", "content": "x"}], json_mode=True)
+        assert STATE["last_request"]["response_format"] == {"type": "json_object"}
+
+
+class TestParseTurn:
+    def test_a_reply_and_drafts(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn('{"reply":"about time","posts":["one","two"]}') == \
+            ("about time", ["one", "two"])
+
+    def test_a_reply_with_no_drafts(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn('{"reply":"how did it feel?","posts":[]}') == ("how did it feel?", [])
+
+    def test_a_fenced_object(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn('```json\n{"reply":"hi","posts":[]}\n```') == ("hi", [])
+
+    def test_narration_around_the_object_is_ignored(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn('Sure! {"reply":"ok","posts":["a"]} hope that helps') == ("ok", ["a"])
+
+    def test_plain_prose_is_kept_as_the_reply(self):
+        # Losing her reply is worse than losing the drafts.
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn("that's rough, what happened?") == ("that's rough, what happened?", [])
+
+    def test_empty_input_yields_nothing(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn("") == ("", [])
+
+    def test_non_string_drafts_are_coerced_and_blanks_dropped(self):
+        from thirsttrap.llm import parse_turn
+
+        assert parse_turn('{"reply":"r","posts":["a","",42]}') == ("r", ["a", "42"])
 
 
 class TestOpenAICompatBackend:

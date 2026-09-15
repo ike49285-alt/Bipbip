@@ -28,12 +28,13 @@ def _payload(repl: Repl, items: list[Ranked], note: str = "") -> dict:
     profile = repl.profile
     return {
         "note": note,
+        "reply": repl.last_reply,
         "persona": repl.session.persona,
         "backend": repl.session.engine().describe(),
         "confidence": profile.confidence(),
         "rules": profile.standing.describe(),
         "constraints": repl.session.constraints().describe(),
-        "adopted": repl.session.last_adopted,
+        "adopted": repl.last_adopted,
         "weights": {k: round(v, 4) for k, v in profile.weights.items()},
         "kept": [k.text for k in repl.kept],
         "posts": [
@@ -94,9 +95,9 @@ class Handler(BaseHTTPRequestHandler):
 
         # Repl.handle already turns every ordinary failure into a message.
         output, _ = self.repl.handle(line)
-        note = output if output.startswith("error:") or not self.repl.shown else ""
-        if line.startswith("/"):
-            note = output
+        # Commands and errors surface as a note; an ordinary turn renders as
+        # her reply plus drafts, which the payload already carries.
+        note = output if line.startswith("/") or output.startswith("error:") else ""
         self._json(_payload(self.repl, self.repl.shown, note=note))
 
 

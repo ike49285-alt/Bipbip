@@ -1,371 +1,313 @@
+import json
+
 import pytest
 
-from thirsttrap.chat import Repl, Session
-from thirsttrap.llm import Backend, GrammarBackend
+from thirsttrap.chat import NO_MODEL_REPLY, Repl, Session, Turn
+from thirsttrap.llm import Backend, BackendError, GrammarBackend
 from thirsttrap.profile import Profile
 from thirsttrap.score import WEIGHTS
 
 
-def make_repl(**kwargs):
-    """Pinned to the grammar backend so these stay deterministic even on a
-    machine with Ollama running."""
-    top = kwargs.pop("top", 3)
-    kwargs.setdefault("backend", GrammarBackend())
-    return Repl(session=Session(pool=120, seed=11, **kwargs), top=top)
+class Fake(Backend):
+    """A model that returns canned turns and records what it was sent."""
 
-
-class FakeBackend(Backend):
     def __init__(self, *replies):
         self.name = "fake"
         self.replies = list(replies)
-        self.calls = []
+        self.calls: list[dict] = []
 
     def available(self):
         return True
 
-    def complete(self, system, prompt):
-        self.calls.append((system, prompt))
-        return self.replies.pop(0) if self.replies else ""
+    def chat(self, system, messages, json_mode=False):
+        self.calls.append(
+            {"system": system, "messages": [dict(m) for m in messages], "json": json_mode}
+        )
+        if not self.replies:
+            return json.dumps({"reply": "mm.", "posts": []})
+        reply = self.replies.pop(0)
+        if isinstance(reply, Exception):
+            raise reply
+        return reply if isinstance(reply, str) else json.dumps(reply)
 
     def describe(self):
-        return "fake backend"
+        return "fake model"
 
 
-class TestSession:
-    def test_the_first_line_becomes_the_topic(self):
-        session = Session(pool=60, seed=1, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        assert session.topic == "finally quitting the job"
-
-    def test_an_adjustment_before_a_topic_is_an_error(self):
-        with pytest.raises(ValueError, match="what the posts should be about"):
-            Session(pool=60, seed=1, backend=GrammarBackend()).send("shorter")
-
-    def test_an_adjustment_keeps_the_topic(self):
-        session = Session(pool=120, seed=1, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("shorter")
-        assert session.topic == "finally quitting the job"
-
-    def test_an_adjustment_constrains_the_batch(self):
-        session = Session(pool=200, seed=2, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        ranked = session.send("much shorter")
-        assert all(len(r.text) <= 60 for r in ranked)
-
-    def test_adjustments_accumulate_within_a_topic(self):
-        session = Session(pool=250, seed=3, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("shorter")
-        ranked = session.send("no questions")
-        assert all(len(r.text) <= 95 and "?" not in r.text for r in ranked)
-
-    def test_a_new_topic_drops_the_previous_adjustments(self):
-        session = Session(pool=200, seed=4, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("much shorter")
-        session.send("leg day")
-        assert session.turn_constraints.max_chars is None
-
-    def test_a_standing_rule_survives_a_new_topic(self):
-        session = Session(pool=200, seed=5, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("never use exclamation marks")
-        ranked = session.send("leg day")
-        assert all("!" not in r.text for r in ranked)
-
-    def test_impossible_constraints_say_so_rather_than_relaxing(self):
-        session = Session(pool=80, seed=6, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        with pytest.raises(ValueError, match="nothing survived"):
-            session.send('never say "the"')
-
-    def test_a_persona_switch_is_recognised_mid_conversation(self):
-        session = Session(pool=80, seed=7, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("try deadpan")
-        assert session.persona == "deadpan"
-
-    def test_clear_drops_turn_constraints_but_not_standing_ones(self):
-        session = Session(pool=120, seed=8, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("shorter")
-        session.send("never use exclamation marks")
-        session.clear()
-        assert session.turn_constraints.max_chars is None
-        assert session.constraints().banned == ("!",)
-
-    def test_a_pinned_seed_makes_a_session_reproducible(self):
-        first = Session(pool=100, seed=9, backend=GrammarBackend()).send("finally quitting the job")
-        second = Session(pool=100, seed=9, backend=GrammarBackend()).send("finally quitting the job")
-        assert [r.text for r in first] == [r.text for r in second]
-
-    def test_repeating_a_turn_redraws(self):
-        session = Session(pool=150, seed=10, backend=GrammarBackend())
-        first = session.send("finally quitting the job")
-        again = session.send("finally quitting the job")
-        assert [r.text for r in first] != [r.text for r in again]
-
-    def test_batches_are_counted(self):
-        session = Session(pool=60, seed=1, backend=GrammarBackend())
-        session.send("finally quitting the job")
-        session.send("shorter")
-        assert session.profile.batches == 2
+def turn(reply, posts=()):
+    return json.dumps({"reply": reply, "posts": list(posts)})
 
 
-class TestRepl:
-    def test_a_topic_produces_a_ranked_batch(self):
-        repl = make_repl()
-        output, keep_going = repl.handle("finally quitting the job")
-        assert keep_going and "showing top 3" in output
-        assert len(repl.shown) == 3
+def make(*replies, **kwargs):
+    top = kwargs.pop("top", 3)
+    backend = Fake(*replies)
+    session = Session(profile=Profile(path=None), backend=backend, **kwargs)
+    return Repl(session=session, top=top), backend
 
-    def test_active_constraints_are_shown_in_the_header(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        assert "at most 95 characters" in repl.handle("shorter")[0]
 
-    def test_blank_line_is_a_noop(self):
-        assert make_repl().handle("   ") == ("", True)
+def grammar_repl(**kwargs):
+    top = kwargs.pop("top", 3)
+    return Repl(
+        session=Session(profile=Profile(path=None), backend=GrammarBackend(),
+                        pool=120, seed=5, **kwargs),
+        top=top,
+    )
 
-    def test_quit_stops_the_loop(self):
-        assert make_repl().handle("/quit")[1] is False
 
-    def test_unknown_command_is_reported(self):
-        assert "unknown command" in make_repl().handle("/nonsense")[0]
+class TestConversation:
+    def test_she_replies_without_being_given_a_topic(self):
+        repl, _ = make(turn("about time. how did it feel walking out?"))
+        output, keep_going = repl.handle("ugh I finally quit today")
+        assert keep_going
+        assert "how did it feel" in output
 
-    def test_an_impossible_ask_keeps_the_session_alive(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        output, keep_going = repl.handle('never say "the"')
-        assert keep_going and output.startswith("error:")
+    def test_a_turn_with_no_drafts_is_normal(self):
+        repl, _ = make(turn("how did it feel?"))
+        repl.handle("I quit today")
+        assert repl.shown == []
 
-    def test_more_like_needs_a_batch_first(self):
-        assert "no batch yet" in make_repl().handle("more like 2")[0]
+    def test_drafts_appear_when_she_writes_them(self):
+        repl, _ = make(turn("that's the post.", ["You already know. You're stalling."]))
+        output, _ = repl.handle("it felt anticlimactic")
+        assert "You already know" in output
+        assert len(repl.shown) == 1
+
+    def test_history_accumulates_across_turns(self):
+        repl, backend = make(turn("and then?"), turn("that's the post.", ["a draft"]))
+        repl.handle("I quit today")
+        repl.handle("it felt anticlimactic")
+        roles = [m["role"] for m in backend.calls[1]["messages"]]
+        assert roles == ["user", "assistant", "user"]
+
+    def test_her_own_words_come_back_to_her(self):
+        repl, backend = make(turn("how did it feel?"), turn("right.", []))
+        repl.handle("I quit today")
+        repl.handle("weird")
+        assert backend.calls[1]["messages"][1]["content"].startswith("how did it feel?")
+
+    def test_her_drafts_come_back_to_her_too(self):
+        repl, backend = make(turn("here.", ["draft one"]), turn("ok", []))
+        repl.handle("I quit today")
+        repl.handle("hm")
+        assert "draft one" in backend.calls[1]["messages"][1]["content"]
+
+    def test_json_mode_is_requested(self):
+        repl, backend = make(turn("hi"))
+        repl.handle("I quit today")
+        assert backend.calls[0]["json"] is True
+
+    def test_a_plain_text_reply_is_kept_as_conversation(self):
+        # Small models drift off JSON; losing her reply is worse than losing drafts.
+        repl, _ = make("that's rough, what happened?")
+        output, _ = repl.handle("I quit today")
+        assert "what happened" in output
+        assert repl.shown == []
+
+    def test_history_is_trimmed_so_a_small_context_does_not_overflow(self):
+        from thirsttrap.generate import MAX_HISTORY
+
+        repl, backend = make(*[turn("mm") for _ in range(12)])
+        for i in range(12):
+            repl.handle(f"thing number {i}")
+        assert len(backend.calls[-1]["messages"]) <= MAX_HISTORY
+
+    def test_reset_clears_the_conversation_but_not_what_she_learned(self):
+        repl, _ = make(turn("noted.", []))
+        repl.handle("never use exclamation marks")
+        repl.handle("/reset")
+        assert repl.session.history == []
+        assert repl.profile.standing.banned == ("!",)
+
+    def test_again_re_asks_the_last_thing_said(self):
+        repl, backend = make(turn("first answer"), turn("second answer"))
+        repl.handle("I quit today")
+        output, _ = repl.handle("/again")
+        assert "second answer" in output
+        assert backend.calls[1]["messages"][-1]["content"] == "I quit today"
+
+    def test_again_before_anything_says_so(self):
+        repl, _ = make()
+        assert "nothing to ask again" in repl.handle("/again")[0]
+
+
+class TestConstraints:
+    def test_an_adjustment_is_passed_to_her_and_enforced(self):
+        long_post = "x" * 200
+        repl, backend = make(turn("sure.", ["tiny one", long_post]))
+        repl.handle("much shorter")
+        assert "at most 60 characters" in backend.calls[0]["system"]
+        assert [d.text for d in repl.shown] == ["tiny one"]
+
+    def test_a_stated_rule_is_adopted_and_announced(self):
+        repl, _ = make(turn("noted.", []))
+        assert "+ standing rule" in repl.handle("never use exclamation marks")[0]
+        assert repl.profile.standing.banned == ("!",)
+
+    def test_a_standing_rule_reaches_her_on_later_turns(self):
+        repl, backend = make(turn("noted.", []), turn("here.", ["clean draft"]))
+        repl.handle("never use exclamation marks")
+        repl.handle("I quit today")
+        assert "never say '!'" in backend.calls[1]["system"]
+
+    def test_a_draft_breaking_a_standing_rule_is_dropped(self):
+        repl, _ = make(turn("noted.", []), turn("here.", ["clean draft", "shouty draft!"]))
+        repl.handle("never use exclamation marks")
+        repl.handle("I quit today")
+        assert [d.text for d in repl.shown] == ["clean draft"]
+
+    def test_her_reply_survives_even_when_every_draft_is_dropped(self):
+        repl, _ = make(turn("noted.", []), turn("still talking", ["nope!"]))
+        repl.handle("never use exclamation marks")
+        output, _ = repl.handle("I quit today")
+        assert "still talking" in output
+
+
+class TestReferences:
+    def test_more_like_sends_her_the_text_not_the_number(self):
+        # She never saw our numbering, so a bare "2" would mean nothing to her.
+        repl, backend = make(turn("here.", ["alpha draft", "beta draft"]), turn("ok", []))
+        repl.handle("I quit today")
+        repl.handle("more like 2")
+        sent = backend.calls[1]["messages"][-1]["content"]
+        assert repl.shown is not None
+        assert "draft" in sent and "referring to this draft" in sent
+
+    def test_more_like_without_drafts_is_an_error(self):
+        repl, _ = make()
+        assert "no drafts yet" in repl.handle("more like 2")[0]
 
     def test_more_like_out_of_range_names_the_range(self):
-        repl = make_repl()
+        repl, _ = make(turn("here.", ["only one"]))
+        repl.handle("I quit today")
+        assert "pick 1-1" in repl.handle("more like 4")[0]
+
+
+class TestFailures:
+    def test_a_dead_model_keeps_the_session_alive(self):
+        repl, _ = make(BackendError("connection refused"))
+        output, keep_going = repl.handle("I quit today")
+        assert keep_going and "connection refused" in output
+
+    def test_a_failed_turn_is_not_left_in_the_history(self):
+        repl, _ = make(BackendError("nope"), turn("fine"))
+        repl.handle("I quit today")
+        assert repl.session.history == []
+
+    def test_the_backend_command_names_the_model(self):
+        repl, _ = make()
+        assert "fake model" in repl.handle("/backend")[0]
+
+
+class TestWithoutAModel:
+    def test_it_says_so_and_still_drafts(self):
+        repl = grammar_repl()
+        output, _ = repl.handle("finally quitting the job")
+        assert NO_MODEL_REPLY.split(",")[0] in output
+        assert repl.shown
+
+    def test_the_backend_command_flags_the_fallback(self):
+        assert "no local model found" in grammar_repl().handle("/backend")[0]
+
+    def test_a_constraint_nothing_satisfies_is_explained_not_silent(self):
+        from thirsttrap.directives import Constraints
+
+        repl = grammar_repl()
         repl.handle("finally quitting the job")
-        assert "pick 1-3" in repl.handle("more like 9")[0]
-
-    def test_more_like_pulls_the_batch_toward_that_post(self):
-        from thirsttrap.rank import similarity
-
-        repl = make_repl(top=5)
-        repl.handle("finally quitting the job")
-        target = repl.shown[4].text
-        repl.handle("more like 5")
-        assert similarity(repl.shown[0].text, target) > 0.5
-
-    def test_more_like_does_not_just_hand_back_the_same_post(self):
-        repl = make_repl(top=5)
-        repl.handle("finally quitting the job")
-        target = repl.shown[4].text
-        repl.handle("more like 5")
-        assert repl.shown[0].text != target
+        repl.profile.add_standing(Constraints(max_chars=1))
+        output, keep_going = repl.handle("go on")
+        assert keep_going
+        assert "Nothing I can write fits" in output
+        assert repl.shown == []
 
 
-class TestReplCommands:
-    def test_persona_switch_persists_to_the_profile(self):
-        repl = make_repl()
-        repl.handle("/persona gym")
-        assert repl.profile.persona == "gym"
-
-    def test_invalid_persona_lists_the_valid_ones(self):
-        repl = make_repl()
-        assert "flirt" in repl.handle("/persona smoulder")[0]
-
-    def test_rules_before_any_are_stated(self):
-        assert "no standing rules" in make_repl().handle("/rules")[0]
-
-    def test_a_stated_rule_is_adopted_announced_and_listed(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        assert "+ standing rule" in repl.handle("never use exclamation marks")[0]
-        assert "never say '!'" in repl.handle("/rules")[0]
-
-    def test_forget_clears_standing_rules(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        repl.handle("never use exclamation marks")
-        assert "dropped 1" in repl.handle("/forget")[0]
-        assert repl.profile.standing.describe() == []
-
-    def test_weights_render_with_the_confidence_label(self):
-        assert "untuned" in make_repl().handle("/weights")[0]
-
-    def test_keeping_teaches_and_says_so(self):
-        repl = make_repl(top=5)
-        repl.handle("finally quitting the job")
-        output, _ = repl.handle("/keep 5")
+class TestKeeping:
+    def test_keeping_teaches_and_persists(self):
+        repl, _ = make(turn("here.", ["You already know. You're stalling.",
+                                      "The weather turned cold this week."]))
+        repl.handle("I quit today")
+        output, _ = repl.handle("/keep 1")
         assert "kept (1 total)" in output
         assert repl.profile.keeps == 1
-
-    def test_keeping_moves_the_weights(self):
-        repl = make_repl(top=5)
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 5")
         assert repl.profile.weights != WEIGHTS
 
-    def test_untune_restores_the_shipped_prior(self):
-        repl = make_repl(top=5)
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 5")
-        repl.handle("/untune")
-        assert repl.profile.weights == WEIGHTS
-
-    def test_keeping_the_same_post_twice_is_refused(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
+    def test_kept_drafts_reach_her_on_a_later_turn(self):
+        repl, backend = make(turn("here.", ["a memorable draft"]), turn("ok", []))
+        repl.handle("I quit today")
         repl.handle("/keep 1")
-        assert "already kept" in repl.handle("/keep 1")[0]
-        assert repl.profile.keeps == 1
+        repl.handle("what else")
+        assert "a memorable draft" in backend.calls[1]["system"]
 
-    def test_keep_before_a_batch_is_an_error(self):
-        assert "no batch yet" in make_repl().handle("/keep 1")[0]
+    def test_keep_before_any_drafts_is_an_error(self):
+        repl, _ = make()
+        assert "no drafts yet" in repl.handle("/keep 1")[0]
 
     def test_keep_out_of_range_names_the_range(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        assert "pick 1-3" in repl.handle("/keep 9")[0]
+        repl, _ = make(turn("here.", ["only one"]))
+        repl.handle("I quit today")
+        assert "pick 1-1" in repl.handle("/keep 5")[0]
 
-    def test_kept_posts_are_remembered_as_examples(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 1")
-        assert repl.profile.examples == [repl.kept[0].text]
-
-    def test_kept_then_dropped(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 1")
-        assert "1." in repl.handle("/kept")[0]
-        assert "dropped" in repl.handle("/drop 1")[0]
-        assert repl.kept == []
-
-    def test_save_writes_kept_posts(self, tmp_path):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
+    def test_save_writes_kept_drafts(self, tmp_path):
+        repl, _ = make(turn("here.", ["a draft worth keeping"]))
+        repl.handle("I quit today")
         repl.handle("/keep 1")
         target = tmp_path / "kept.txt"
         assert "wrote 1" in repl.handle(f"/save {target}")[0]
-        assert target.read_text().strip() == repl.kept[0].text
+        assert target.read_text().strip() == "a draft worth keeping"
 
-    def test_save_to_an_unwritable_path_is_an_error_not_a_crash(self, tmp_path):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 1")
-        output, keep_going = repl.handle(f"/save {tmp_path / 'missing' / 'x.txt'}")
-        assert keep_going and output.startswith("error:")
 
-    def test_score_uses_the_learned_weights(self):
-        repl = make_repl()
+class TestCommands:
+    def test_blank_line_is_a_noop(self):
+        repl, backend = make()
+        assert repl.handle("   ") == ("", True)
+        assert backend.calls == []
+
+    def test_quit_stops_the_loop(self):
+        repl, _ = make()
+        assert repl.handle("/quit")[1] is False
+
+    def test_unknown_command_is_not_sent_to_her(self):
+        repl, backend = make()
+        assert "unknown command" in repl.handle("/nonsense")[0]
+        assert backend.calls == []
+
+    def test_score_is_local_and_costs_no_turn(self):
+        repl, backend = make()
         assert "hook" in repl.handle("/score You already know the answer.")[0]
+        assert backend.calls == []
 
-    def test_pool_and_top_are_settable(self):
-        repl = make_repl()
-        repl.handle("/pool 50")
-        repl.handle("/top 1")
-        assert repl.session.pool == 50 and repl.top == 1
+    def test_persona_switch_persists(self):
+        repl, _ = make()
+        repl.handle("/persona gym")
+        assert repl.profile.persona == "gym"
 
-    def test_non_numeric_argument_is_an_error_not_a_crash(self):
-        output, keep_going = make_repl().handle("/pool lots")
-        assert keep_going and output.startswith("error:")
+    def test_persona_reaches_her_register(self):
+        from thirsttrap import personas
 
-    def test_clear_relaxes_this_turn(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        repl.handle("much shorter")
-        assert "dropped" in repl.handle("/clear")[0]
+        repl, backend = make(turn("hi"))
+        repl.handle("/persona deadpan")
+        repl.handle("I quit today")
+        assert personas.get("deadpan").directive in backend.calls[0]["system"]
 
-    def test_again_reruns_the_last_line(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        assert "showing top" in repl.handle("/again")[0]
-
-    def test_again_before_anything_says_so(self):
-        assert "nothing to re-run" in make_repl().handle("/again")[0]
-
-    def test_profile_reports_location_and_state(self):
-        repl = make_repl()
-        repl.handle("finally quitting the job")
-        assert "batch(es)" in repl.handle("/profile")[0]
+    def test_untune_restores_the_prior(self):
+        repl, _ = make(turn("here.", ["draft a", "draft b"]))
+        repl.handle("I quit today")
+        repl.handle("/keep 1")
+        repl.handle("/untune")
+        assert repl.profile.weights == WEIGHTS
 
 
-class TestPersistenceAcrossSessions:
+class TestPersistence:
     def test_rules_weights_and_voice_survive_a_restart(self, tmp_path):
         path = tmp_path / "profile.json"
-
-        first = Repl(session=Session(profile=Profile.load(path), pool=150, seed=1, backend=GrammarBackend()), top=5)
-        first.handle("finally quitting the job")
+        backend = Fake(turn("noted.", []), turn("here.", ["draft a", "draft b"]))
+        first = Repl(session=Session(profile=Profile.load(path), backend=backend), top=3)
         first.handle("never use exclamation marks")
         first.handle("/persona gym")
-        first.handle("/keep 5")
+        first.handle("I quit today")
+        first.handle("/keep 1")
 
         second = Profile.load(path)
         assert second.persona == "gym"
         assert second.standing.banned == ("!",)
         assert second.keeps == 1
         assert second.weights == pytest.approx(first.profile.weights)
-
-
-class TestWithAModelBackend:
-    def test_a_topic_is_generated_by_the_model(self):
-        backend = FakeBackend("You already know. You're stalling.\nNobody tells you.")
-        repl = Repl(session=Session(backend=backend, n=5), top=3)
-        output, _ = repl.handle("finally quitting the job")
-        assert "You already know" in output
-        assert backend.calls, "the model was never called"
-
-    def test_the_topic_reaches_the_prompt(self):
-        backend = FakeBackend("a post\nanother post")
-        repl = Repl(session=Session(backend=backend, n=5))
-        repl.handle("finally quitting the job")
-        assert "finally quitting the job" in backend.calls[0][1]
-
-    def test_standing_rules_reach_the_model_on_the_next_turn(self):
-        backend = FakeBackend("a post\nanother", "third post\nfourth")
-        repl = Repl(session=Session(backend=backend, n=2))
-        repl.handle("finally quitting the job")
-        repl.handle("never use exclamation marks")
-        assert "never say '!'" in backend.calls[1][0]
-
-    def test_kept_examples_reach_the_model_on_the_next_turn(self):
-        backend = FakeBackend("a post\nanother", "third post\nfourth")
-        repl = Repl(session=Session(backend=backend, n=2))
-        repl.handle("finally quitting the job")
-        repl.handle("/keep 1")
-        repl.handle("leg day")
-        assert "a post" in backend.calls[1][0]
-
-    def test_an_adjustment_reaches_the_prompt_and_is_enforced(self):
-        backend = FakeBackend("a post\nanother", "short\ntiny\n" + "x" * 300)
-        repl = Repl(session=Session(backend=backend, n=2))
-        repl.handle("finally quitting the job")
-        repl.handle("much shorter")
-        assert "at most 60 characters" in backend.calls[1][1]
-        assert all(len(item.text) <= 60 for item in repl.shown)
-
-    def test_a_dead_backend_keeps_the_session_alive(self):
-        from thirsttrap.llm import BackendError
-
-        class Dead(Backend):
-            def available(self):
-                return True
-
-            def complete(self, system, prompt):
-                raise BackendError("connection refused")
-
-            def describe(self):
-                return "dead"
-
-        repl = Repl(session=Session(backend=Dead(), n=5))
-        output, keep_going = repl.handle("finally quitting the job")
-        assert keep_going and "connection refused" in output
-
-    def test_the_backend_command_names_the_engine(self):
-        repl = Repl(session=Session(backend=FakeBackend(), n=5))
-        assert "fake backend" in repl.handle("/backend")[0]
-
-    def test_the_grammar_fallback_is_flagged_as_such(self):
-        assert "no local model found" in make_repl().handle("/backend")[0]

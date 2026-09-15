@@ -1,16 +1,13 @@
-"""Interactive session. Nothing here leaves the machine.
+"""The conversation.
 
-`Session` holds the topic and the constraints in force. `Profile` holds what
-survives between runs. `Repl` turns a typed line into output and returns
-strings rather than printing, so the loop in `cli.py` stays short and the whole
-surface is testable.
+You talk to her; she talks back, and drafts when there is something worth
+drafting. That framing is the point: the model is not a form that takes a topic
+and returns tweets, so `Session` keeps a real message history and a turn where
+she only asks a question is a normal turn.
 
-Tuning is passive in two ways. Rules you state ("never use exclamation marks")
-are parsed into standing constraints. Everything else is learned from which
-candidate you keep: the kept post is a statement that it beat the others on
-screen, and the weights move toward whatever distinguished it. Both are
-visible -- a new rule prints when adopted, `/weights` shows the drift, and both
-are reversible.
+`Session` owns the conversation and the model. `Profile` owns what survives
+between runs. `Repl` turns a typed line into output and returns strings rather
+than printing, so the loop in `cli.py` stays short and this is all testable.
 """
 
 from __future__ import annotations
@@ -19,49 +16,56 @@ from dataclasses import dataclass, field
 
 from . import directives, personas
 from .directives import Constraints
-from .generate import DEFAULT_N, DEFAULT_POOL, propose
+from .generate import DEFAULT_POOL, converse, propose
 from .llm import Backend, BackendError, GrammarBackend, detect
 from .profile import Profile
 from .rank import Ranked, rank, similarity
 from .render import render_ranked, render_score, render_weights
 from .score import score_post
 
-# How hard "more like 2" pulls the ranking toward the named post. Large enough
-# that an explicit instruction beats a score gap -- at 25 the request lost to
-# whatever happened to score highest, which is not what the user asked for.
+# How hard "more like 2" pulls the ranking toward the named draft.
 AFFINITY = 60.0
 
-HELP = """\
-Type a topic to start. After that, type adjustments -- "shorter", "no
-questions", "one line", "more like 2", "try deadpan".
+NO_MODEL_REPLY = (
+    "No local model is running, so I can't actually talk back. These are from "
+    "the grammar -- start Ollama and I'll do better."
+)
 
-Say a rule ("never use exclamation marks") and it sticks across sessions.
-Everything else she learns from what you /keep.
+HELP = """\
+Just talk. Tell her what happened; she'll ask, and draft when there's something
+worth drafting. Say "shorter" or "never use exclamation marks" the way you'd
+say it to a person.
 
   /rules           standing rules      /forget         drop them
-  /weights         what she learned    /untune         reset to the shipped prior
-  /persona NAME    switch voice        /personas       list voices
-  /pool N          candidates to draw  /top K          how many to show
-  /breakdown       component bars      /score TEXT     score text yourself
+  /weights         what she's learned  /untune         reset to the shipped prior
+  /persona NAME    her register        /personas       list them
+  /top K           drafts to show      /breakdown      component bars
   /keep N          keep one (teaches)  /kept  /drop N  /save PATH
-  /clear           drop this turn's adjustments
-  /profile         where memory lives    /backend  which model is answering
-  /again  /help  /quit"""
+  /score TEXT      score text yourself /backend        which model is answering
+  /again           ask her again       /reset          forget the conversation
+  /help  /quit"""
+
+
+@dataclass
+class Turn:
+    """One exchange: what she said, and what she drafted."""
+
+    reply: str
+    drafts: list[Ranked] = field(default_factory=list)
+    adopted: list[str] = field(default_factory=list)
 
 
 @dataclass
 class Session:
-    """Topic, voice, and the constraints currently in force."""
+    """The conversation, the voice, and the constraints in force."""
 
     profile: Profile = field(default_factory=Profile)
     backend: Backend | None = None
-    n: int = DEFAULT_N
     pool: int = DEFAULT_POOL
-    topic: str | None = None
+    history: list[dict] = field(default_factory=list)
     turn_constraints: Constraints = field(default_factory=Constraints)
-    turns: int = 0
-    last_adopted: list[str] = field(default_factory=list)
     seed: int | None = None
+    turns: int = 0
 
     def engine(self) -> Backend:
         """Resolve the backend once, so a probe does not run every turn."""
@@ -81,67 +85,92 @@ class Session:
         """Standing rules first, then whatever this turn asked for."""
         return self.profile.standing.merge(self.turn_constraints)
 
-    def send(self, message: str, like_text: str | None = None) -> list[Ranked]:
-        """Interpret one line and return a ranked batch."""
+    def last_said(self) -> str:
+        for message in reversed(self.history):
+            if message["role"] == "user":
+                return message["content"]
+        return ""
+
+    def _grammar_turn(self, constraints: Constraints) -> Turn:
+        """No model: draft from the last thing they said and say so."""
+        topic = self.last_said()
+        seed = None if self.seed is None else self.seed + self.turns
+        drafts = propose(
+            topic, persona=self.persona, backend=GrammarBackend(),
+            pool=self.pool, seed=seed, constraints=constraints,
+        )
+        if not drafts and constraints.describe():
+            # Silence would read as "nothing to say"; the constraint is the reason.
+            return Turn(reply=(
+                "Nothing I can write fits " + ", ".join(constraints.describe())
+                + ". Loosen one of those and ask again."
+            ))
+        return Turn(reply=NO_MODEL_REPLY, drafts=rank(drafts, weights=self.profile.weights))
+
+    def send(self, message: str, like_text: str | None = None) -> Turn:
+        """One exchange. Raises ValueError for anything the caller should explain."""
         directive = directives.parse(message)
-        self.last_adopted = []
+        adopted: list[str] = []
 
         if directive.persona:
             self.persona = directive.persona
 
-        if directive.constraints:
+        if directive.constraints.describe():
             if directive.standing:
-                self.last_adopted = self.profile.add_standing(directive.constraints)
+                adopted = self.profile.add_standing(directive.constraints)
             else:
                 self.turn_constraints = self.turn_constraints.merge(directive.constraints)
 
-        # An unrecognised line is a subject, not an instruction. That is what
-        # makes the first thing you type the topic without any ceremony.
-        if not directive.recognised:
-            self.topic = message
-            self.turn_constraints = Constraints()
-        elif self.topic is None:
-            raise ValueError("say what the posts should be about first")
+        # She never saw our numbering, so a reference is substituted for the text.
+        said = message
+        if like_text:
+            said = f'{message}\n(referring to this draft: "{like_text}")'
 
+        self.history.append({"role": "user", "content": said})
         constraints = self.constraints()
-        # Vary the draw per turn so /again is a fresh look, but stay reproducible
-        # for a caller that pinned a seed.
-        seed = None if self.seed is None else self.seed + self.turns
+
         try:
-            candidates = propose(
-                self.topic,
-                persona=self.persona,
-                n=self.n,
-                backend=self.engine(),
-                profile=self.profile,
-                constraints=constraints,
-                seed=seed,
-                pool=self.pool,
-                like_text=like_text,
-            )
+            if isinstance(self.engine(), GrammarBackend):
+                turn = self._grammar_turn(constraints)
+            else:
+                reply, posts = converse(
+                    self.engine(), self.history, persona=self.persona,
+                    profile=self.profile, constraints=constraints,
+                )
+                ranked = rank(posts, weights=self.profile.weights) if posts else []
+                if like_text and ranked:
+                    for item in ranked:
+                        item.final += AFFINITY * similarity(item.text, like_text)
+                    ranked.sort(key=lambda r: r.final, reverse=True)
+                turn = Turn(reply=reply, drafts=ranked)
         except BackendError as exc:
-            raise ValueError(f"{exc}") from exc
+            self.history.pop()  # don't resend a turn that got no reply
+            raise ValueError(str(exc)) from exc
 
-        if not candidates:
-            clauses = ", ".join(constraints.describe()) or "the current constraints"
-            raise ValueError(f"nothing survived: {clauses}. /clear to relax this turn")
-
-        if like_text:
-            # Handing back the same post is not "more like" it.
-            candidates = [c for c in candidates if c != like_text] or candidates
-
-        ranked = rank(candidates, weights=self.profile.weights)
-        if like_text:
-            for item in ranked:
-                item.final += AFFINITY * similarity(item.text, like_text)
-            ranked.sort(key=lambda r: r.final, reverse=True)
+        turn.adopted = adopted
+        # Record what she said so the next turn has it, drafts included -- she
+        # wrote them and may be asked to change them.
+        spoken = turn.reply
+        if turn.drafts:
+            spoken += "\n" + "\n".join(f"- {d.text}" for d in turn.drafts)
+        self.history.append({"role": "assistant", "content": spoken.strip() or "(no reply)"})
 
         self.turns += 1
         self.profile.batches += 1
         self.profile.save()
-        return ranked
+        return turn
 
-    def clear(self) -> None:
+    def rewind(self) -> str:
+        """Drop the last exchange and hand back what they had said."""
+        said = self.last_said()
+        while self.history and self.history[-1]["role"] == "assistant":
+            self.history.pop()
+        if self.history:
+            self.history.pop()
+        return said
+
+    def reset(self) -> None:
+        self.history.clear()
         self.turn_constraints = Constraints()
 
 
@@ -154,7 +183,9 @@ class Repl:
         self.breakdown = breakdown
         self.kept: list[Ranked] = []
         self.shown: list[Ranked] = []
-        self.last_message: str | None = None
+        # The last exchange, for front ends that render it rather than print it.
+        self.last_reply: str = ""
+        self.last_adopted: list[str] = []
 
     @property
     def profile(self) -> Profile:
@@ -163,7 +194,6 @@ class Repl:
     # -- helpers ---------------------------------------------------------
 
     def _pick(self, arg: str, pool: list[Ranked], what: str) -> int:
-        """Resolve a 1-based reference, or explain the range."""
         if not pool:
             raise ValueError(f"no {what} yet")
         try:
@@ -174,30 +204,32 @@ class Repl:
             raise ValueError(f"pick 1-{len(pool)}, got {index}")
         return index - 1
 
-    def _turn(self, message: str) -> str:
+    def _say(self, message: str) -> str:
         like_text = None
         directive = directives.parse(message)
         if directive.like is not None:
             if not self.shown:
-                raise ValueError("no batch yet -- say a topic first")
+                raise ValueError("no drafts yet")
             if not 1 <= directive.like <= len(self.shown):
                 raise ValueError(f"pick 1-{len(self.shown)}, got {directive.like}")
             like_text = self.shown[directive.like - 1].text
 
-        ranked = self.session.send(message, like_text=like_text)
-        self.last_message = message
-        self.shown = ranked[: self.top] if self.top > 0 else ranked
+        turn = self.session.send(message, like_text=like_text)
+        self.last_reply = turn.reply
+        self.last_adopted = turn.adopted
+        out = turn.reply or "(she said nothing)"
 
-        head = f"{len(ranked)} candidates, showing top {len(self.shown)}  [{self.session.persona}]"
+        if turn.drafts:
+            self.shown = turn.drafts[: self.top] if self.top > 0 else turn.drafts
+            out += "\n\n" + render_ranked(self.shown, breakdown=self.breakdown)
+        else:
+            self.shown = []
+
         active = self.session.constraints().describe()
-        if active:
-            head += "\n" + ", ".join(active)
-
-        out = f"{head}\n\n{render_ranked(self.shown, breakdown=self.breakdown)}"
-        for clause in self.session.last_adopted:
+        if turn.drafts and active:
+            out += "\n\n(" + ", ".join(active) + ")"
+        for clause in turn.adopted:
             out += f"\n\n+ standing rule: {clause}   (/forget to drop it)"
-        if not directive.recognised and directive.constraints:
-            out += "\n\n(that read as a topic, not an instruction)"
         return out
 
     # -- commands --------------------------------------------------------
@@ -218,7 +250,7 @@ class Repl:
 
         if cmd == "persona":
             if not arg:
-                return f"persona is {self.session.persona}", True
+                return f"she's set to {self.session.persona}", True
             personas.get(arg)
             self.session.persona = arg.strip().lower()
             self.profile.save()
@@ -247,7 +279,7 @@ class Repl:
             engine = self.session.engine()
             note = "" if not isinstance(engine, GrammarBackend) else \
                 "\nno local model found -- start Ollama, or see --backend in --help"
-            return f"generating with {engine.describe()}{note}", True
+            return f"talking to {engine.describe()}{note}", True
 
         if cmd == "profile":
             where = self.profile.path or "(not saved to disk)"
@@ -256,13 +288,9 @@ class Repl:
                 f"{self.profile.confidence()}, "
                 f"{len(self.profile.standing.describe())} standing rule(s), "
                 f"{len(self.profile.examples)} example(s), "
-                f"{self.profile.batches} batch(es)",
+                f"{self.profile.batches} turn(s)",
                 True,
             )
-
-        if cmd == "pool":
-            self.session.pool = max(1, int(arg))
-            return f"pool -> {self.session.pool}", True
 
         if cmd == "top":
             self.top = max(0, int(arg))
@@ -272,24 +300,19 @@ class Repl:
             self.breakdown = not self.breakdown
             return f"breakdown -> {'on' if self.breakdown else 'off'}", True
 
-        if cmd == "clear":
-            self.session.clear()
-            return "this turn's adjustments dropped (standing rules kept)", True
-
         if cmd == "score":
             if not arg:
                 return "usage: /score some text to score", True
             return render_score(arg, score_post(arg, self.profile.weights)), True
 
         if cmd == "keep":
-            index = self._pick(arg, self.shown, "batch")
+            index = self._pick(arg, self.shown, "drafts")
             item = self.shown[index]
             if any(k.text == item.text for k in self.kept):
                 return "already kept", True
 
             self.kept.append(item)
             self.profile.remember(item.text)
-            # Keeping is the training signal: it says this one beat the others shown.
             others = [s.score.components for i, s in enumerate(self.shown) if i != index]
             moved = self.profile.learn_from_keep(item.score.components, others)
             self.profile.save()
@@ -321,9 +344,15 @@ class Repl:
             return f"wrote {len(self.kept)} to {arg}", True
 
         if cmd == "again":
-            if not self.last_message:
-                return "nothing to re-run yet", True
-            return self._turn(self.last_message), True
+            said = self.session.rewind()
+            if not said:
+                return "nothing to ask again yet", True
+            return self._say(said), True
+
+        if cmd == "reset":
+            self.session.reset()
+            self.shown = []
+            return "conversation cleared (she keeps what she learned)", True
 
         return f"unknown command {word!r} -- /help for the list", True
 
@@ -337,7 +366,7 @@ class Repl:
         try:
             if line.startswith("/"):
                 return self._command(line)
-            return self._turn(line), True
+            return self._say(line), True
         except (ValueError, KeyError) as exc:
             return f"error: {exc.args[0] if exc.args else exc}", True
         except OSError as exc:

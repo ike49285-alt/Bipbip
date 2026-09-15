@@ -19,12 +19,49 @@ from __future__ import annotations
 
 from . import grammar, personas
 from .directives import Constraints
-from .llm import Backend, BackendError, GrammarBackend, detect, parse_posts
+from .llm import Backend, BackendError, GrammarBackend, detect, parse_posts, parse_turn
 from .topic import parse as parse_topic
 
 DEFAULT_N = 12
 DEFAULT_POOL = 400  # grammar fallback only; a model is asked for far fewer
 MAX_ATTEMPTS = 2
+
+# Small local models have small context windows, so the conversation is
+# trimmed rather than allowed to grow until it silently truncates.
+MAX_HISTORY = 12
+
+POST_RULES = """\
+Rules for anything you draft:
+- Every post stands alone. No threads, no numbering, no "1/".
+- No hashtags. No @-mentions. No URLs.
+- Under 280 characters. Most should be well under.
+- Subjects are adults. Never write anything sexual about anyone who could read \
+as underage, and never imply an age below adult.
+- Suggestive through implication and restraint only. Nothing sexually explicit, \
+nothing anatomical.
+- Do not write as, quote, or reference any real named person.
+- Confidence, never neediness. No begging for engagement, no fishing for \
+compliments through self-deprecation.
+- Never demean anyone, including the reader.
+- Specific beats general. Say one thing. Cut every word doing nothing."""
+
+CONVERSATION = """\
+You are someone's writing partner. They talk to you about their life; you talk \
+back, and when something in it is worth posting, you draft a few.
+
+Talk like a person, not a service. React to what they actually said. Ask the \
+question that gets the good detail out of them -- the specific one, not "tell \
+me more". Keep it to a sentence or two; you are texting, not writing an essay.
+
+You are NOT a form that takes a topic and returns tweets. Never ask them for a \
+topic, never say "here are some options for you", never list what you can do.
+
+Draft only when there is something real to draft from. If they are mid-story, \
+or just venting, or you still do not know the detail that would make the post \
+land, reply with no drafts and ask. An empty posts list is a normal turn.
+
+When you do draft, draft from what THEY said -- their detail, their words, \
+their situation. Two or three is plenty."""
 
 RULES = """\
 You write short-form posts for X (Twitter). You are good at it because you \
@@ -56,8 +93,65 @@ Output format:
 - Do not wrap posts in quotes."""
 
 
+def build_conversation_system(persona: str = personas.DEFAULT_PERSONA, profile=None) -> str:
+    """Who she is, how she talks, and what this user has taught her."""
+    voice = personas.get(persona)
+    parts = [
+        CONVERSATION,
+        f"Your register, in conversation and in what you draft -- {voice.summary}:\n{voice.directive}",
+        POST_RULES,
+    ]
+    if profile is not None:
+        clauses = profile.standing.describe()
+        if clauses:
+            parts.append(
+                "Standing preferences this user has stated. Apply them to every "
+                "draft unless they override one:\n" + "\n".join(f"- {c}" for c in clauses)
+            )
+        if profile.examples:
+            parts.append(
+                "Posts they kept before. Match what these have in common -- do not "
+                "reuse their wording:\n" + "\n".join(f"- {e}" for e in profile.examples[-6:])
+            )
+    parts.append(
+        'Reply with only JSON: {"reply": "what you say back", "posts": ["draft", ...]}\n'
+        'Leave "posts" empty when there is nothing worth drafting yet.'
+    )
+    return "\n\n".join(parts)
+
+
+def converse(
+    backend: Backend,
+    history: list[dict],
+    persona: str = personas.DEFAULT_PERSONA,
+    profile=None,
+    constraints: Constraints | None = None,
+) -> tuple[str, list[str]]:
+    """One conversational turn: what she says, and anything she drafted.
+
+    Drafts that break a constraint are dropped rather than shown -- but her
+    reply is kept either way, because a turn where she only talks is a normal
+    turn, not a failure.
+    """
+    system = build_conversation_system(persona, profile)
+    if constraints and constraints.describe():
+        system += "\n\nRight now they want every draft to be: " + ", ".join(constraints.describe())
+
+    raw = backend.chat(system, history[-MAX_HISTORY:], json_mode=True)
+    reply, posts = parse_turn(raw)
+
+    seen, kept = set(), []
+    for text in posts:
+        if text in seen:
+            continue
+        seen.add(text)
+        if constraints is None or constraints.allows(text):
+            kept.append(text)
+    return reply, kept
+
+
 def build_system(persona: str = personas.DEFAULT_PERSONA, profile=None) -> str:
-    """Rules, voice, and whatever this user has taught her."""
+    """Rules and voice for the one-shot `gen` command."""
     voice = personas.get(persona)
     parts = [RULES, f"Voice -- {voice.summary}:\n{voice.directive}"]
 
