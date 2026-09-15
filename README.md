@@ -81,19 +81,37 @@ python -m thirsttrap chat "leg day"               # terminal
 `serve` binds loopback on purpose: it is an unauthenticated endpoint that
 drives a language model. `--host-bind` opens it wider, deliberately.
 
-There is also a hosted version at
-<https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ> — the whole system ported
-to JavaScript and running in the page: topic parsing, the slot grammar, the
-scorer, the ranker, the directive parser and the weight learning, with the
-profile in `localStorage`.
+## In a browser
 
-**It declares no capabilities and spends nothing.** Generation is the grammar,
-in the page — no model, no network call, no tokens. That is a deliberate
-limit rather than a choice of engine: a published artifact is sandboxed, so it
-can neither reach a model on your machine nor download model weights, and the
-only honest options were a grammar or billing someone. Use it to try the
-ranking and the tuning from a phone; run `serve` when you want a real model
-writing the copy.
+The whole system also runs as a static page, no install and nothing billed:
+
+- **GitHub Pages** — <https://ike49285-alt.github.io/Bipbip/>
+- **Claude artifact** — <https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ>
+
+`index.html` is generated from `web/thirsttrap.html` by
+`scripts/build_pages.py`, because the artifact source deliberately has no
+`<!doctype>` or `<head>` (the artifact viewer supplies its own). Edit the
+source, then:
+
+```bash
+python scripts/build_pages.py           # regenerate index.html
+python scripts/build_pages.py --check   # CI-style staleness check
+```
+
+`test_pages.py` fails if the two drift apart.
+
+The browser version is the whole system ported
+to JavaScript: topic parsing, the slot grammar, the scorer, the ranker, the
+directive parser and the weight learning, with the profile in `localStorage`.
+
+**It spends nothing and talks to nothing.** Generation is the grammar, in the
+page — no model, no network call, no tokens, no account. That is a limit of
+the medium rather than a choice of engine: a static or sandboxed page can
+neither reach a model on your machine nor download model weights.
+
+So the browser version does not converse — it takes a topic and drafts from
+it. For the actual conversation, and for a real model writing the copy, run
+`serve` locally.
 
 ## Use
 
