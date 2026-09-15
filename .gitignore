@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Interrupted writes. A canon or queue save that is cut off must never replace
+# a good file, so writes go here and are renamed on success.
+*.partial
+
+# Canon and queue are per-character working state, written by the tooling.
+# Commit them deliberately if a character is real; do not let them land by
+# accident from someone else's experiment.
+personas/*.canon.jsonl
+personas/*.queue.jsonl
+
+# Never commit platform credentials.
+secrets.yaml
+credentials.json
+*.token
+
+# The previous project's local broker records. Not tracked, not ours to lose.
+data/trades/

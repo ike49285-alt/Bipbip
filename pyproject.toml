@@ -1,0 +1,12 @@
+[project]
+name = "synth"
+version = "0.1.0"
+description = "Tooling for a disclosed synthetic creator"
+requires-python = ">=3.10"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+synth = "synth.cli:main"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
