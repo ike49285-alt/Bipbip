@@ -84,3 +84,36 @@ class TestPicking:
         a, b = "cold coffee and rain", "rain and warm coffee"
         assert similar(a, b) == similar(b, a)
         assert similar(a, a) == 1.0 and similar(a, "nothing alike") >= 0.0
+
+
+class TestModelListing:
+    def test_junk_entries_are_filtered_out(self):
+        from bot.captions import NOT_CHAT
+
+        for junk in ["whisper-large-v3", "llama-guard-4-12b", "text-embedding-3-small",
+                     "playai-tts", "rerank-v1", "omni-moderation-latest"]:
+            assert NOT_CHAT.search(junk), junk
+
+    def test_chat_models_survive_the_filter(self):
+        from bot.captions import NOT_CHAT
+
+        for good in ["llama-3.3-70b-versatile", "gemma2-9b-it", "gpt-4o", "qwen2.5-72b"]:
+            assert not NOT_CHAT.search(good), good
+
+    def test_the_listing_url_is_derived_from_the_chat_url(self, monkeypatch):
+        import re
+
+        from bot import captions
+
+        monkeypatch.setenv(captions.ENV_URL, "https://api.groq.com/openai/v1/chat/completions")
+        url, _, _ = captions._config_url_key()
+        assert re.sub(r"/chat/completions/?$", "/models", url) == \
+            "https://api.groq.com/openai/v1/models"
+
+    def test_listing_does_not_require_a_model_to_be_set(self, monkeypatch):
+        # The whole point is to find out what to set CAPTION_MODEL to.
+        from bot import captions
+
+        monkeypatch.delenv(captions.ENV_MODEL, raising=False)
+        url, _, model = captions._config_url_key()
+        assert url and model == ""

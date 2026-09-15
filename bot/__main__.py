@@ -20,7 +20,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", metavar="PATH", help="save the image to a file")
     parser.add_argument("--seed", type=int, default=None, help="fix the draw (default: today)")
     parser.add_argument("--show", action="store_true", help="show every caption considered")
+    parser.add_argument("--models", action="store_true",
+                        help="list the models this key can reach, then stop")
     args = parser.parse_args(argv)
+
+    if args.models:
+        try:
+            available = captions.models()
+        except captions.CaptionError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 1
+        print(f"{len(available)} models available -- set CAPTION_MODEL to one:")
+        for name in available:
+            print(f"  {name}")
+        return 0
 
     try:
         persona = Persona.load(args.persona)

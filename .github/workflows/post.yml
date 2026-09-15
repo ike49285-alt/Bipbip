@@ -44,12 +44,16 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
         run: python -m bot --out preview.jpg --show
 
-      - uses: actions/upload-artifact@v4
+      # Committed rather than uploaded as an artifact: a zip is awkward to open
+      # on a phone, and a committed JPEG renders inline on github.com.
+      - name: Commit the preview so it can be looked at
         if: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish }}
-        with:
-          name: preview
-          path: preview.jpg
-          if-no-files-found: ignore
+        run: |
+          git config user.name "bot"
+          git config user.email "bot@users.noreply.github.com"
+          git add -f preview.jpg
+          git commit -m "preview $(date -u +'%Y-%m-%d %H:%M')" || exit 0
+          git push
 
       - name: Post
         if: ${{ github.event_name == 'schedule' || inputs.publish }}

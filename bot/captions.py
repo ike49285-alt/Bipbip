@@ -53,13 +53,47 @@ class CaptionError(RuntimeError):
     """No usable caption came back."""
 
 
+# Speech, embeddings and safety classifiers appear in the same listing.
+NOT_CHAT = re.compile(r"whisper|tts|embed|guard|moderat|rerank", re.IGNORECASE)
+
+
+def _config_url_key() -> tuple[str, str, str]:
+    """URL and key without requiring a model -- listing models does not need one."""
+    return (os.environ.get(ENV_URL) or DEFAULT_URL,
+            os.environ.get(ENV_KEY, ""),
+            os.environ.get(ENV_MODEL, ""))
+
+
 def _config() -> tuple[str, str, str]:
-    url = os.environ.get(ENV_URL) or DEFAULT_URL
-    key = os.environ.get(ENV_KEY, "")
-    model = os.environ.get(ENV_MODEL, "")
+    url, key, model = _config_url_key()
     if not model:
         raise CaptionError(f"set {ENV_MODEL} to the model you want (and {ENV_KEY} if it needs one)")
     return url, key, model
+
+
+def models() -> list[str]:
+    """What this key can actually reach.
+
+    Providers retire model ids, so a name that worked last month returns a 404
+    with nothing useful in it. Asking is free and prevents the guess.
+    """
+    url, key, _ = _config_url_key()
+    listing = re.sub(r"/chat/completions/?$", "/models", url)
+    request = urllib.request.Request(
+        listing, headers={"Authorization": f"Bearer {key}"} if key else {}
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=30) as response:
+            data = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        raise CaptionError(f"listing models failed ({exc.code})") from exc
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise CaptionError(f"could not reach {listing}: {exc}") from exc
+
+    rows = data.get("data") if isinstance(data.get("data"), list) else data.get("models", [])
+    ids = [str(r.get("id") or r.get("name") or "") for r in rows if isinstance(r, dict)]
+    # Providers list things that cannot hold a conversation.
+    return sorted(i for i in ids if i and not NOT_CHAT.search(i))
 
 
 def ask(persona, topic: str, n: int = 6) -> list[str]:
