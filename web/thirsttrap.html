@@ -658,29 +658,33 @@ function generate(topic, constraints, likeText){
 
 /* ---------- talking to a model you bring ---------- */
 const PROVIDERS = {
-  openrouter: {
-    label: "OpenRouter (free models)",
-    url: "https://openrouter.ai/api/v1/chat/completions",
-    model: "meta-llama/llama-3.3-70b-instruct:free",
-    note: 'Free key at openrouter.ai/keys. Models ending ":free" cost nothing.',
-  },
   groq: {
-    label: "Groq (fast, free tier)",
+    label: "Groq (free, no card)",
     url: "https://api.groq.com/openai/v1/chat/completions",
     model: "llama-3.3-70b-versatile",
-    note: "Free key at console.groq.com/keys.",
+    note: "console.groq.com/keys \u2014 sign in with Google or GitHub, then Create API Key. "
+        + "Open-weights Llama. No card asked for at signup.",
   },
   gemini: {
-    label: "Google Gemini (free tier)",
+    label: "Google Gemini (free, no card)",
     url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
     model: "gemini-2.0-flash",
-    note: "Free key at aistudio.google.com/apikey.",
+    note: "aistudio.google.com/apikey \u2014 sign in with a Google account and hit "
+        + "Create API key. Google's own model rather than open weights.",
   },
   cerebras: {
     label: "Cerebras (free tier)",
     url: "https://api.cerebras.ai/v1/chat/completions",
     model: "llama3.1-8b",
-    note: "Free key at cloud.cerebras.ai.",
+    note: "cloud.cerebras.ai \u2014 free tier, open-weights Llama.",
+  },
+  openrouter: {
+    label: "OpenRouter (may ask for payment)",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "meta-llama/llama-3.3-70b-instruct:free",
+    note: "openrouter.ai/keys. Routes to many models, but now tends to ask for a spend "
+        + "limit or card before issuing a key, and rate-limits free models hard. "
+        + "Try Groq first.",
   },
   ollama: {
     label: "Ollama on this machine",
@@ -1065,7 +1069,7 @@ $("mtoggle").onclick = () => {
   const form = $("mform");
   form.hidden = !form.hidden;
   if (!form.hidden){
-    $("mprovider").value = MODEL.provider || "openrouter";
+    $("mprovider").value = MODEL.provider || "groq";
     $("mkey").value = MODEL.key;
     applyPreset($("mprovider").value);
     if (MODEL.model) $("mmodel").value = MODEL.model;

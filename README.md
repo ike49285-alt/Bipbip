@@ -86,12 +86,20 @@ drives a language model. `--host-bind` opens it wider, deliberately.
 The Pages site converses on a phone with nothing installed and nothing hosted.
 Open it, tap **Connect a model** in the sidebar, and paste a free API key:
 
-| Provider | Free key | Suggested model |
-|---|---|---|
-| OpenRouter | openrouter.ai/keys | `meta-llama/llama-3.3-70b-instruct:free` |
-| Groq | console.groq.com/keys | `llama-3.3-70b-versatile` |
-| Google Gemini | aistudio.google.com/apikey | `gemini-2.0-flash` |
-| Cerebras | cloud.cerebras.ai | `llama3.1-8b` |
+| Provider | Free key | Model | Card at signup? |
+|---|---|---|---|
+| **Groq** | console.groq.com/keys | `llama-3.3-70b-versatile` | No — Google/GitHub sign-in |
+| **Gemini** | aistudio.google.com/apikey | `gemini-2.0-flash` | No — Google sign-in |
+| Cerebras | cloud.cerebras.ai | `llama3.1-8b` | No |
+| OpenRouter | openrouter.ai/keys | `…llama-3.3-70b-instruct:free` | Often asks for a spend limit or card |
+
+Start with **Groq** — free, no card, and it serves open-weights Llama. Gemini is
+the other card-free option but runs Google's own model rather than open weights.
+OpenRouter is listed last on purpose: it routes to the most models, but it now
+tends to want payment details before it will issue a key.
+
+Signup flows change, and these notes will go stale. If one provider gets awkward,
+switch in the same panel — the key and model are the only things that differ.
 
 **The key stays on your device.** It lives in that browser's `localStorage`,
 is sent only to the provider you picked, and is never committed or uploaded.
