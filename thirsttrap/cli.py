@@ -47,15 +47,28 @@ def cmd_score(args: argparse.Namespace) -> int:
 
 
 def cmd_chat(args: argparse.Namespace) -> int:
-    from .chat import HELP, Repl, Session
+    from pathlib import Path
+
+    from .chat import Repl, Session
+    from .profile import Profile
+
+    path = Path(args.profile).expanduser() if args.profile else None
+    # --fresh still writes; it starts from nothing rather than refusing to learn.
+    profile = Profile(path=path) if args.fresh else Profile.load(path)
+    if args.persona:
+        profile.persona = args.persona
 
     repl = Repl(
-        session=Session(persona=args.persona, n=args.n),
+        session=Session(profile=profile, n=args.n),
         top=args.top,
         breakdown=args.breakdown,
     )
 
-    print(f"thirsttrap [{args.persona}] -- /help for commands, /quit to leave")
+    known = ""
+    if profile.rules or profile.examples:
+        known = f" -- remembers {len(profile.rules)} rule(s), {len(profile.examples)} example(s)"
+    print(f"thirsttrap [{profile.persona}]{known}")
+    print("/help for commands, /quit to leave")
     if args.topic:
         output, _ = repl.handle(" ".join(args.topic))
         print(output)
@@ -108,10 +121,15 @@ def build_parser() -> argparse.ArgumentParser:
     ch.add_argument("-n", type=int, default=12, help="candidates per batch (default 12)")
     ch.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
     ch.add_argument(
-        "-p", "--persona", default=personas.DEFAULT_PERSONA, choices=personas.names(),
-        help=f"voice preset (default {personas.DEFAULT_PERSONA})",
+        "-p", "--persona", default=None, choices=personas.names(),
+        help="voice preset (default: whatever the profile remembers)",
     )
     ch.add_argument("-b", "--breakdown", action="store_true", help="show component scores")
+    ch.add_argument("--profile", metavar="PATH", help="use a specific profile file")
+    ch.add_argument(
+        "--fresh", action="store_true",
+        help="start from nothing instead of loading the saved profile",
+    )
     ch.set_defaults(func=cmd_chat)
 
     pl = sub.add_parser("personas", help="list the voice presets")

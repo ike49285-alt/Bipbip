@@ -3,8 +3,9 @@ import types
 
 import pytest
 
-from thirsttrap.chat import Repl, Session
-from thirsttrap.generate import Batch, Candidate
+from thirsttrap.chat import ChatBatch, Repl, Session
+from thirsttrap.generate import Candidate
+from thirsttrap.profile import Profile
 
 
 class FakeMessages:
@@ -19,17 +20,24 @@ class FakeMessages:
         batch = self._batches.pop(0) if self._batches else ["fallback post"]
         if isinstance(batch, Exception):
             raise batch
-        if isinstance(batch, dict):  # a refusal
+        if isinstance(batch, dict) and "refusal" in batch:
             return types.SimpleNamespace(
                 stop_reason="refusal",
                 stop_details=types.SimpleNamespace(explanation=batch["refusal"]),
                 parsed_output=None,
             )
+
+        learned = []
+        if isinstance(batch, dict):  # {"texts": [...], "learned": [...]}
+            learned = batch.get("learned", [])
+            batch = batch["texts"]
+
         return types.SimpleNamespace(
             stop_reason="end_turn",
             stop_details=None,
-            parsed_output=Batch(
-                candidates=[Candidate(text=t, angle="a") for t in batch]
+            parsed_output=ChatBatch(
+                candidates=[Candidate(text=t, angle="a") for t in batch],
+                learned=learned,
             ),
         )
 
@@ -75,7 +83,7 @@ class TestSession:
 
     def test_persona_and_batch_size_reach_the_system_prompt(self):
         client = FakeClient(["one"])
-        session = Session(persona="gym", n=7, client=client)
+        session = Session(profile=Profile(persona="gym"), n=7, client=client)
         session.send("a topic")
 
         system = client.messages.calls[0]["system"]
@@ -194,7 +202,7 @@ class TestReplCommands:
         repl, _ = make_repl(["You already know the answer."])
         repl.handle("a topic")
 
-        assert "kept (1 total)" in repl.handle("/keep 1")[0]
+        assert "kept (1 total" in repl.handle("/keep 1")[0]
         assert "You already know" in repl.handle("/kept")[0]
         assert "dropped" in repl.handle("/drop 1")[0]
         assert repl.kept == []
@@ -262,3 +270,143 @@ class TestReplCommands:
         assert repl.session.history == []
         assert repl.shown == []
         assert len(repl.kept) == 1
+
+
+class TestPassiveLearning:
+    def test_durable_rule_is_absorbed_and_announced(self):
+        repl, _ = make_repl({"texts": ["a post here"], "learned": ["no exclamation marks"]})
+        output, _ = repl.handle("stop shouting at me")
+
+        assert "+ learned: no exclamation marks" in output
+        assert repl.profile.rules == ["no exclamation marks"]
+
+    def test_learned_rules_steer_the_next_request(self):
+        repl, client = make_repl(
+            {"texts": ["one"], "learned": ["no exclamation marks"]},
+            ["two"],
+        )
+        repl.handle("stop shouting")
+        repl.handle("another topic")
+
+        assert "no exclamation marks" in client.messages.calls[1]["system"]
+
+    def test_turns_that_teach_nothing_announce_nothing(self):
+        repl, _ = make_repl(["a post here"])
+        output, _ = repl.handle("a topic")
+
+        assert "+ learned" not in output
+        assert repl.profile.rules == []
+
+    def test_a_repeated_rule_is_not_announced_twice(self):
+        repl, _ = make_repl(
+            {"texts": ["one"], "learned": ["no exclamation marks"]},
+            {"texts": ["two"], "learned": ["no exclamation marks"]},
+        )
+        repl.handle("stop shouting")
+        second, _ = repl.handle("again please")
+
+        assert "+ learned" not in second
+        assert repl.profile.rules == ["no exclamation marks"]
+
+    def test_rules_command_lists_them_numbered(self):
+        repl, _ = make_repl({"texts": ["one"], "learned": ["rule one", "rule two"]})
+        repl.handle("a topic")
+        output, _ = repl.handle("/rules")
+
+        assert "1. rule one" in output and "2. rule two" in output
+
+    def test_rules_command_before_anything_is_learned(self):
+        repl, _ = make_repl()
+        assert "nothing learned yet" in repl.handle("/rules")[0]
+
+    def test_forget_removes_a_rule_and_stops_sending_it(self):
+        repl, client = make_repl(
+            {"texts": ["one"], "learned": ["no exclamation marks"]},
+            ["two"],
+        )
+        repl.handle("stop shouting")
+        assert "forgot: no exclamation marks" in repl.handle("/forget 1")[0]
+
+        repl.handle("another topic")
+        assert "no exclamation marks" not in client.messages.calls[1]["system"]
+
+    def test_forget_out_of_range_names_the_range(self):
+        repl, _ = make_repl({"texts": ["one"], "learned": ["only rule"]})
+        repl.handle("a topic")
+        assert "pick 1-1" in repl.handle("/forget 9")[0]
+
+    def test_forget_all_clears_them(self):
+        repl, _ = make_repl({"texts": ["one"], "learned": ["rule one", "rule two"]})
+        repl.handle("a topic")
+        assert "forgot 2" in repl.handle("/forget all")[0]
+        assert repl.profile.rules == []
+
+    def test_forget_without_an_argument_explains_itself(self):
+        repl, _ = make_repl()
+        assert "usage:" in repl.handle("/forget")[0]
+
+    def test_keeping_a_post_remembers_it_as_an_example(self):
+        repl, _ = make_repl(["You already know the answer."])
+        repl.handle("a topic")
+        repl.handle("/keep 1")
+
+        assert repl.profile.examples == ["You already know the answer."]
+
+    def test_kept_examples_reach_the_next_request(self):
+        repl, client = make_repl(["You already know the answer."], ["two"])
+        repl.handle("a topic")
+        repl.handle("/keep 1")
+        repl.handle("another topic")
+
+        assert "You already know the answer." in client.messages.calls[1]["system"]
+
+    def test_the_scorer_never_leaks_into_the_learned_profile(self):
+        # Feeding component names back into generation would hand the model the
+        # rubric it is judged against -- the same trap generate.py avoids.
+        from thirsttrap.score import WEIGHTS
+
+        repl, client = make_repl(["You already know the answer."], ["two"])
+        repl.handle("a topic")
+        repl.handle("/keep 1")
+        repl.handle("another topic")
+
+        brief = repl.profile.brief()
+        for component in WEIGHTS:
+            if component in {"length", "restraint"}:
+                continue  # stated on purpose as format constraints
+            assert component.replace("_", " ") not in brief.lower()
+
+    def test_reset_keeps_what_she_learned(self):
+        repl, _ = make_repl({"texts": ["one"], "learned": ["no exclamation marks"]})
+        repl.handle("stop shouting")
+        repl.handle("/reset")
+
+        assert repl.session.history == []
+        assert repl.profile.rules == ["no exclamation marks"]
+
+    def test_persona_switch_persists_to_the_profile(self):
+        repl, _ = make_repl()
+        repl.handle("/persona gym")
+        assert repl.profile.persona == "gym"
+
+    def test_batch_count_tracks_turns_not_commands(self):
+        repl, _ = make_repl(["one"], ["two"])
+        repl.handle("a topic")
+        repl.handle("/rules")
+        repl.handle("another topic")
+
+        assert repl.profile.batches == 2
+
+    def test_a_refusal_teaches_nothing(self):
+        repl, _ = make_repl({"refusal": "declined that"})
+        repl.handle("a topic")
+
+        assert repl.profile.batches == 0
+        assert repl.profile.rules == []
+
+    def test_profile_command_reports_location_and_size(self):
+        repl, _ = make_repl({"texts": ["one"], "learned": ["a rule"]})
+        repl.handle("a topic")
+        output, _ = repl.handle("/profile")
+
+        assert "1 rule(s)" in output and "1 batch(es)" in output

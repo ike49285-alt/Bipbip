@@ -80,6 +80,7 @@ wrong post.
 
 | | |
 |---|---|
+| `/rules`, `/forget N` | what she's learned, and how to drop it |
 | `/persona NAME` | switch voice (`/personas` lists them) |
 | `/n N`, `/top K` | batch size, how many to show |
 | `/keep N`, `/kept`, `/drop N` | pin candidates across turns |
@@ -92,6 +93,48 @@ wrong post.
 The kept list survives `/reset` and persona switches, so you can collect across
 several directions and save at the end. Commands are handled locally — only
 plain text costs an API call.
+
+## She tunes herself as you talk
+
+You don't configure the voice, you just use it. Standing preferences are picked
+up from ordinary instructions and persist to `~/.config/thirsttrap/profile.json`,
+so the next session starts where the last one ended.
+
+```
+> stop shouting at me, and land on a short line
+1.  76.0   You already know. You're stalling.
+2.  52.5   Quit at 4. Home by 5.
+
++ learned: never use exclamation marks   (/forget to drop it)
++ learned: end on the shortest line      (/forget to drop it)
+
+> /keep 1
+kept (1 total, and remembered)
+```
+
+Quit, come back tomorrow, and both rules plus the kept post are already in the
+system prompt.
+
+**Two memories, and the difference matters.** *Rules* are standing preferences
+in your own words, inferred by the model — which is asked to distinguish "make
+this one shorter" (one-off, most turns) from "I never want exclamation marks"
+(durable). *Examples* are posts you kept, which is ground truth about what lands
+rather than an opinion about it.
+
+**Inference is sometimes wrong, so it's never silent.** Every new rule prints on
+the turn it's learned. `/rules` lists them, `/forget N` drops one, `/forget all`
+clears them. A rule learned quietly from a one-off request would steer every
+future batch with nobody knowing to correct it — that's the failure mode this
+design is built against.
+
+**The scorer stays out of it.** Nothing derived from `score.py` enters the
+profile. "You tend to keep high-rhythm posts" would hand the model the rubric
+it's judged against, which is exactly what the generate/score split exists to
+prevent — so what you said and what you kept are evidence, and the scorer's
+opinion of them isn't. A test asserts component names never reach the prompt.
+
+Start clean with `--fresh`, or keep separate voices with
+`--profile path/to/other.json`.
 
 ## The eight components
 
@@ -166,4 +209,4 @@ trusting them.
 python -m pytest tests/ -q
 ```
 
-128 tests, no network calls — the generator and chat tests drive a fake client.
+173 tests, no network calls — the generator and chat tests drive a fake client.
