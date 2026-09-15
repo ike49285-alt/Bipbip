@@ -162,6 +162,7 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
           <button type="submit" class="msave">Save</button>
           <button type="button" id="mclear">Disconnect</button>
         </div>
+        <button type="button" id="mlink" hidden>Copy setup link</button>
         <p class="mnote">Your key is stored only on this device, and sent only to
           the provider you picked. It is never committed, uploaded, or visible to
           anyone else who opens this page — they bring their own.</p>
@@ -1108,6 +1109,28 @@ const QUICK = ["shorter", "no questions", "one line", "more like 1", "try deadpa
 
 loadProfile(); loadModel();
 
+(function adoptSetupLink(){
+  const match = /[#&]setup=([^&]+)/.exec(location.hash || "");
+  if (!match) return;
+  try {
+    const d = JSON.parse(atob(decodeURIComponent(match[1])));
+    if (d && d.url && d.model){
+      MODEL = {provider: String(d.provider || "custom"), url: String(d.url),
+               key: String(d.key || ""), model: String(d.model)};
+      saveModel();
+    }
+  } catch (e) { /* a mangled link just leaves the page unconfigured */ }
+  // Don't leave the key sitting in the address bar or in a screenshot.
+  history.replaceState(null, "", location.pathname + location.search);
+})();
+
+// Private browsing throws on write; the page works but nothing is remembered.
+let STORAGE_OK = true;
+try {
+  localStorage.setItem("thirsttrap.probe", "1");
+  localStorage.removeItem("thirsttrap.probe");
+} catch (e) { STORAGE_OK = false; }
+
 // The Claude artifact viewer blocks every outbound request, so connecting a
 // model there cannot work however the form is filled in. Say so rather than
 // offering a control that always fails.
@@ -1129,7 +1152,12 @@ function renderModelCard(){
     ? "Talking to " + MODEL.model + " via " + (provider ? provider.label.split(" (")[0] : new URL(MODEL.url).host) + "."
     : "Not connected \u2014 using the built-in grammar, which drafts but can't converse.";
   $("mtoggle").textContent = ready ? "Change" : "Connect a model";
+  $("mlink").hidden = !ready;
   $("modelcard").classList.toggle("needs", !ready);
+  if (!STORAGE_OK){
+    $("mstate").textContent = "This browser won't let the page remember anything "
+      + "(private browsing?), so the key is lost when you close the tab.";
+  }
   $("foot").textContent = ready
     ? "She runs on " + MODEL.model + ". Your key stays on this device; the ranking, "
       + "scoring and tuning all happen in this page."
@@ -1213,6 +1241,20 @@ $("mform").onsubmit = e => {
   saveModel(); renderModelCard();
   $("mform").hidden = true;
   note("Connected. Say something and she'll actually answer.");
+};
+
+// The fragment stays out of every request and every server log, so a bookmark
+// configures a new device without the key being committed or transmitted.
+$("mlink").onclick = async () => {
+  const payload = btoa(JSON.stringify(MODEL));
+  const link = location.origin + location.pathname + "#setup=" + encodeURIComponent(payload);
+  try {
+    await navigator.clipboard.writeText(link);
+    note("Setup link copied. Bookmark it \u2014 but it contains your key, so don't share it.");
+  } catch (e) {
+    // Clipboard needs a secure context and permission; show it to copy by hand.
+    prompt("Copy this link. It contains your key \u2014 don't share it.", link);
+  }
 };
 
 $("mclear").onclick = () => {

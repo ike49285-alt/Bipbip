@@ -36,6 +36,10 @@ SKELETON = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Thirsttrap">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#16131a">
 <meta name="description" content="{summary}">
 <meta property="og:title" content="Thirsttrap">
 <meta property="og:description" content="{summary}">
