@@ -1,92 +1,64 @@
-"""Interactive session: refine a batch by talking to it, and have it stick.
+"""Interactive session. Nothing here leaves the machine.
 
-Three objects. `Session` owns the conversation with Claude. `Profile` (in
-profile.py) owns what survives between sessions. `Repl` owns the commands and
-turning a typed line into output -- it returns strings instead of printing, so
-the loop in `cli.py` stays short and the whole thing is testable without stdin.
+`Session` holds the topic and the constraints in force. `Profile` holds what
+survives between runs. `Repl` turns a typed line into output and returns
+strings rather than printing, so the loop in `cli.py` stays short and the whole
+surface is testable.
 
-Tuning is meant to be passive: say "stop using exclamation marks" once and it
-becomes a standing rule, rather than something you set with a flag. The cost of
-that is inference, which is sometimes wrong -- so every newly learned rule is
-printed on the turn it is learned, and `/forget` removes it.
+Tuning is passive in two ways. Rules you state ("never use exclamation marks")
+are parsed into standing constraints. Everything else is learned from which
+candidate you keep: the kept post is a statement that it beat the others on
+screen, and the weights move toward whatever distinguished it. Both are
+visible -- a new rule prints when adopted, `/weights` shows the drift, and both
+are reversible.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from pydantic import BaseModel, Field
-
-from . import personas
-from .generate import MODEL, SYSTEM, Candidate
+from . import directives, personas
+from .directives import Constraints
+from .generate import DEFAULT_POOL, propose
 from .profile import Profile
-from .rank import Ranked, rank
-from .render import render_ranked, render_score
+from .rank import Ranked, rank, similarity
+from .render import render_ranked, render_score, render_weights
 from .score import score_post
 
-
-class ChatBatch(BaseModel):
-    """The one-shot `Batch` plus whatever the turn revealed about lasting taste."""
-
-    candidates: list[Candidate]
-    learned: list[str] = Field(
-        default_factory=list,
-        description=(
-            "Durable style preferences revealed by the latest instruction, each a "
-            "short rule. Usually empty."
-        ),
-    )
-
-
-CHAT_SYSTEM = """
-You are in an interactive session. Each turn, return a fresh batch of \
-candidates responding to the latest instruction.
-
-The numbers in your previous turn are the numbers the user can see. When they \
-say "more like 2" or "shorter than 3", that is the post you wrote with that \
-number.
-
-Refinement means rewriting the batch, not appending to it. If the user asks for \
-shorter, every candidate gets shorter -- do not return one short post and five \
-of the previous ones.
-
-Also return `learned`: standing preferences the instruction reveals about this \
-user's taste, phrased as short rules for your future self.
-
-This is for preferences that should outlive the current topic. "Make it \
-shorter" is about these posts and is not durable. "I never want exclamation \
-marks" or "always end on the short line" are. Most turns reveal nothing \
-durable, so most turns should return an empty list -- a rule you invent from a \
-one-off request will steer every future batch wrongly."""
+# How hard "more like 2" pulls the ranking toward the named post. Large enough
+# that an explicit instruction beats a score gap -- at 25 the request lost to
+# whatever happened to score highest, which is not what the user asked for.
+AFFINITY = 60.0
 
 HELP = """\
-Type anything to talk to her. The first thing you type is the topic; after that
-you are refining ("shorter", "more like 2", "less earnest", "try a gym angle").
+Type a topic to start. After that, type adjustments -- "shorter", "no
+questions", "one line", "more like 2", "try deadpan".
 
-Standing preferences are picked up as you talk -- anything learned is printed
-when it happens, and /forget removes it.
+Say a rule ("never use exclamation marks") and it sticks across sessions.
+Everything else she learns from what you /keep.
 
-  /rules           what she has learned    /forget N   drop a rule (/forget all)
-  /persona NAME    switch voice            /personas   list voices
-  /n N             candidates per batch    /top K      how many to show
-  /breakdown       toggle component bars   /score TEXT score text locally
-  /keep N          pin a candidate         /kept       show pinned
-  /drop N          unpin                   /save PATH  write pinned to a file
-  /profile         where memory is stored
-  /again           re-run the last instruction
-  /reset           forget the conversation (keeps what she has learned)
-  /help  /quit"""
+  /rules           standing rules      /forget         drop them
+  /weights         what she learned    /untune         reset to the shipped prior
+  /persona NAME    switch voice        /personas       list voices
+  /pool N          candidates to draw  /top K          how many to show
+  /breakdown       component bars      /score TEXT     score text yourself
+  /keep N          keep one (teaches)  /kept  /drop N  /save PATH
+  /clear           drop this turn's adjustments
+  /profile         where memory lives
+  /again  /help  /quit"""
 
 
 @dataclass
 class Session:
-    """The conversation with Claude. Stateless API, so history is resent each turn."""
+    """Topic, voice, and the constraints currently in force."""
 
     profile: Profile = field(default_factory=Profile)
-    n: int = 12
-    client: object | None = None
-    history: list[dict] = field(default_factory=list)
-    last_learned: list[str] = field(default_factory=list)
+    pool: int = DEFAULT_POOL
+    topic: str | None = None
+    turn_constraints: Constraints = field(default_factory=Constraints)
+    turns: int = 0
+    last_adopted: list[str] = field(default_factory=list)
+    seed: int | None = None
 
     @property
     def persona(self) -> str:
@@ -96,70 +68,62 @@ class Session:
     def persona(self, name: str) -> None:
         self.profile.persona = name
 
-    def _client(self):
-        if self.client is None:
-            import anthropic
+    def constraints(self) -> Constraints:
+        """Standing rules first, then whatever this turn asked for."""
+        return self.profile.standing.merge(self.turn_constraints)
 
-            # Credentials resolve from ANTHROPIC_API_KEY, ANTHROPIC_AUTH_TOKEN, or
-            # an `ant auth login` profile -- the SDK checks all three.
-            self.client = anthropic.Anthropic()
-        return self.client
+    def send(self, message: str, like_text: str | None = None) -> list[Ranked]:
+        """Interpret one line and return a ranked batch."""
+        directive = directives.parse(message)
+        self.last_adopted = []
 
-    def system(self) -> str:
-        voice = personas.get(self.persona)
-        parts = [
-            SYSTEM,
-            CHAT_SYSTEM,
-            f"Return exactly {self.n} candidates every turn.",
-            f"Voice -- {voice.summary}:\n{voice.directive}",
-        ]
-        brief = self.profile.brief()
-        if brief:
-            parts.append(brief)
-        return "\n\n".join(parts)
+        if directive.persona:
+            self.persona = directive.persona
 
-    def send(self, message: str) -> list[Ranked]:
-        """One turn: send, rank the reply, record it, and absorb what it taught."""
-        self.history.append({"role": "user", "content": message})
+        if directive.constraints:
+            if directive.standing:
+                self.last_adopted = self.profile.add_standing(directive.constraints)
+            else:
+                self.turn_constraints = self.turn_constraints.merge(directive.constraints)
 
-        response = self._client().messages.parse(
-            model=MODEL,
-            max_tokens=16000,
-            system=self.system(),
-            thinking={"type": "adaptive"},
-            # Caches the longest stable prefix. Early turns are below the minimum
-            # cacheable length and simply won't hit; it earns its keep as history grows.
-            cache_control={"type": "ephemeral"},
-            messages=self.history,
-            output_format=ChatBatch,
+        # An unrecognised line is a subject, not an instruction. That is what
+        # makes the first thing you type the topic without any ceremony.
+        if not directive.recognised:
+            self.topic = message
+            self.turn_constraints = Constraints()
+        elif self.topic is None:
+            raise ValueError("say what the posts should be about first")
+
+        constraints = self.constraints()
+        # Vary the draw per turn so /again is a fresh look, but stay reproducible
+        # for a caller that pinned a seed.
+        seed = None if self.seed is None else self.seed + self.turns
+        candidates = propose(
+            self.topic, persona=self.persona, pool=self.pool, seed=seed,
+            constraints=constraints,
         )
 
-        if response.stop_reason == "refusal":
-            self.history.pop()  # don't leave a turn that got no reply
-            detail = getattr(response.stop_details, "explanation", None) or "no explanation given"
-            raise RuntimeError(f"the model declined that: {detail}")
+        if not candidates:
+            clauses = ", ".join(constraints.describe()) or "the current constraints"
+            raise ValueError(f"nothing survived: {clauses}. /clear to relax this turn")
 
-        batch = response.parsed_output
-        ranked = rank([c.text for c in batch.candidates])
+        if like_text:
+            # Handing back the same post is not "more like" it.
+            candidates = [c for c in candidates if c != like_text] or candidates
 
-        # Feed the batch back in ranked order and numbered, so "2" means the same
-        # post to the model as it does on screen.
-        self.history.append(
-            {
-                "role": "assistant",
-                "content": "\n".join(f"{i}. {r.text}" for i, r in enumerate(ranked, 1)),
-            }
-        )
+        ranked = rank(candidates, weights=self.profile.weights)
+        if like_text:
+            for item in ranked:
+                item.final += AFFINITY * similarity(item.text, like_text)
+            ranked.sort(key=lambda r: r.final, reverse=True)
 
-        self.last_learned = self.profile.learn(batch.learned)
+        self.turns += 1
         self.profile.batches += 1
         self.profile.save()
         return ranked
 
-    def reset(self) -> None:
-        """Clear the conversation. What she has learned is not part of it."""
-        self.history.clear()
-        self.last_learned = []
+    def clear(self) -> None:
+        self.turn_constraints = Constraints()
 
 
 class Repl:
@@ -179,30 +143,42 @@ class Repl:
 
     # -- helpers ---------------------------------------------------------
 
-    def _pick(self, arg: str) -> Ranked:
-        """Resolve a 1-based reference into the batch on screen."""
-        if not self.shown:
-            raise ValueError("no batch yet -- say something first")
+    def _pick(self, arg: str, pool: list[Ranked], what: str) -> int:
+        """Resolve a 1-based reference, or explain the range."""
+        if not pool:
+            raise ValueError(f"no {what} yet")
         try:
             index = int(arg)
         except ValueError:
             raise ValueError(f"expected a number, got {arg!r}") from None
-        if not 1 <= index <= len(self.shown):
-            raise ValueError(f"pick 1-{len(self.shown)}, got {index}")
-        return self.shown[index - 1]
+        if not 1 <= index <= len(pool):
+            raise ValueError(f"pick 1-{len(pool)}, got {index}")
+        return index - 1
 
     def _turn(self, message: str) -> str:
-        ranked = self.session.send(message)
+        like_text = None
+        directive = directives.parse(message)
+        if directive.like is not None:
+            if not self.shown:
+                raise ValueError("no batch yet -- say a topic first")
+            if not 1 <= directive.like <= len(self.shown):
+                raise ValueError(f"pick 1-{len(self.shown)}, got {directive.like}")
+            like_text = self.shown[directive.like - 1].text
+
+        ranked = self.session.send(message, like_text=like_text)
         self.last_message = message
         self.shown = ranked[: self.top] if self.top > 0 else ranked
 
-        header = f"{len(ranked)} candidates, showing top {len(self.shown)}  [{self.session.persona}]"
-        out = f"{header}\n\n{render_ranked(self.shown, breakdown=self.breakdown)}"
+        head = f"{len(ranked)} candidates, showing top {len(self.shown)}  [{self.session.persona}]"
+        active = self.session.constraints().describe()
+        if active:
+            head += "\n" + ", ".join(active)
 
-        # Surface inference immediately -- a rule learned silently is a rule that
-        # steers every later batch without anyone knowing to correct it.
-        for rule in self.session.last_learned:
-            out += f"\n\n+ learned: {rule}   (/forget to drop it)"
+        out = f"{head}\n\n{render_ranked(self.shown, breakdown=self.breakdown)}"
+        for clause in self.session.last_adopted:
+            out += f"\n\n+ standing rule: {clause}   (/forget to drop it)"
+        if not directive.recognised and directive.constraints:
+            out += "\n\n(that read as a topic, not an instruction)"
         return out
 
     # -- commands --------------------------------------------------------
@@ -224,41 +200,44 @@ class Repl:
         if cmd == "persona":
             if not arg:
                 return f"persona is {self.session.persona}", True
-            personas.get(arg)  # raises with the valid names if it misses
+            personas.get(arg)
             self.session.persona = arg.strip().lower()
             self.profile.save()
             return f"persona -> {self.session.persona}", True
 
         if cmd == "rules":
-            if not self.profile.rules:
-                return "nothing learned yet -- just talk to her", True
-            listed = "\n".join(f"{i}. {r}" for i, r in enumerate(self.profile.rules, 1))
-            return f"learned so far:\n{listed}", True
+            clauses = self.profile.standing.describe()
+            if not clauses:
+                return "no standing rules -- say one, like 'never use exclamation marks'", True
+            return "standing rules:\n" + "\n".join(f"- {c}" for c in clauses), True
 
         if cmd == "forget":
-            if arg.lower() == "all":
-                count = self.profile.forget_all()
-                self.profile.save()
-                return f"forgot {count} rule(s)", True
-            if not arg:
-                return "usage: /forget N   (or /forget all)", True
-            dropped = self.profile.forget(int(arg))
+            count = self.profile.clear_standing()
             self.profile.save()
-            return f"forgot: {dropped}", True
+            return f"dropped {count} standing rule(s)", True
+
+        if cmd == "weights":
+            return render_weights(self.profile), True
+
+        if cmd == "untune":
+            self.profile.reset_weights()
+            self.profile.save()
+            return "weights back to the shipped prior", True
 
         if cmd == "profile":
             where = self.profile.path or "(not saved to disk)"
             return (
                 f"stored at {where}\n"
-                f"{len(self.profile.rules)} rule(s), "
+                f"{self.profile.confidence()}, "
+                f"{len(self.profile.standing.describe())} standing rule(s), "
                 f"{len(self.profile.examples)} example(s), "
-                f"{self.profile.batches} batch(es) so far",
+                f"{self.profile.batches} batch(es)",
                 True,
             )
 
-        if cmd == "n":
-            self.session.n = max(1, int(arg))
-            return f"batch size -> {self.session.n}", True
+        if cmd == "pool":
+            self.session.pool = max(1, int(arg))
+            return f"pool -> {self.session.pool}", True
 
         if cmd == "top":
             self.top = max(0, int(arg))
@@ -268,20 +247,35 @@ class Repl:
             self.breakdown = not self.breakdown
             return f"breakdown -> {'on' if self.breakdown else 'off'}", True
 
+        if cmd == "clear":
+            self.session.clear()
+            return "this turn's adjustments dropped (standing rules kept)", True
+
         if cmd == "score":
             if not arg:
                 return "usage: /score some text to score", True
-            return render_score(arg, score_post(arg), breakdown=True), True
+            return render_score(arg, score_post(arg, self.profile.weights)), True
 
         if cmd == "keep":
-            item = self._pick(arg)
+            index = self._pick(arg, self.shown, "batch")
+            item = self.shown[index]
             if any(k.text == item.text for k in self.kept):
                 return "already kept", True
+
             self.kept.append(item)
-            # Keeping is the strongest signal there is, so it outlives the session.
             self.profile.remember(item.text)
+            # Keeping is the training signal: it says this one beat the others shown.
+            others = [s.score.components for i, s in enumerate(self.shown) if i != index]
+            moved = self.profile.learn_from_keep(item.score.components, others)
             self.profile.save()
-            return f"kept ({len(self.kept)} total, and remembered)", True
+
+            out = f"kept ({len(self.kept)} total)"
+            if moved:
+                top = sorted(moved.items(), key=lambda pair: -abs(pair[1]))[:2]
+                shifts = ", ".join(f"{k} {v:+.3f}" for k, v in top if abs(v) > 0.0005)
+                if shifts:
+                    out += f"\nlearned: {shifts}   ({self.profile.confidence()})"
+            return out, True
 
         if cmd == "kept":
             if not self.kept:
@@ -289,13 +283,8 @@ class Repl:
             return render_ranked(self.kept, breakdown=self.breakdown), True
 
         if cmd == "drop":
-            if not self.kept:
-                return "nothing kept yet", True
-            index = int(arg)
-            if not 1 <= index <= len(self.kept):
-                raise ValueError(f"pick 1-{len(self.kept)}, got {index}")
-            dropped = self.kept.pop(index - 1)
-            return f"dropped: {dropped.text[:48]}", True
+            index = self._pick(arg, self.kept, "kept posts")
+            return f"dropped: {self.kept.pop(index).text[:48]}", True
 
         if cmd == "save":
             if not self.kept:
@@ -311,12 +300,6 @@ class Repl:
                 return "nothing to re-run yet", True
             return self._turn(self.last_message), True
 
-        if cmd == "reset":
-            self.session.reset()
-            self.shown = []
-            self.last_message = None
-            return "conversation cleared (she keeps what she learned)", True
-
         return f"unknown command {word!r} -- /help for the list", True
 
     # -- entry point -----------------------------------------------------
@@ -326,15 +309,11 @@ class Repl:
         line = line.strip()
         if not line:
             return "", True
-
         try:
             if line.startswith("/"):
                 return self._command(line)
             return self._turn(line), True
         except (ValueError, KeyError) as exc:
-            message = exc.args[0] if exc.args else str(exc)
-            return f"error: {message}", True
+            return f"error: {exc.args[0] if exc.args else exc}", True
         except OSError as exc:
-            return f"error: {exc}", True
-        except Exception as exc:  # API, auth, refusal -- keep the session alive
             return f"error: {exc}", True

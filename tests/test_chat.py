@@ -1,412 +1,288 @@
-import copy
-import types
-
 import pytest
 
-from thirsttrap.chat import ChatBatch, Repl, Session
-from thirsttrap.generate import Candidate
+from thirsttrap.chat import Repl, Session
 from thirsttrap.profile import Profile
+from thirsttrap.score import WEIGHTS
 
 
-class FakeMessages:
-    def __init__(self, batches):
-        self._batches = list(batches)
-        self.calls: list[dict] = []
-
-    def parse(self, **kwargs):
-        # Snapshot: Session passes its live history list, so recording the
-        # reference would let later turns rewrite what this call "sent".
-        self.calls.append(copy.deepcopy(kwargs))
-        batch = self._batches.pop(0) if self._batches else ["fallback post"]
-        if isinstance(batch, Exception):
-            raise batch
-        if isinstance(batch, dict) and "refusal" in batch:
-            return types.SimpleNamespace(
-                stop_reason="refusal",
-                stop_details=types.SimpleNamespace(explanation=batch["refusal"]),
-                parsed_output=None,
-            )
-
-        learned = []
-        if isinstance(batch, dict):  # {"texts": [...], "learned": [...]}
-            learned = batch.get("learned", [])
-            batch = batch["texts"]
-
-        return types.SimpleNamespace(
-            stop_reason="end_turn",
-            stop_details=None,
-            parsed_output=ChatBatch(
-                candidates=[Candidate(text=t, angle="a") for t in batch],
-                learned=learned,
-            ),
-        )
-
-
-class FakeClient:
-    def __init__(self, *batches):
-        self.messages = FakeMessages(batches)
-
-
-def make_repl(*batches, **kwargs):
-    client = FakeClient(*batches)
-    return Repl(session=Session(client=client), **kwargs), client
+def make_repl(**kwargs):
+    top = kwargs.pop("top", 3)
+    return Repl(session=Session(pool=120, seed=11, **kwargs), top=top)
 
 
 class TestSession:
-    def test_history_alternates_user_and_assistant(self):
-        session = Session(client=FakeClient(["one post", "two post"], ["three post"]))
-        session.send("a topic")
+    def test_the_first_line_becomes_the_topic(self):
+        session = Session(pool=60, seed=1)
+        session.send("finally quitting the job")
+        assert session.topic == "finally quitting the job"
+
+    def test_an_adjustment_before_a_topic_is_an_error(self):
+        with pytest.raises(ValueError, match="what the posts should be about"):
+            Session(pool=60, seed=1).send("shorter")
+
+    def test_an_adjustment_keeps_the_topic(self):
+        session = Session(pool=120, seed=1)
+        session.send("finally quitting the job")
         session.send("shorter")
-        assert [m["role"] for m in session.history] == [
-            "user", "assistant", "user", "assistant",
-        ]
+        assert session.topic == "finally quitting the job"
 
-    def test_assistant_turn_is_numbered_in_ranked_order(self):
-        # The weak post must come back numbered 2, matching what the user sees.
-        strong = "You already know the answer. You want permission."
-        weak = "just some thoughts #viral https://example.com"
-        session = Session(client=FakeClient([weak, strong]))
+    def test_an_adjustment_constrains_the_batch(self):
+        session = Session(pool=200, seed=2)
+        session.send("finally quitting the job")
+        ranked = session.send("much shorter")
+        assert all(len(r.text) <= 60 for r in ranked)
 
-        ranked = session.send("a topic")
-        assistant = session.history[-1]["content"]
-
-        assert ranked[0].text == strong
-        assert assistant.startswith("1. " + strong)
-        assert "2. " + weak in assistant
-
-    def test_full_history_is_resent_each_turn(self):
-        client = FakeClient(["one"], ["two"])
-        session = Session(client=client)
-        session.send("a topic")
+    def test_adjustments_accumulate_within_a_topic(self):
+        session = Session(pool=250, seed=3)
+        session.send("finally quitting the job")
         session.send("shorter")
-        assert len(client.messages.calls[1]["messages"]) == 3
+        ranked = session.send("no questions")
+        assert all(len(r.text) <= 95 and "?" not in r.text for r in ranked)
 
-    def test_persona_and_batch_size_reach_the_system_prompt(self):
-        client = FakeClient(["one"])
-        session = Session(profile=Profile(persona="gym"), n=7, client=client)
-        session.send("a topic")
+    def test_a_new_topic_drops_the_previous_adjustments(self):
+        session = Session(pool=200, seed=4)
+        session.send("finally quitting the job")
+        session.send("much shorter")
+        session.send("leg day")
+        assert session.turn_constraints.max_chars is None
 
-        system = client.messages.calls[0]["system"]
-        from thirsttrap import personas
+    def test_a_standing_rule_survives_a_new_topic(self):
+        session = Session(pool=200, seed=5)
+        session.send("finally quitting the job")
+        session.send("never use exclamation marks")
+        ranked = session.send("leg day")
+        assert all("!" not in r.text for r in ranked)
 
-        assert personas.get("gym").directive in system
-        assert "exactly 7" in system
+    def test_impossible_constraints_say_so_rather_than_relaxing(self):
+        session = Session(pool=80, seed=6)
+        session.send("finally quitting the job")
+        with pytest.raises(ValueError, match="nothing survived"):
+            session.send('never say "the"')
 
-    def test_caching_is_requested(self):
-        client = FakeClient(["one"])
-        Session(client=client).send("a topic")
-        assert client.messages.calls[0]["cache_control"] == {"type": "ephemeral"}
+    def test_a_persona_switch_is_recognised_mid_conversation(self):
+        session = Session(pool=80, seed=7)
+        session.send("finally quitting the job")
+        session.send("try deadpan")
+        assert session.persona == "deadpan"
 
-    def test_sampling_parameters_are_never_sent(self):
-        client = FakeClient(["one"])
-        Session(client=client).send("a topic")
-        for param in ("temperature", "top_p", "top_k"):
-            assert param not in client.messages.calls[0]
+    def test_clear_drops_turn_constraints_but_not_standing_ones(self):
+        session = Session(pool=120, seed=8)
+        session.send("finally quitting the job")
+        session.send("shorter")
+        session.send("never use exclamation marks")
+        session.clear()
+        assert session.turn_constraints.max_chars is None
+        assert session.constraints().banned == ("!",)
 
-    def test_refusal_raises_and_leaves_no_dangling_turn(self):
-        session = Session(client=FakeClient({"refusal": "declined that"}))
-        with pytest.raises(RuntimeError, match="declined that"):
-            session.send("a topic")
-        assert session.history == []
+    def test_a_pinned_seed_makes_a_session_reproducible(self):
+        first = Session(pool=100, seed=9).send("finally quitting the job")
+        second = Session(pool=100, seed=9).send("finally quitting the job")
+        assert [r.text for r in first] == [r.text for r in second]
 
-    def test_reset_clears_history(self):
-        session = Session(client=FakeClient(["one"]))
-        session.send("a topic")
-        session.reset()
-        assert session.history == []
+    def test_repeating_a_turn_redraws(self):
+        session = Session(pool=150, seed=10)
+        first = session.send("finally quitting the job")
+        again = session.send("finally quitting the job")
+        assert [r.text for r in first] != [r.text for r in again]
+
+    def test_batches_are_counted(self):
+        session = Session(pool=60, seed=1)
+        session.send("finally quitting the job")
+        session.send("shorter")
+        assert session.profile.batches == 2
 
 
 class TestRepl:
-    def test_plain_text_runs_a_turn(self):
-        repl, _ = make_repl(["You already know the answer."])
-        output, keep_going = repl.handle("a topic")
-        assert keep_going
-        assert "You already know the answer." in output
+    def test_a_topic_produces_a_ranked_batch(self):
+        repl = make_repl()
+        output, keep_going = repl.handle("finally quitting the job")
+        assert keep_going and "showing top 3" in output
+        assert len(repl.shown) == 3
 
-    def test_top_k_limits_what_is_shown(self):
-        repl, _ = make_repl(["post one here", "post two here", "post three here"], top=2)
-        output, _ = repl.handle("a topic")
-        assert "showing top 2" in output
-        assert len(repl.shown) == 2
+    def test_active_constraints_are_shown_in_the_header(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "at most 95 characters" in repl.handle("shorter")[0]
 
     def test_blank_line_is_a_noop(self):
-        repl, client = make_repl(["one"])
-        assert repl.handle("   ") == ("", True)
-        assert client.messages.calls == []
+        assert make_repl().handle("   ") == ("", True)
 
     def test_quit_stops_the_loop(self):
-        repl, _ = make_repl()
-        assert repl.handle("/quit")[1] is False
+        assert make_repl().handle("/quit")[1] is False
 
-    def test_unknown_command_is_reported_not_sent(self):
-        repl, client = make_repl(["one"])
-        output, keep_going = repl.handle("/nonsense")
-        assert keep_going and "unknown command" in output
-        assert client.messages.calls == []
+    def test_unknown_command_is_reported(self):
+        assert "unknown command" in make_repl().handle("/nonsense")[0]
 
-    def test_help_lists_commands(self):
-        repl, _ = make_repl()
-        assert "/persona" in repl.handle("/help")[0]
+    def test_an_impossible_ask_keeps_the_session_alive(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        output, keep_going = repl.handle('never say "the"')
+        assert keep_going and output.startswith("error:")
 
-    def test_api_error_keeps_the_session_alive(self):
-        repl, _ = make_repl(RuntimeError("network died"))
-        output, keep_going = repl.handle("a topic")
-        assert keep_going
-        assert "network died" in output
+    def test_more_like_needs_a_batch_first(self):
+        assert "no batch yet" in make_repl().handle("more like 2")[0]
+
+    def test_more_like_out_of_range_names_the_range(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "pick 1-3" in repl.handle("more like 9")[0]
+
+    def test_more_like_pulls_the_batch_toward_that_post(self):
+        from thirsttrap.rank import similarity
+
+        repl = make_repl(top=5)
+        repl.handle("finally quitting the job")
+        target = repl.shown[4].text
+        repl.handle("more like 5")
+        assert similarity(repl.shown[0].text, target) > 0.5
+
+    def test_more_like_does_not_just_hand_back_the_same_post(self):
+        repl = make_repl(top=5)
+        repl.handle("finally quitting the job")
+        target = repl.shown[4].text
+        repl.handle("more like 5")
+        assert repl.shown[0].text != target
 
 
 class TestReplCommands:
-    def test_persona_switch_reaches_the_next_request(self):
-        repl, client = make_repl(["one"])
-        assert "gym" in repl.handle("/persona gym")[0]
-        repl.handle("a topic")
+    def test_persona_switch_persists_to_the_profile(self):
+        repl = make_repl()
+        repl.handle("/persona gym")
+        assert repl.profile.persona == "gym"
 
-        from thirsttrap import personas
+    def test_invalid_persona_lists_the_valid_ones(self):
+        repl = make_repl()
+        assert "flirt" in repl.handle("/persona smoulder")[0]
 
-        assert personas.get("gym").directive in client.messages.calls[0]["system"]
+    def test_rules_before_any_are_stated(self):
+        assert "no standing rules" in make_repl().handle("/rules")[0]
 
-    def test_invalid_persona_is_rejected_with_the_valid_names(self):
-        repl, _ = make_repl()
-        output, _ = repl.handle("/persona smoulder")
-        assert "smoulder" in output and "flirt" in output
-        assert repl.session.persona == "flirt"
+    def test_a_stated_rule_is_adopted_announced_and_listed(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "+ standing rule" in repl.handle("never use exclamation marks")[0]
+        assert "never say '!'" in repl.handle("/rules")[0]
 
-    def test_bare_persona_reports_the_current_one(self):
-        repl, _ = make_repl()
-        assert "flirt" in repl.handle("/persona")[0]
+    def test_forget_clears_standing_rules(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        repl.handle("never use exclamation marks")
+        assert "dropped 1" in repl.handle("/forget")[0]
+        assert repl.profile.standing.describe() == []
 
-    def test_score_is_local_and_costs_no_request(self):
-        repl, client = make_repl()
-        output, _ = repl.handle("/score You already know the answer.")
-        assert "hook" in output
-        assert client.messages.calls == []
+    def test_weights_render_with_the_confidence_label(self):
+        assert "untuned" in make_repl().handle("/weights")[0]
 
-    def test_breakdown_toggles(self):
-        repl, _ = make_repl()
-        assert "on" in repl.handle("/breakdown")[0]
-        assert "off" in repl.handle("/breakdown")[0]
+    def test_keeping_teaches_and_says_so(self):
+        repl = make_repl(top=5)
+        repl.handle("finally quitting the job")
+        output, _ = repl.handle("/keep 5")
+        assert "kept (1 total)" in output
+        assert repl.profile.keeps == 1
 
-    def test_n_and_top_are_settable(self):
-        repl, _ = make_repl()
-        repl.handle("/n 5")
-        repl.handle("/top 1")
-        assert repl.session.n == 5
-        assert repl.top == 1
+    def test_keeping_moves_the_weights(self):
+        repl = make_repl(top=5)
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 5")
+        assert repl.profile.weights != WEIGHTS
 
-    def test_non_numeric_argument_is_an_error_not_a_crash(self):
-        repl, _ = make_repl()
-        output, keep_going = repl.handle("/n lots")
-        assert keep_going and output.startswith("error:")
+    def test_untune_restores_the_shipped_prior(self):
+        repl = make_repl(top=5)
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 5")
+        repl.handle("/untune")
+        assert repl.profile.weights == WEIGHTS
 
-    def test_keep_then_kept_then_drop(self):
-        repl, _ = make_repl(["You already know the answer."])
-        repl.handle("a topic")
+    def test_keeping_the_same_post_twice_is_refused(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 1")
+        assert "already kept" in repl.handle("/keep 1")[0]
+        assert repl.profile.keeps == 1
 
-        assert "kept (1 total" in repl.handle("/keep 1")[0]
-        assert "You already know" in repl.handle("/kept")[0]
+    def test_keep_before_a_batch_is_an_error(self):
+        assert "no batch yet" in make_repl().handle("/keep 1")[0]
+
+    def test_keep_out_of_range_names_the_range(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "pick 1-3" in repl.handle("/keep 9")[0]
+
+    def test_kept_posts_are_remembered_as_examples(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 1")
+        assert repl.profile.examples == [repl.kept[0].text]
+
+    def test_kept_then_dropped(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 1")
+        assert "1." in repl.handle("/kept")[0]
         assert "dropped" in repl.handle("/drop 1")[0]
         assert repl.kept == []
 
-    def test_keeping_the_same_post_twice_is_refused(self):
-        repl, _ = make_repl(["You already know the answer."])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-        assert "already kept" in repl.handle("/keep 1")[0]
-        assert len(repl.kept) == 1
-
-    def test_keep_before_any_batch_is_an_error(self):
-        repl, _ = make_repl()
-        assert "no batch yet" in repl.handle("/keep 1")[0]
-
-    def test_keep_out_of_range_names_the_range(self):
-        repl, _ = make_repl(["only post here"])
-        repl.handle("a topic")
-        assert "pick 1-1" in repl.handle("/keep 4")[0]
-
-    def test_keep_resolves_against_displayed_numbering(self):
-        strong = "You already know the answer. You want permission."
-        weak = "just some thoughts #viral"
-        repl, _ = make_repl([weak, strong])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-        assert repl.kept[0].text == strong
-
     def test_save_writes_kept_posts(self, tmp_path):
-        repl, _ = make_repl(["You already know the answer."])
-        repl.handle("a topic")
+        repl = make_repl()
+        repl.handle("finally quitting the job")
         repl.handle("/keep 1")
-
         target = tmp_path / "kept.txt"
         assert "wrote 1" in repl.handle(f"/save {target}")[0]
-        assert target.read_text().strip() == "You already know the answer."
-
-    def test_save_with_nothing_kept_says_so(self):
-        repl, _ = make_repl()
-        assert "nothing kept" in repl.handle("/save out.txt")[0]
+        assert target.read_text().strip() == repl.kept[0].text
 
     def test_save_to_an_unwritable_path_is_an_error_not_a_crash(self, tmp_path):
-        repl, _ = make_repl(["a post here"])
-        repl.handle("a topic")
+        repl = make_repl()
+        repl.handle("finally quitting the job")
         repl.handle("/keep 1")
         output, keep_going = repl.handle(f"/save {tmp_path / 'missing' / 'x.txt'}")
         assert keep_going and output.startswith("error:")
 
-    def test_again_reuses_the_last_instruction(self):
-        repl, client = make_repl(["first"], ["second"])
-        repl.handle("a topic")
-        repl.handle("/again")
-        assert client.messages.calls[1]["messages"][-1]["content"] == "a topic"
+    def test_score_uses_the_learned_weights(self):
+        repl = make_repl()
+        assert "hook" in repl.handle("/score You already know the answer.")[0]
+
+    def test_pool_and_top_are_settable(self):
+        repl = make_repl()
+        repl.handle("/pool 50")
+        repl.handle("/top 1")
+        assert repl.session.pool == 50 and repl.top == 1
+
+    def test_non_numeric_argument_is_an_error_not_a_crash(self):
+        output, keep_going = make_repl().handle("/pool lots")
+        assert keep_going and output.startswith("error:")
+
+    def test_clear_relaxes_this_turn(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        repl.handle("much shorter")
+        assert "dropped" in repl.handle("/clear")[0]
+
+    def test_again_reruns_the_last_line(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "showing top" in repl.handle("/again")[0]
 
     def test_again_before_anything_says_so(self):
-        repl, _ = make_repl()
-        assert "nothing to re-run" in repl.handle("/again")[0]
+        assert "nothing to re-run" in make_repl().handle("/again")[0]
 
-    def test_reset_clears_the_conversation_but_not_the_kept_list(self):
-        repl, _ = make_repl(["You already know the answer."])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-        repl.handle("/reset")
-
-        assert repl.session.history == []
-        assert repl.shown == []
-        assert len(repl.kept) == 1
+    def test_profile_reports_location_and_state(self):
+        repl = make_repl()
+        repl.handle("finally quitting the job")
+        assert "batch(es)" in repl.handle("/profile")[0]
 
 
-class TestPassiveLearning:
-    def test_durable_rule_is_absorbed_and_announced(self):
-        repl, _ = make_repl({"texts": ["a post here"], "learned": ["no exclamation marks"]})
-        output, _ = repl.handle("stop shouting at me")
+class TestPersistenceAcrossSessions:
+    def test_rules_weights_and_voice_survive_a_restart(self, tmp_path):
+        path = tmp_path / "profile.json"
 
-        assert "+ learned: no exclamation marks" in output
-        assert repl.profile.rules == ["no exclamation marks"]
+        first = Repl(session=Session(profile=Profile.load(path), pool=150, seed=1), top=5)
+        first.handle("finally quitting the job")
+        first.handle("never use exclamation marks")
+        first.handle("/persona gym")
+        first.handle("/keep 5")
 
-    def test_learned_rules_steer_the_next_request(self):
-        repl, client = make_repl(
-            {"texts": ["one"], "learned": ["no exclamation marks"]},
-            ["two"],
-        )
-        repl.handle("stop shouting")
-        repl.handle("another topic")
-
-        assert "no exclamation marks" in client.messages.calls[1]["system"]
-
-    def test_turns_that_teach_nothing_announce_nothing(self):
-        repl, _ = make_repl(["a post here"])
-        output, _ = repl.handle("a topic")
-
-        assert "+ learned" not in output
-        assert repl.profile.rules == []
-
-    def test_a_repeated_rule_is_not_announced_twice(self):
-        repl, _ = make_repl(
-            {"texts": ["one"], "learned": ["no exclamation marks"]},
-            {"texts": ["two"], "learned": ["no exclamation marks"]},
-        )
-        repl.handle("stop shouting")
-        second, _ = repl.handle("again please")
-
-        assert "+ learned" not in second
-        assert repl.profile.rules == ["no exclamation marks"]
-
-    def test_rules_command_lists_them_numbered(self):
-        repl, _ = make_repl({"texts": ["one"], "learned": ["rule one", "rule two"]})
-        repl.handle("a topic")
-        output, _ = repl.handle("/rules")
-
-        assert "1. rule one" in output and "2. rule two" in output
-
-    def test_rules_command_before_anything_is_learned(self):
-        repl, _ = make_repl()
-        assert "nothing learned yet" in repl.handle("/rules")[0]
-
-    def test_forget_removes_a_rule_and_stops_sending_it(self):
-        repl, client = make_repl(
-            {"texts": ["one"], "learned": ["no exclamation marks"]},
-            ["two"],
-        )
-        repl.handle("stop shouting")
-        assert "forgot: no exclamation marks" in repl.handle("/forget 1")[0]
-
-        repl.handle("another topic")
-        assert "no exclamation marks" not in client.messages.calls[1]["system"]
-
-    def test_forget_out_of_range_names_the_range(self):
-        repl, _ = make_repl({"texts": ["one"], "learned": ["only rule"]})
-        repl.handle("a topic")
-        assert "pick 1-1" in repl.handle("/forget 9")[0]
-
-    def test_forget_all_clears_them(self):
-        repl, _ = make_repl({"texts": ["one"], "learned": ["rule one", "rule two"]})
-        repl.handle("a topic")
-        assert "forgot 2" in repl.handle("/forget all")[0]
-        assert repl.profile.rules == []
-
-    def test_forget_without_an_argument_explains_itself(self):
-        repl, _ = make_repl()
-        assert "usage:" in repl.handle("/forget")[0]
-
-    def test_keeping_a_post_remembers_it_as_an_example(self):
-        repl, _ = make_repl(["You already know the answer."])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-
-        assert repl.profile.examples == ["You already know the answer."]
-
-    def test_kept_examples_reach_the_next_request(self):
-        repl, client = make_repl(["You already know the answer."], ["two"])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-        repl.handle("another topic")
-
-        assert "You already know the answer." in client.messages.calls[1]["system"]
-
-    def test_the_scorer_never_leaks_into_the_learned_profile(self):
-        # Feeding component names back into generation would hand the model the
-        # rubric it is judged against -- the same trap generate.py avoids.
-        from thirsttrap.score import WEIGHTS
-
-        repl, client = make_repl(["You already know the answer."], ["two"])
-        repl.handle("a topic")
-        repl.handle("/keep 1")
-        repl.handle("another topic")
-
-        brief = repl.profile.brief()
-        for component in WEIGHTS:
-            if component in {"length", "restraint"}:
-                continue  # stated on purpose as format constraints
-            assert component.replace("_", " ") not in brief.lower()
-
-    def test_reset_keeps_what_she_learned(self):
-        repl, _ = make_repl({"texts": ["one"], "learned": ["no exclamation marks"]})
-        repl.handle("stop shouting")
-        repl.handle("/reset")
-
-        assert repl.session.history == []
-        assert repl.profile.rules == ["no exclamation marks"]
-
-    def test_persona_switch_persists_to_the_profile(self):
-        repl, _ = make_repl()
-        repl.handle("/persona gym")
-        assert repl.profile.persona == "gym"
-
-    def test_batch_count_tracks_turns_not_commands(self):
-        repl, _ = make_repl(["one"], ["two"])
-        repl.handle("a topic")
-        repl.handle("/rules")
-        repl.handle("another topic")
-
-        assert repl.profile.batches == 2
-
-    def test_a_refusal_teaches_nothing(self):
-        repl, _ = make_repl({"refusal": "declined that"})
-        repl.handle("a topic")
-
-        assert repl.profile.batches == 0
-        assert repl.profile.rules == []
-
-    def test_profile_command_reports_location_and_size(self):
-        repl, _ = make_repl({"texts": ["one"], "learned": ["a rule"]})
-        repl.handle("a topic")
-        output, _ = repl.handle("/profile")
-
-        assert "1 rule(s)" in output and "1 batch(es)" in output
+        second = Profile.load(path)
+        assert second.persona == "gym"
+        assert second.standing.banned == ("!",)
+        assert second.keeps == 1
+        assert second.weights == pytest.approx(first.profile.weights)

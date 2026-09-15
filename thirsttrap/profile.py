@@ -1,17 +1,19 @@
 """What she remembers between sessions.
 
-Two kinds of memory, and the distinction matters:
+Three things persist, and they are different in kind:
 
-- `rules` are standing preferences in the user's own words, inferred from
-  ordinary instructions ("I never want exclamation marks").
-- `examples` are posts the user actually kept -- ground truth about what lands,
-  not an opinion about it.
+- `weights` -- how much each scoring component matters, learned from which
+  candidate you keep out of the batch you were shown. This is the tuning.
+- `standing` -- constraints you stated as rules ("never use exclamation
+  marks"), parsed by `directives.py` rather than inferred.
+- `examples` -- the posts you kept, which is the record the weights were
+  learned from.
 
-Deliberately absent: anything derived from the scorer. Feeding "you tend to keep
-high-rhythm posts" back into generation would hand the model the rubric it is
-being judged against, which is the one thing the split in generate.py exists to
-prevent. The user's words and the user's choices are evidence; the scorer's
-opinion of them is not.
+The weight update is contrastive: keeping a post is a statement that it beat
+the others on screen, so components where it scored above the batch average
+gain weight and the rest lose it. With a handful of keeps this is badly
+underdetermined -- `confidence()` exists so the interface can say so rather
+than implying the numbers mean more than they do.
 """
 
 from __future__ import annotations
@@ -22,13 +24,20 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 from . import personas
+from .directives import Constraints
+from .score import WEIGHTS, normalise
 
-# Every rule and example is resent on every turn, so both are capped. The limits
-# are about prompt weight, not significance -- the oldest go first.
-MAX_RULES = 40
-MAX_EXAMPLES = 12
+MAX_EXAMPLES = 24
+LEARNING_RATE = 0.06
+
+# Below this many keeps the learned weights are noise dressed as preference.
+CONFIDENT_AFTER = 20
 
 ENV_OVERRIDE = "THIRSTTRAP_PROFILE"
+
+_CONSTRAINT_FIELDS = (
+    "max_chars", "min_chars", "questions", "numerals", "max_sentences", "emoji",
+)
 
 
 def default_path() -> Path:
@@ -44,81 +53,90 @@ def default_path() -> Path:
 @dataclass
 class Profile:
     persona: str = personas.DEFAULT_PERSONA
-    rules: list[str] = field(default_factory=list)
+    weights: dict[str, float] = field(default_factory=lambda: dict(WEIGHTS))
+    standing: Constraints = field(default_factory=Constraints)
     examples: list[str] = field(default_factory=list)
+    keeps: int = 0
     batches: int = 0
     path: Path | None = None
 
     # -- learning --------------------------------------------------------
 
-    def learn(self, rules: list[str]) -> list[str]:
-        """Add standing rules, returning only the genuinely new ones.
+    def learn_from_keep(self, chosen: dict[str, float], others: list[dict[str, float]]) -> dict[str, float]:
+        """Shift weights toward what distinguished the kept post. Returns the movement.
 
-        The caller shows what came back, so a wrong inference is visible on the
-        turn it happens rather than quietly steering every batch afterwards.
+        `chosen` and `others` are component dicts. A keep from a batch of one
+        teaches nothing -- there was no alternative to prefer it over.
         """
-        added = []
-        for rule in rules:
-            cleaned = " ".join(str(rule).split())
-            if not cleaned:
-                continue
-            if any(cleaned.lower() == existing.lower() for existing in self.rules):
-                continue
-            self.rules.append(cleaned)
-            added.append(cleaned)
+        self.keeps += 1
+        if not others:
+            return {}
 
-        if len(self.rules) > MAX_RULES:
-            del self.rules[: len(self.rules) - MAX_RULES]
-        return added
+        moved = {}
+        updated = dict(self.weights)
+        for name in WEIGHTS:
+            average = sum(o.get(name, 0.0) for o in others) / len(others)
+            delta = LEARNING_RATE * (chosen.get(name, 0.0) - average)
+            updated[name] = updated.get(name, WEIGHTS[name]) + delta
+            moved[name] = delta
+
+        before = normalise(self.weights)
+        self.weights = normalise(updated)
+        # Report the movement after renormalisation, which is what actually applies.
+        return {k: self.weights[k] - before[k] for k in WEIGHTS}
+
+    def confidence(self) -> str:
+        """An honest label for how much the learned weights are worth."""
+        if self.keeps == 0:
+            return "untuned"
+        if self.keeps < CONFIDENT_AFTER:
+            return f"barely tuned ({self.keeps}/{CONFIDENT_AFTER} keeps)"
+        return f"tuned on {self.keeps} keeps"
+
+    def drift(self) -> list[tuple[str, float]]:
+        """How far each weight has moved from the shipped prior, largest first."""
+        current = normalise(self.weights)
+        deltas = [(name, current[name] - WEIGHTS[name]) for name in WEIGHTS]
+        return sorted(deltas, key=lambda pair: -abs(pair[1]))
+
+    def reset_weights(self) -> None:
+        self.weights = dict(WEIGHTS)
+        self.keeps = 0
+
+    # -- standing constraints --------------------------------------------
+
+    def add_standing(self, constraints: Constraints) -> list[str]:
+        """Adopt a stated rule. Returns the clauses that were genuinely new."""
+        before = set(self.standing.describe())
+        self.standing = self.standing.merge(constraints)
+        return [clause for clause in self.standing.describe() if clause not in before]
+
+    def clear_standing(self) -> int:
+        count = len(self.standing.describe())
+        self.standing = Constraints()
+        return count
+
+    # -- examples --------------------------------------------------------
 
     def remember(self, text: str) -> bool:
-        """Record a kept post as an example. False if it was already there."""
-        if any(text == existing for existing in self.examples):
+        if text in self.examples:
             return False
         self.examples.append(text)
         if len(self.examples) > MAX_EXAMPLES:
             del self.examples[: len(self.examples) - MAX_EXAMPLES]
         return True
 
-    def forget(self, index: int) -> str:
-        """Drop rule `index` (1-based). The correction path for a bad inference."""
-        if not self.rules:
-            raise ValueError("nothing learned yet")
-        if not 1 <= index <= len(self.rules):
-            raise ValueError(f"pick 1-{len(self.rules)}, got {index}")
-        return self.rules.pop(index - 1)
-
-    def forget_all(self) -> int:
-        count = len(self.rules)
-        self.rules.clear()
-        return count
-
-    # -- prompt ----------------------------------------------------------
-
-    def brief(self) -> str:
-        """The fragment injected into the system prompt. Empty when she knows nothing."""
-        blocks = []
-        if self.rules:
-            lines = "\n".join(f"- {r}" for r in self.rules)
-            blocks.append(
-                "Standing preferences learned from this user in earlier sessions. "
-                "Apply them unless the current instruction overrides one:\n" + lines
-            )
-        if self.examples:
-            lines = "\n".join(f"- {e}" for e in self.examples)
-            blocks.append(
-                "Posts this user chose to keep. Match what these have in common -- "
-                "do not reuse their wording:\n" + lines
-            )
-        return "\n\n".join(blocks)
-
     # -- persistence -----------------------------------------------------
 
     def to_dict(self) -> dict:
+        standing = {f: getattr(self.standing, f) for f in _CONSTRAINT_FIELDS}
+        standing["banned"] = list(self.standing.banned)
         return {
             "persona": self.persona,
-            "rules": self.rules,
+            "weights": self.weights,
+            "standing": standing,
             "examples": self.examples,
+            "keeps": self.keeps,
             "batches": self.batches,
         }
 
@@ -140,17 +158,47 @@ class Profile:
             data = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             return profile
-
         if not isinstance(data, dict):
             return profile
 
         persona = data.get("persona")
         if isinstance(persona, str) and persona in personas.PERSONAS:
             profile.persona = persona
-        profile.rules = [str(r) for r in data.get("rules", []) if str(r).strip()][:MAX_RULES]
-        profile.examples = [
-            str(e) for e in data.get("examples", []) if str(e).strip()
-        ][:MAX_EXAMPLES]
-        batches = data.get("batches")
-        profile.batches = batches if isinstance(batches, int) and batches >= 0 else 0
+
+        weights = data.get("weights")
+        if isinstance(weights, dict):
+            numeric = {
+                k: float(v)
+                for k, v in weights.items()
+                if k in WEIGHTS and isinstance(v, (int, float))
+            }
+            if numeric:
+                profile.weights = normalise({**WEIGHTS, **numeric})
+
+        standing = data.get("standing")
+        if isinstance(standing, dict):
+            # .get, not [f] -- a file written by an older version, or by hand,
+            # may simply be missing a field.
+            fields = {
+                f: standing.get(f)
+                for f in _CONSTRAINT_FIELDS
+                if isinstance(standing.get(f), (int, bool, type(None)))
+            }
+            banned = standing.get("banned")
+            fields["banned"] = (
+                tuple(str(b) for b in banned) if isinstance(banned, list) else ()
+            )
+            try:
+                profile.standing = Constraints(**fields)
+            except TypeError:
+                profile.standing = Constraints()
+
+        examples = data.get("examples")
+        if isinstance(examples, list):
+            profile.examples = [str(e) for e in examples if str(e).strip()][:MAX_EXAMPLES]
+
+        for name in ("keeps", "batches"):
+            value = data.get(name)
+            setattr(profile, name, value if isinstance(value, int) and value >= 0 else 0)
+
         return profile

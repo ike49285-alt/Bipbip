@@ -54,3 +54,18 @@ def render_ranked(items: list[Ranked], breakdown: bool = False, start: int = 1) 
         blocks.append("\n".join(lines))
 
     return "\n\n".join(blocks)
+
+
+def render_weights(profile) -> str:
+    """Current component weights against the shipped prior, biggest movers first."""
+    from .score import WEIGHTS, normalise
+
+    current = normalise(profile.weights)
+    lines = [profile.confidence()]
+    for name, delta in profile.drift():
+        arrow = "+" if delta > 0 else ("-" if delta < 0 else " ")
+        lines.append(
+            f"  {name:<15} {bar(current[name] / max(current.values()))} "
+            f"{current[name]:.3f}  (prior {WEIGHTS[name]:.2f}, {arrow}{abs(delta):.3f})"
+        )
+    return "\n".join(lines)

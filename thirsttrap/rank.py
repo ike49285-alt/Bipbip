@@ -48,7 +48,11 @@ def similarity(a: str, b: str) -> float:
     return len(ta & tb) / len(ta | tb)
 
 
-def rank(candidates: list[str], novelty_weight: float = 0.35) -> list[Ranked]:
+def rank(
+    candidates: list[str],
+    novelty_weight: float = 0.35,
+    weights: dict[str, float] | None = None,
+) -> list[Ranked]:
     """Score every candidate, then discount each for resembling a better one.
 
     Candidates are scored intrinsically first, then walked best-first: each post
@@ -56,7 +60,7 @@ def rank(candidates: list[str], novelty_weight: float = 0.35) -> list[Ranked]:
     strongest member of a near-duplicate cluster keeps its score and the weaker
     ones absorb the penalty.
     """
-    scored = [(text, score_post(text)) for text in candidates]
+    scored = [(text, score_post(text, weights)) for text in candidates]
     scored.sort(key=lambda pair: pair[1].total, reverse=True)
 
     ranked: list[Ranked] = []

@@ -2,13 +2,19 @@ import json
 
 import pytest
 
+from thirsttrap.directives import Constraints
 from thirsttrap.profile import (
+    CONFIDENT_AFTER,
     ENV_OVERRIDE,
     MAX_EXAMPLES,
-    MAX_RULES,
     Profile,
     default_path,
 )
+from thirsttrap.score import WEIGHTS, score_post
+
+
+def components(text):
+    return score_post(text).components
 
 
 class TestDefaultPath:
@@ -28,105 +34,121 @@ class TestDefaultPath:
         assert default_path() == tmp_path / ".config" / "thirsttrap" / "profile.json"
 
 
-class TestLearn:
-    def test_new_rules_are_returned(self):
+class TestLearning:
+    def test_a_fresh_profile_carries_the_shipped_prior(self):
+        assert Profile().weights == WEIGHTS
+
+    def test_weights_stay_normalised_after_learning(self):
         profile = Profile()
-        assert profile.learn(["no exclamation marks"]) == ["no exclamation marks"]
+        profile.learn_from_keep(
+            components("You already know. You're stalling."),
+            [components("Three years of this and it remains somewhat difficult, honestly.")],
+        )
+        assert sum(profile.weights.values()) == pytest.approx(1.0)
 
-    def test_duplicates_are_ignored_case_insensitively(self):
+    def test_weight_moves_toward_what_distinguished_the_kept_post(self):
         profile = Profile()
-        profile.learn(["No Exclamation Marks"])
-        assert profile.learn(["no exclamation marks"]) == []
-        assert len(profile.rules) == 1
+        chosen = components("You already know about you and your choices.")
+        other = components("The weather turned cold this week.")
+        profile.learn_from_keep(chosen, [other])
+        # The kept post is the one using second person, so that component gains.
+        assert profile.weights["direct_address"] > WEIGHTS["direct_address"]
 
-    def test_blank_rules_are_dropped(self):
-        assert Profile().learn(["  ", "", "\n"]) == []
-
-    def test_whitespace_is_normalised(self):
+    def test_keeping_from_a_batch_of_one_teaches_nothing(self):
         profile = Profile()
-        profile.learn(["no    exclamation\n marks"])
-        assert profile.rules == ["no exclamation marks"]
+        assert profile.learn_from_keep(components("a post"), []) == {}
+        assert profile.weights == WEIGHTS
 
-    def test_rules_are_capped_dropping_the_oldest(self):
+    def test_a_keep_is_counted_even_when_it_teaches_nothing(self):
         profile = Profile()
-        profile.learn([f"rule {i}" for i in range(MAX_RULES + 10)])
-        assert len(profile.rules) == MAX_RULES
-        assert profile.rules[-1] == f"rule {MAX_RULES + 9}"
-        assert "rule 0" not in profile.rules
+        profile.learn_from_keep(components("a post"), [])
+        assert profile.keeps == 1
+
+    def test_learning_is_reversible(self):
+        profile = Profile()
+        profile.learn_from_keep(components("You know you."), [components("Cold weather.")])
+        profile.reset_weights()
+        assert profile.weights == WEIGHTS and profile.keeps == 0
+
+    def test_drift_reports_the_biggest_mover_first(self):
+        profile = Profile()
+        profile.learn_from_keep(components("You know you."), [components("Cold weather.")])
+        drift = profile.drift()
+        assert abs(drift[0][1]) >= abs(drift[-1][1])
+
+    def test_an_untouched_profile_has_no_drift(self):
+        assert all(delta == pytest.approx(0.0) for _, delta in Profile().drift())
 
 
-class TestRemember:
+class TestConfidence:
+    def test_it_says_untuned_before_any_keep(self):
+        assert Profile().confidence() == "untuned"
+
+    def test_a_few_keeps_are_labelled_as_barely_tuned(self):
+        profile = Profile()
+        profile.keeps = 3
+        assert "barely tuned" in profile.confidence()
+
+    def test_enough_keeps_drops_the_caveat(self):
+        profile = Profile()
+        profile.keeps = CONFIDENT_AFTER
+        assert "barely" not in profile.confidence()
+
+
+class TestStanding:
+    def test_a_rule_is_adopted_and_reported(self):
+        profile = Profile()
+        added = profile.add_standing(Constraints(banned=("!",)))
+        assert added == ["never say '!'"]
+
+    def test_readopting_the_same_rule_reports_nothing_new(self):
+        profile = Profile()
+        profile.add_standing(Constraints(banned=("!",)))
+        assert profile.add_standing(Constraints(banned=("!",))) == []
+
+    def test_rules_accumulate(self):
+        profile = Profile()
+        profile.add_standing(Constraints(banned=("!",)))
+        profile.add_standing(Constraints(questions=False))
+        assert len(profile.standing.describe()) == 2
+
+    def test_clearing_reports_the_count(self):
+        profile = Profile()
+        profile.add_standing(Constraints(banned=("!",), questions=False))
+        assert profile.clear_standing() == 2
+        assert profile.standing.describe() == []
+
+
+class TestExamples:
     def test_an_example_is_recorded_once(self):
         profile = Profile()
         assert profile.remember("a post") is True
         assert profile.remember("a post") is False
-        assert profile.examples == ["a post"]
 
     def test_examples_are_capped_dropping_the_oldest(self):
         profile = Profile()
         for i in range(MAX_EXAMPLES + 5):
             profile.remember(f"post {i}")
         assert len(profile.examples) == MAX_EXAMPLES
-        assert profile.examples[-1] == f"post {MAX_EXAMPLES + 4}"
         assert "post 0" not in profile.examples
-
-
-class TestForget:
-    def test_removes_and_returns_the_rule(self):
-        profile = Profile()
-        profile.learn(["one", "two"])
-        assert profile.forget(1) == "one"
-        assert profile.rules == ["two"]
-
-    def test_out_of_range_names_the_range(self):
-        profile = Profile()
-        profile.learn(["only"])
-        with pytest.raises(ValueError, match="pick 1-1"):
-            profile.forget(5)
-
-    def test_forgetting_from_nothing_says_so(self):
-        with pytest.raises(ValueError, match="nothing learned"):
-            Profile().forget(1)
-
-    def test_forget_all_reports_the_count(self):
-        profile = Profile()
-        profile.learn(["one", "two", "three"])
-        assert profile.forget_all() == 3
-        assert profile.rules == []
-
-
-class TestBrief:
-    def test_empty_profile_contributes_nothing(self):
-        assert Profile().brief() == ""
-
-    def test_rules_and_examples_both_appear(self):
-        profile = Profile()
-        profile.learn(["no exclamation marks"])
-        profile.remember("You already know the answer.")
-        brief = profile.brief()
-        assert "no exclamation marks" in brief
-        assert "You already know the answer." in brief
-
-    def test_examples_warn_against_reuse(self):
-        profile = Profile()
-        profile.remember("a kept post")
-        assert "do not reuse" in profile.brief().lower()
 
 
 class TestPersistence:
     def test_round_trip(self, tmp_path):
         path = tmp_path / "profile.json"
         original = Profile(path=path, persona="gym")
-        original.learn(["no exclamation marks"])
+        original.add_standing(Constraints(max_chars=90, banned=("!",)))
+        original.learn_from_keep(components("You know you."), [components("Cold weather.")])
         original.remember("a kept post")
-        original.batches = 4
         original.save()
 
         loaded = Profile.load(path)
         assert loaded.persona == "gym"
-        assert loaded.rules == ["no exclamation marks"]
+        assert loaded.standing.max_chars == 90
+        assert loaded.standing.banned == ("!",)
         assert loaded.examples == ["a kept post"]
-        assert loaded.batches == 4
+        assert loaded.keeps == 1
+        assert loaded.weights == pytest.approx(original.weights)
 
     def test_saving_creates_missing_directories(self, tmp_path):
         path = tmp_path / "deep" / "nested" / "profile.json"
@@ -134,45 +156,52 @@ class TestPersistence:
         assert path.exists()
 
     def test_saving_leaves_no_temp_file_behind(self, tmp_path):
-        path = tmp_path / "profile.json"
-        Profile(path=path).save()
+        Profile(path=tmp_path / "profile.json").save()
         assert [p.name for p in tmp_path.iterdir()] == ["profile.json"]
 
     def test_a_pathless_profile_saves_nowhere_without_error(self):
-        Profile().save()  # must not raise
+        Profile().save()
 
     def test_missing_file_loads_an_empty_profile(self, tmp_path):
         loaded = Profile.load(tmp_path / "absent.json")
-        assert loaded.rules == [] and loaded.examples == []
-        assert loaded.path == tmp_path / "absent.json"
+        assert loaded.weights == WEIGHTS and loaded.keeps == 0
 
     def test_corrupt_file_never_blocks_a_session(self, tmp_path):
         path = tmp_path / "profile.json"
         path.write_text("{not json at all")
-        loaded = Profile.load(path)
-        assert loaded.rules == []
-        assert loaded.persona == Profile().persona
+        assert Profile.load(path).weights == WEIGHTS
 
     def test_a_json_list_is_rejected_without_crashing(self, tmp_path):
         path = tmp_path / "profile.json"
         path.write_text("[1, 2, 3]")
-        assert Profile.load(path).rules == []
+        assert Profile.load(path).weights == WEIGHTS
 
     def test_an_unknown_persona_on_disk_falls_back(self, tmp_path):
         path = tmp_path / "profile.json"
-        path.write_text(json.dumps({"persona": "smoulder", "rules": ["keep me"]}))
+        path.write_text(json.dumps({"persona": "smoulder", "keeps": 4}))
         loaded = Profile.load(path)
         assert loaded.persona == Profile().persona
-        assert loaded.rules == ["keep me"]
+        assert loaded.keeps == 4
 
-    def test_garbage_field_types_are_survived(self, tmp_path):
+    def test_garbage_weights_are_ignored(self, tmp_path):
         path = tmp_path / "profile.json"
-        path.write_text(json.dumps({"rules": "not a list", "batches": "lots"}))
+        path.write_text(json.dumps({"weights": {"hook": "lots", "nonsense": 3}}))
+        assert Profile.load(path).weights == WEIGHTS
+
+    def test_partial_weights_are_completed_from_the_prior(self, tmp_path):
+        path = tmp_path / "profile.json"
+        path.write_text(json.dumps({"weights": {"hook": 0.5}}))
         loaded = Profile.load(path)
-        assert loaded.batches == 0
-        assert all(isinstance(r, str) for r in loaded.rules)
+        assert set(loaded.weights) == set(WEIGHTS)
+        assert sum(loaded.weights.values()) == pytest.approx(1.0)
 
-    def test_oversized_files_are_truncated_on_load(self, tmp_path):
+    def test_a_malformed_standing_block_is_survived(self, tmp_path):
         path = tmp_path / "profile.json"
-        path.write_text(json.dumps({"rules": [f"r{i}" for i in range(MAX_RULES + 20)]}))
-        assert len(Profile.load(path).rules) == MAX_RULES
+        path.write_text(json.dumps({"standing": {"max_chars": "loads", "banned": "nope"}}))
+        assert Profile.load(path).standing.describe() == []
+
+    def test_negative_counters_are_rejected(self, tmp_path):
+        path = tmp_path / "profile.json"
+        path.write_text(json.dumps({"keeps": -4, "batches": "many"}))
+        loaded = Profile.load(path)
+        assert loaded.keeps == 0 and loaded.batches == 0

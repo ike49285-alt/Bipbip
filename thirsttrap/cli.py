@@ -12,18 +12,21 @@ from .score import score_post
 
 
 def cmd_gen(args: argparse.Namespace) -> int:
-    from .generate import generate
+    from .generate import propose
 
     try:
-        candidates = generate(args.topic, persona=args.persona, n=args.n)
-    except KeyError as exc:
-        print(f"error: {exc.args[0]}", file=sys.stderr)
+        candidates = propose(
+            args.topic, persona=args.persona, pool=args.pool, seed=args.seed
+        )
+    except (KeyError, ValueError) as exc:
+        print(f"error: {exc.args[0] if exc.args else exc}", file=sys.stderr)
         return 2
-    except Exception as exc:  # network, auth, refusal -- all user-actionable
-        print(f"error: {exc}", file=sys.stderr)
+
+    if not candidates:
+        print("error: the grammar produced nothing for that topic", file=sys.stderr)
         return 1
 
-    ranked = rank([c.text for c in candidates])
+    ranked = rank(candidates)
     top = ranked[: args.top] if args.top > 0 else ranked
 
     print(f"{len(candidates)} candidates, showing top {len(top)}  [{args.persona}]")
@@ -59,14 +62,15 @@ def cmd_chat(args: argparse.Namespace) -> int:
         profile.persona = args.persona
 
     repl = Repl(
-        session=Session(profile=profile, n=args.n),
+        session=Session(profile=profile, pool=args.pool, seed=args.seed),
         top=args.top,
         breakdown=args.breakdown,
     )
 
-    known = ""
-    if profile.rules or profile.examples:
-        known = f" -- remembers {len(profile.rules)} rule(s), {len(profile.examples)} example(s)"
+    known = f" -- {profile.confidence()}"
+    rules = len(profile.standing.describe())
+    if rules:
+        known += f", {rules} standing rule(s)"
     print(f"thirsttrap [{profile.persona}]{known}")
     print("/help for commands, /quit to leave")
     if args.topic:
@@ -102,7 +106,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     gen = sub.add_parser("gen", help="generate candidates and rank them (needs API access)")
     gen.add_argument("topic", help="what the posts should be about")
-    gen.add_argument("-n", type=int, default=12, help="candidates to generate (default 12)")
+    gen.add_argument(
+        "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
+    )
+    gen.add_argument("--seed", type=int, default=None, help="fix the draw for a reproducible batch")
     gen.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
     gen.add_argument(
         "-p", "--persona", default=personas.DEFAULT_PERSONA, choices=personas.names(),
@@ -118,7 +125,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     ch = sub.add_parser("chat", help="interactive session -- refine a batch by talking to it")
     ch.add_argument("topic", nargs="*", help="optional opening topic")
-    ch.add_argument("-n", type=int, default=12, help="candidates per batch (default 12)")
+    ch.add_argument(
+        "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
+    )
+    ch.add_argument("--seed", type=int, default=None, help="fix the draw for a reproducible session")
     ch.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
     ch.add_argument(
         "-p", "--persona", default=None, choices=personas.names(),

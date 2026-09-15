@@ -57,24 +57,25 @@ class TestScoreCommand:
 
 
 class TestGenCommand:
-    def test_api_failure_exits_nonzero_with_the_reason(self, capsys, monkeypatch):
-        def boom(*args, **kwargs):
-            raise RuntimeError("the model declined this topic")
-
-        monkeypatch.setattr("thirsttrap.generate.generate", boom)
-        assert main(["gen", "a topic"]) == 1
-        assert "declined" in capsys.readouterr().err
-
-    def test_ranks_and_truncates_to_the_requested_top_k(self, capsys, monkeypatch):
-        import types
-
-        def fake_generate(topic, persona, n):
-            return [types.SimpleNamespace(text=f"candidate number {i}") for i in range(n)]
-
-        monkeypatch.setattr("thirsttrap.generate.generate", fake_generate)
-        assert main(["gen", "a topic", "-n", "6", "-k", "2"]) == 0
+    def test_it_generates_locally_and_truncates_to_top_k(self, capsys):
+        assert main(["gen", "finally quitting the job", "--pool", "40", "-k", "2"]) == 0
         out = capsys.readouterr().out
-        assert "6 candidates, showing top 2" in out
+        assert "40 candidates, showing top 2" in out
+        assert "1. " in out and "2. " in out
+
+    def test_a_seed_makes_the_output_reproducible(self, capsys):
+        main(["gen", "leg day", "--pool", "30", "--seed", "5"])
+        first = capsys.readouterr().out
+        main(["gen", "leg day", "--pool", "30", "--seed", "5"])
+        assert capsys.readouterr().out == first
+
+    def test_an_invalid_pool_exits_nonzero_with_the_reason(self, capsys):
+        assert main(["gen", "a topic", "--pool", "0"]) == 2
+        assert "pool must be at least 1" in capsys.readouterr().err
+
+    def test_the_breakdown_flag_adds_components(self, capsys):
+        main(["gen", "leg day", "--pool", "20", "-k", "1", "-b"])
+        assert "hook" in capsys.readouterr().out
 
 
 class TestParser:
@@ -88,6 +89,11 @@ class TestParser:
 
     def test_gen_defaults(self):
         args = build_parser().parse_args(["gen", "a topic"])
-        assert args.n == 12
+        assert args.pool == 400
         assert args.top == 3
+        assert args.seed is None
         assert args.persona == personas.DEFAULT_PERSONA
+
+    def test_chat_defaults_to_the_remembered_persona(self):
+        # None here means "whatever the profile says", not the shipped default.
+        assert build_parser().parse_args(["chat"]).persona is None

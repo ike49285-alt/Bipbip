@@ -269,8 +269,21 @@ def score_freshness(text: str) -> tuple[float, list[str]]:
     return _clamp(1.0 - 0.3 * len(hits)), [f"cliche: {h!r}" for h in hits]
 
 
-def score_post(text: str) -> Score:
-    """Score one post 0-100 with the component breakdown that produced it."""
+def normalise(weights: dict[str, float]) -> dict[str, float]:
+    """Clamp to non-negative and rescale to sum 1, so totals stay on 0-100."""
+    clean = {k: max(0.0, float(weights.get(k, 0.0))) for k in WEIGHTS}
+    total = sum(clean.values())
+    if total <= 0:
+        return dict(WEIGHTS)
+    return {k: v / total for k, v in clean.items()}
+
+
+def score_post(text: str, weights: dict[str, float] | None = None) -> Score:
+    """Score one post 0-100 with the component breakdown that produced it.
+
+    `weights` overrides the default prior -- this is how a learned profile makes
+    the ranking personal. Components are unchanged; only their importance moves.
+    """
     restraint, restraint_notes = score_restraint(text)
     freshness, freshness_notes = score_freshness(text)
 
@@ -289,5 +302,6 @@ def score_post(text: str) -> Score:
     if len(text.strip()) > MAX_CHARS:
         notes.append(f"{len(text.strip())} chars -- over the {MAX_CHARS} limit")
 
-    total = 100.0 * sum(components[k] * WEIGHTS[k] for k in WEIGHTS)
+    active = normalise(weights) if weights else WEIGHTS
+    total = 100.0 * sum(components[k] * active[k] for k in WEIGHTS)
     return Score(total=total, components=components, notes=notes)

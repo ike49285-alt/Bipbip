@@ -1,207 +1,128 @@
 # thirsttrap
 
-Generates candidate posts for X with Claude, then ranks them by a scoring prior
-so you pick from the top of a batch instead of the first thing that came out.
-
-Works one-shot from the command line, or as a conversation you refine in place.
-
-Two halves that deliberately don't talk to each other:
-
-- **`generate.py`** asks Claude for N genuinely different takes on a topic in a
-  chosen voice.
-- **`score.py`** scores any text 0–100 on eight weighted components. It needs no
-  API access and no network, so it works on posts you wrote yourself.
-
-`rank.py` joins them and discounts candidates that repeat each other.
-
-## Install
+Generates candidate posts for X and ranks them, entirely on your machine. No
+API, no network, no key, no third-party packages — Python standard library only.
 
 ```bash
-pip install -r requirements.txt
+python -m thirsttrap chat "finally quitting the job"
 ```
 
-Generation needs Claude API credentials — `ANTHROPIC_API_KEY`,
-`ANTHROPIC_AUTH_TOKEN`, or an `ant auth login` profile. Scoring needs none.
+```
+400 candidates, showing top 3  [flirt]
+
+1.  84.8   Nobody tells you about finally quitting the job. It gets quieter.
+2.  75.8   You already know about the job. You're just rehearsing it.
+3.  73.2   Who told you finally quitting the job needed a reason you like?
+
+> shorter, no questions
+> never use exclamation marks
++ standing rule: never say '!'   (/forget to drop it)
+
+> /keep 1
+kept (1 total)
+learned: direct_address +0.042, length -0.037   (barely tuned (1/20 keeps))
+```
+
+## How it works
+
+**Generation is a grammar.** `topic.py` parses what you typed into the forms a
+sentence needs — `"finally quitting the job"` becomes phrase, gerund, and the
+head noun `"the job"`. `grammar.py` slots those into rhetorical frames (withheld
+knowledge, second-person assertion, setup-and-punch, reversal) whose blanks are
+filled from persona-tagged lexicons, recursively. One frame yields thousands of
+surface forms; a run draws 400 and throws most away.
+
+**Selection is the scorer.** `score.py` rates each candidate 0–100 across eight
+weighted components, `rank.py` sorts and discounts near-duplicates, and you see
+the top few.
+
+**Refinement is filtering.** The grammar can't be *asked* for a shorter post, so
+`directives.py` turns "shorter" into `max_chars=95` and the pool is filtered.
+That's why constraints always work — but see the limits below for what it costs.
 
 ## Use
 
 ```bash
-# Talk to it -- the first thing you say is the topic, the rest is refinement
-python -m thirsttrap chat "finally quitting the job"
-
-# Generate 12 candidates, show the best 3
-python -m thirsttrap gen "finally quitting the job" -n 12 -k 3
-
-# Pick a voice
-python -m thirsttrap gen "leg day" -p gym -b
-
-# Score posts you already have — no API access needed
-python -m thirsttrap score "You already know the answer. You're just waiting."
-
-# Rank a file of drafts
-cat drafts.txt | python -m thirsttrap score -b
-
+python -m thirsttrap chat "leg day" -p gym      # interactive
+python -m thirsttrap gen "quitting" -k 5 -b     # one shot, with breakdown
+python -m thirsttrap gen "leg day" --seed 4     # reproducible
+python -m thirsttrap score "You already know."  # score your own writing
 python -m thirsttrap personas
 ```
 
-`-b/--breakdown` prints the per-component bars, which is the only way to tell
-*why* something ranked where it did.
-
-## Chat mode
-
-```
-> finally quitting the job
-3 candidates, showing top 3  [flirt]
-
-1.  82.8
-   Nobody tells you the best part of quitting. The silence after.
-2.  77.1
-   You already know the answer. You're just waiting for permission.
-
-> shorter, more like 2
-1.  76.0
-   You already know. You're stalling.
-2.  61.4
-   Quit at 4. Home by 5. Never felt lighter.
-3.  45.0  [near-duplicate]
-   Quit at 4. Home by 5. Never felt better.
-
-> /keep 1
-kept (1 total)
-```
-
-The conversation is real multi-turn context, so "shorter", "less earnest", or
-"more like 2" all resolve against what came before.
-
-**The numbering is shared.** After each batch is ranked, it goes back into the
-conversation numbered in the order you saw it — so post 2 on your screen is post
-2 to the model. Rank first and number second, or every reference points at the
-wrong post.
+In chat, type a topic to start, then adjustments: `shorter`, `much shorter`,
+`longer`, `one line`, `no questions`, `no numbers`, `no emoji`, `more like 2`,
+`try deadpan`, `stop using "game changer"`.
 
 | | |
 |---|---|
-| `/rules`, `/forget N` | what she's learned, and how to drop it |
-| `/persona NAME` | switch voice (`/personas` lists them) |
-| `/n N`, `/top K` | batch size, how many to show |
-| `/keep N`, `/kept`, `/drop N` | pin candidates across turns |
-| `/save PATH` | write pinned posts to a file |
-| `/score TEXT` | score text locally, costs no request |
-| `/breakdown` | toggle component bars |
-| `/again` | re-run the last instruction |
-| `/reset` | forget the conversation, keep the pins |
-
-The kept list survives `/reset` and persona switches, so you can collect across
-several directions and save at the end. Commands are handled locally — only
-plain text costs an API call.
+| `/rules`, `/forget` | standing rules, and dropping them |
+| `/weights`, `/untune` | what she's learned, and resetting it |
+| `/keep N`, `/kept`, `/drop N`, `/save PATH` | collect and write out |
+| `/persona NAME`, `/personas` | voice |
+| `/pool N`, `/top K`, `/breakdown` | how many drawn, shown, explained |
+| `/clear` | drop this turn's adjustments, keep standing rules |
+| `/again`, `/profile`, `/help`, `/quit` | |
 
 ## She tunes herself as you talk
 
-You don't configure the voice, you just use it. Standing preferences are picked
-up from ordinary instructions and persist to `~/.config/thirsttrap/profile.json`,
-so the next session starts where the last one ended.
+Two mechanisms, and they're different in kind.
+
+**Rules you state.** Phrase something as a rule — "never use exclamation marks",
+"always one line", "from now on, shorter" — and it's parsed into a standing
+constraint saved to `~/.config/thirsttrap/profile.json`. Anything phrased as a
+one-off applies to the current topic only. New rules print when adopted;
+`/rules` lists them, `/forget` clears them.
+
+**What you keep.** Keeping a post is a statement that it beat the others on
+screen, so the component weights shift toward whatever distinguished it. Over
+many keeps the ranking stops reflecting the shipped prior and starts reflecting
+you. `/weights` shows the drift against the prior, `/untune` reverts it.
 
 ```
-> stop shouting at me, and land on a short line
-1.  76.0   You already know. You're stalling.
-2.  52.5   Quit at 4. Home by 5.
-
-+ learned: never use exclamation marks   (/forget to drop it)
-+ learned: end on the shortest line      (/forget to drop it)
-
-> /keep 1
-kept (1 total, and remembered)
+> /weights
+barely tuned (3/20 keeps)
+  hook            ######################## 0.211  (prior 0.20, +0.011)
+  length          ################........ 0.129  (prior 0.14, -0.011)
+  ...
 ```
 
-Quit, come back tomorrow, and both rules plus the kept post are already in the
-system prompt.
+The confidence label is not decoration. Eight weights fitted from a handful of
+binary choices is badly underdetermined, and the interface says so rather than
+letting three keeps look like a model of your taste.
 
-**Two memories, and the difference matters.** *Rules* are standing preferences
-in your own words, inferred by the model — which is asked to distinguish "make
-this one shorter" (one-off, most turns) from "I never want exclamation marks"
-(durable). *Examples* are posts you kept, which is ground truth about what lands
-rather than an opinion about it.
+## What the score means, and when it doesn't
 
-**Inference is sometimes wrong, so it's never silent.** Every new rule prints on
-the turn it's learned. `/rules` lists them, `/forget N` drops one, `/forget all`
-clears them. A rule learned quietly from a one-off request would steer every
-future batch with nobody knowing to correct it — that's the failure mode this
-design is built against.
+The weights are a **prior** — beliefs about what travels on X (hashtags and
+links suppress reach, second person outperforms third), not a fit to engagement
+data. Practical range is about 40–85, not 0–100; read gaps between candidates,
+not absolute numbers.
 
-**The scorer stays out of it.** Nothing derived from `score.py` enters the
-profile. "You tend to keep high-rhythm posts" would hand the model the rubric
-it's judged against, which is exactly what the generate/score split exists to
-prevent — so what you said and what you kept are evidence, and the scorer's
-opinion of them isn't. A test asserts component names never reach the prompt.
+**On generated posts the score is the objective, not a judgment.** Picking the
+top of a pool by score guarantees a high score the way picking the tallest
+person in a room guarantees height. It's still the right way to choose — it just
+isn't evidence the post is good, and a rising score across a session mostly
+means the search is working.
 
-Start clean with `--fresh`, or keep separate voices with
-`--profile path/to/other.json`.
-
-## The eight components
-
-| Component | Weight | Rewards |
-|---|---|---|
-| `hook` | 0.20 | The first eight words — second person, a number, a contrarian opener. Penalises hedged openings (`I just think maybe…`). |
-| `length` | 0.14 | The 60–140 character band. Zero above 280. |
-| `direct_address` | 0.12 | `you` / `your`, one to three times. More reads as nagging. |
-| `curiosity` | 0.12 | One question mark, open loops, an unresolved referent. |
-| `restraint` | 0.12 | Starts at 1.0 and subtracts for hashtags, links, 3+ emoji, multiple exclamations, shouting. |
-| `concreteness` | 0.10 | Numerals and named things. Penalises `-ness` / `-ity` / `-tion` abstraction. |
-| `rhythm` | 0.10 | Setup then a short punch. Penalises four-plus sentences. |
-| `freshness` | 0.10 | Absence of worn-out phrases (`let that sink in`, `game changer`, `read that again`). |
-
-Novelty is handled separately, at rank time, because it's a property of the
-batch rather than the post: candidates are walked best-first and each is
-discounted by its word overlap with the better ones above it. The strongest
-member of a near-duplicate cluster keeps its full score; its echoes pay.
-
-## What this score is and isn't
-
-**It's a prior, not a measurement.** Every weight encodes a belief about what
-travels on X. Those beliefs come from platform behaviour that's widely reported
-— hashtags and off-platform links suppress reach, second person outperforms
-third — not from engagement data this package has fitted. Nothing here has been
-validated against your account, or anyone's.
-
-So read it as a way to order a batch against itself, not as a prediction of
-likes. Two specific cautions:
-
-- **The practical range is about 40 to 85, not 0 to 100.** Across a spread of
-  deliberately good and deliberately terrible posts, the worst scored 41 and the
-  best 84. A 52 is bad. Read the gaps between candidates, not the absolute
-  number.
-- **`restraint` is partly pre-satisfied.** The generator is told not to use
-  hashtags or links, because those are platform facts worth stating up front. So
-  generated candidates nearly always score 1.0 there, and that component earns
-  its keep on text *you* wrote, not on text the tool produced.
-
-Everything else is kept out of the generation prompt on purpose. If the model
-were told the rubric, the score would mostly measure how well it followed
-instructions it had just been handed, and every batch would look excellent.
-`test_generate.py` asserts the rubric doesn't leak into the prompt.
-
-## Calibrating this
-
-Replacing the prior with a fit needs data the package doesn't have: your own
-posts and their impressions. The shape of that work:
-
-1. Export your posts with their impression and engagement counts.
-2. Score each one with `score_post` and keep the component vector.
-3. Regress engagement rate — engagements per impression, not raw likes, or
-   you'll just rediscover your follower growth — on the eight components.
-4. Replace `WEIGHTS` with the fitted coefficients.
-
-Two things will bite. Posting time and follower count swamp text effects, so
-they belong in the regression as controls even though you can't act on them.
-And a few hundred posts is a small sample for eight predictors — expect the
-fitted weights to move a lot under resampling, and check that they do before
-trusting them.
+The score only acts as an outside opinion on text the grammar didn't write,
+which is what `thirsttrap score` is for. That command is the honest one.
 
 ## Limits
 
-- Text only. It doesn't generate, edit, or evaluate images.
-- It doesn't post anything. There's no X API integration and no scheduler.
-- It won't write sexually explicit content, won't write as a real named person,
-  and treats all subjects as adults.
+Worth knowing before you expect too much:
+
+- **It doesn't understand your topic.** It arranges your words inside shapes
+  that read well. Give it something the frames can't hold and you'll get
+  grammatical nonsense.
+- **Output is more formulaic than a language model's.** Same frames recur; the
+  mitigation is volume plus the near-duplicate penalty, not cleverness.
+- **Directives are keyword matching.** A fixed vocabulary is recognised and
+  everything else is treated as a new topic. That's deliberate — guessing at an
+  unrecognised sentence is worse than ignoring it — but it means phrasing
+  matters more than it would with a model.
+- **A constraint that nothing satisfies returns nothing** rather than quietly
+  relaxing itself. `/clear` to back out.
+- Text only. It doesn't post anything, and there's no X integration.
 
 ## Tests
 
@@ -209,4 +130,5 @@ trusting them.
 python -m pytest tests/ -q
 ```
 
-173 tests, no network calls — the generator and chat tests drive a fake client.
+266 tests. No network, no mocks, no fakes — everything is local and
+deterministic under a fixed seed, so the tests exercise the real code paths.
