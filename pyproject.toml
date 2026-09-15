@@ -11,6 +11,7 @@ dependencies = []
 
 [project.optional-dependencies]
 dev = ["pytest>=8.0"]
+local = ["llama-cpp-python>=0.3"]  # only for the in-process GGUF backend
 
 [project.scripts]
 thirsttrap = "thirsttrap.cli:main"

@@ -19,7 +19,8 @@ from dataclasses import dataclass, field
 
 from . import directives, personas
 from .directives import Constraints
-from .generate import DEFAULT_POOL, propose
+from .generate import DEFAULT_N, DEFAULT_POOL, propose
+from .llm import Backend, BackendError, GrammarBackend, detect
 from .profile import Profile
 from .rank import Ranked, rank, similarity
 from .render import render_ranked, render_score, render_weights
@@ -44,7 +45,7 @@ Everything else she learns from what you /keep.
   /breakdown       component bars      /score TEXT     score text yourself
   /keep N          keep one (teaches)  /kept  /drop N  /save PATH
   /clear           drop this turn's adjustments
-  /profile         where memory lives
+  /profile         where memory lives    /backend  which model is answering
   /again  /help  /quit"""
 
 
@@ -53,12 +54,20 @@ class Session:
     """Topic, voice, and the constraints currently in force."""
 
     profile: Profile = field(default_factory=Profile)
+    backend: Backend | None = None
+    n: int = DEFAULT_N
     pool: int = DEFAULT_POOL
     topic: str | None = None
     turn_constraints: Constraints = field(default_factory=Constraints)
     turns: int = 0
     last_adopted: list[str] = field(default_factory=list)
     seed: int | None = None
+
+    def engine(self) -> Backend:
+        """Resolve the backend once, so a probe does not run every turn."""
+        if self.backend is None:
+            self.backend = detect()
+        return self.backend
 
     @property
     def persona(self) -> str:
@@ -98,10 +107,20 @@ class Session:
         # Vary the draw per turn so /again is a fresh look, but stay reproducible
         # for a caller that pinned a seed.
         seed = None if self.seed is None else self.seed + self.turns
-        candidates = propose(
-            self.topic, persona=self.persona, pool=self.pool, seed=seed,
-            constraints=constraints,
-        )
+        try:
+            candidates = propose(
+                self.topic,
+                persona=self.persona,
+                n=self.n,
+                backend=self.engine(),
+                profile=self.profile,
+                constraints=constraints,
+                seed=seed,
+                pool=self.pool,
+                like_text=like_text,
+            )
+        except BackendError as exc:
+            raise ValueError(f"{exc}") from exc
 
         if not candidates:
             clauses = ", ".join(constraints.describe()) or "the current constraints"
@@ -223,6 +242,12 @@ class Repl:
             self.profile.reset_weights()
             self.profile.save()
             return "weights back to the shipped prior", True
+
+        if cmd == "backend":
+            engine = self.session.engine()
+            note = "" if not isinstance(engine, GrammarBackend) else \
+                "\nno local model found -- start Ollama, or see --backend in --help"
+            return f"generating with {engine.describe()}{note}", True
 
         if cmd == "profile":
             where = self.profile.path or "(not saved to disk)"

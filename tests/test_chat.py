@@ -1,72 +1,93 @@
 import pytest
 
 from thirsttrap.chat import Repl, Session
+from thirsttrap.llm import Backend, GrammarBackend
 from thirsttrap.profile import Profile
 from thirsttrap.score import WEIGHTS
 
 
 def make_repl(**kwargs):
+    """Pinned to the grammar backend so these stay deterministic even on a
+    machine with Ollama running."""
     top = kwargs.pop("top", 3)
+    kwargs.setdefault("backend", GrammarBackend())
     return Repl(session=Session(pool=120, seed=11, **kwargs), top=top)
+
+
+class FakeBackend(Backend):
+    def __init__(self, *replies):
+        self.name = "fake"
+        self.replies = list(replies)
+        self.calls = []
+
+    def available(self):
+        return True
+
+    def complete(self, system, prompt):
+        self.calls.append((system, prompt))
+        return self.replies.pop(0) if self.replies else ""
+
+    def describe(self):
+        return "fake backend"
 
 
 class TestSession:
     def test_the_first_line_becomes_the_topic(self):
-        session = Session(pool=60, seed=1)
+        session = Session(pool=60, seed=1, backend=GrammarBackend())
         session.send("finally quitting the job")
         assert session.topic == "finally quitting the job"
 
     def test_an_adjustment_before_a_topic_is_an_error(self):
         with pytest.raises(ValueError, match="what the posts should be about"):
-            Session(pool=60, seed=1).send("shorter")
+            Session(pool=60, seed=1, backend=GrammarBackend()).send("shorter")
 
     def test_an_adjustment_keeps_the_topic(self):
-        session = Session(pool=120, seed=1)
+        session = Session(pool=120, seed=1, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("shorter")
         assert session.topic == "finally quitting the job"
 
     def test_an_adjustment_constrains_the_batch(self):
-        session = Session(pool=200, seed=2)
+        session = Session(pool=200, seed=2, backend=GrammarBackend())
         session.send("finally quitting the job")
         ranked = session.send("much shorter")
         assert all(len(r.text) <= 60 for r in ranked)
 
     def test_adjustments_accumulate_within_a_topic(self):
-        session = Session(pool=250, seed=3)
+        session = Session(pool=250, seed=3, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("shorter")
         ranked = session.send("no questions")
         assert all(len(r.text) <= 95 and "?" not in r.text for r in ranked)
 
     def test_a_new_topic_drops_the_previous_adjustments(self):
-        session = Session(pool=200, seed=4)
+        session = Session(pool=200, seed=4, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("much shorter")
         session.send("leg day")
         assert session.turn_constraints.max_chars is None
 
     def test_a_standing_rule_survives_a_new_topic(self):
-        session = Session(pool=200, seed=5)
+        session = Session(pool=200, seed=5, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("never use exclamation marks")
         ranked = session.send("leg day")
         assert all("!" not in r.text for r in ranked)
 
     def test_impossible_constraints_say_so_rather_than_relaxing(self):
-        session = Session(pool=80, seed=6)
+        session = Session(pool=80, seed=6, backend=GrammarBackend())
         session.send("finally quitting the job")
         with pytest.raises(ValueError, match="nothing survived"):
             session.send('never say "the"')
 
     def test_a_persona_switch_is_recognised_mid_conversation(self):
-        session = Session(pool=80, seed=7)
+        session = Session(pool=80, seed=7, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("try deadpan")
         assert session.persona == "deadpan"
 
     def test_clear_drops_turn_constraints_but_not_standing_ones(self):
-        session = Session(pool=120, seed=8)
+        session = Session(pool=120, seed=8, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("shorter")
         session.send("never use exclamation marks")
@@ -75,18 +96,18 @@ class TestSession:
         assert session.constraints().banned == ("!",)
 
     def test_a_pinned_seed_makes_a_session_reproducible(self):
-        first = Session(pool=100, seed=9).send("finally quitting the job")
-        second = Session(pool=100, seed=9).send("finally quitting the job")
+        first = Session(pool=100, seed=9, backend=GrammarBackend()).send("finally quitting the job")
+        second = Session(pool=100, seed=9, backend=GrammarBackend()).send("finally quitting the job")
         assert [r.text for r in first] == [r.text for r in second]
 
     def test_repeating_a_turn_redraws(self):
-        session = Session(pool=150, seed=10)
+        session = Session(pool=150, seed=10, backend=GrammarBackend())
         first = session.send("finally quitting the job")
         again = session.send("finally quitting the job")
         assert [r.text for r in first] != [r.text for r in again]
 
     def test_batches_are_counted(self):
-        session = Session(pool=60, seed=1)
+        session = Session(pool=60, seed=1, backend=GrammarBackend())
         session.send("finally quitting the job")
         session.send("shorter")
         assert session.profile.batches == 2
@@ -275,7 +296,7 @@ class TestPersistenceAcrossSessions:
     def test_rules_weights_and_voice_survive_a_restart(self, tmp_path):
         path = tmp_path / "profile.json"
 
-        first = Repl(session=Session(profile=Profile.load(path), pool=150, seed=1), top=5)
+        first = Repl(session=Session(profile=Profile.load(path), pool=150, seed=1, backend=GrammarBackend()), top=5)
         first.handle("finally quitting the job")
         first.handle("never use exclamation marks")
         first.handle("/persona gym")
@@ -286,3 +307,65 @@ class TestPersistenceAcrossSessions:
         assert second.standing.banned == ("!",)
         assert second.keeps == 1
         assert second.weights == pytest.approx(first.profile.weights)
+
+
+class TestWithAModelBackend:
+    def test_a_topic_is_generated_by_the_model(self):
+        backend = FakeBackend("You already know. You're stalling.\nNobody tells you.")
+        repl = Repl(session=Session(backend=backend, n=5), top=3)
+        output, _ = repl.handle("finally quitting the job")
+        assert "You already know" in output
+        assert backend.calls, "the model was never called"
+
+    def test_the_topic_reaches_the_prompt(self):
+        backend = FakeBackend("a post\nanother post")
+        repl = Repl(session=Session(backend=backend, n=5))
+        repl.handle("finally quitting the job")
+        assert "finally quitting the job" in backend.calls[0][1]
+
+    def test_standing_rules_reach_the_model_on_the_next_turn(self):
+        backend = FakeBackend("a post\nanother", "third post\nfourth")
+        repl = Repl(session=Session(backend=backend, n=2))
+        repl.handle("finally quitting the job")
+        repl.handle("never use exclamation marks")
+        assert "never say '!'" in backend.calls[1][0]
+
+    def test_kept_examples_reach_the_model_on_the_next_turn(self):
+        backend = FakeBackend("a post\nanother", "third post\nfourth")
+        repl = Repl(session=Session(backend=backend, n=2))
+        repl.handle("finally quitting the job")
+        repl.handle("/keep 1")
+        repl.handle("leg day")
+        assert "a post" in backend.calls[1][0]
+
+    def test_an_adjustment_reaches_the_prompt_and_is_enforced(self):
+        backend = FakeBackend("a post\nanother", "short\ntiny\n" + "x" * 300)
+        repl = Repl(session=Session(backend=backend, n=2))
+        repl.handle("finally quitting the job")
+        repl.handle("much shorter")
+        assert "at most 60 characters" in backend.calls[1][1]
+        assert all(len(item.text) <= 60 for item in repl.shown)
+
+    def test_a_dead_backend_keeps_the_session_alive(self):
+        from thirsttrap.llm import BackendError
+
+        class Dead(Backend):
+            def available(self):
+                return True
+
+            def complete(self, system, prompt):
+                raise BackendError("connection refused")
+
+            def describe(self):
+                return "dead"
+
+        repl = Repl(session=Session(backend=Dead(), n=5))
+        output, keep_going = repl.handle("finally quitting the job")
+        assert keep_going and "connection refused" in output
+
+    def test_the_backend_command_names_the_engine(self):
+        repl = Repl(session=Session(backend=FakeBackend(), n=5))
+        assert "fake backend" in repl.handle("/backend")[0]
+
+    def test_the_grammar_fallback_is_flagged_as_such(self):
+        assert "no local model found" in make_repl().handle("/backend")[0]

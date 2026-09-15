@@ -11,25 +11,42 @@ from .render import render_ranked, render_score
 from .score import score_post
 
 
+def _backend(args: argparse.Namespace):
+    from .llm import build, detect
+
+    if args.backend:
+        return build(args.backend, host=args.host, model=args.model, gguf=args.gguf)
+    return detect()
+
+
 def cmd_gen(args: argparse.Namespace) -> int:
     from .generate import propose
+    from .llm import BackendError
 
     try:
+        engine = _backend(args)
         candidates = propose(
-            args.topic, persona=args.persona, pool=args.pool, seed=args.seed
+            args.topic, persona=args.persona, n=args.n, backend=engine,
+            pool=args.pool, seed=args.seed,
         )
     except (KeyError, ValueError) as exc:
         print(f"error: {exc.args[0] if exc.args else exc}", file=sys.stderr)
         return 2
+    except BackendError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
 
     if not candidates:
-        print("error: the grammar produced nothing for that topic", file=sys.stderr)
+        print("error: nothing was generated for that topic", file=sys.stderr)
         return 1
 
     ranked = rank(candidates)
     top = ranked[: args.top] if args.top > 0 else ranked
 
-    print(f"{len(candidates)} candidates, showing top {len(top)}  [{args.persona}]")
+    print(
+        f"{len(candidates)} candidates, showing top {len(top)}  "
+        f"[{args.persona} | {engine.describe()}]"
+    )
     print()
     print(render_ranked(top, breakdown=args.breakdown))
     return 0
@@ -62,7 +79,10 @@ def cmd_chat(args: argparse.Namespace) -> int:
         profile.persona = args.persona
 
     repl = Repl(
-        session=Session(profile=profile, pool=args.pool, seed=args.seed),
+        session=Session(
+            profile=profile, backend=_backend(args), n=args.n,
+            pool=args.pool, seed=args.seed,
+        ),
         top=args.top,
         breakdown=args.breakdown,
     )
@@ -72,6 +92,7 @@ def cmd_chat(args: argparse.Namespace) -> int:
     if rules:
         known += f", {rules} standing rule(s)"
     print(f"thirsttrap [{profile.persona}]{known}")
+    print(f"generating with {repl.session.engine().describe()}")
     print("/help for commands, /quit to leave")
     if args.topic:
         output, _ = repl.handle(" ".join(args.topic))
@@ -110,6 +131,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
     )
     gen.add_argument("--seed", type=int, default=None, help="fix the draw for a reproducible batch")
+    gen.add_argument("-n", type=int, default=12, help="candidates to ask the model for")
+    gen.add_argument("--backend", help="ollama, openai-compat, llama-cpp or grammar")
+    gen.add_argument("--model", help="model name the local server should load")
+    gen.add_argument("--host", help="base URL of the local server")
+    gen.add_argument("--gguf", help="path to a .gguf for the in-process backend")
+
     gen.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
     gen.add_argument(
         "-p", "--persona", default=personas.DEFAULT_PERSONA, choices=personas.names(),
@@ -129,6 +156,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--pool", type=int, default=400, help="candidates to draw before ranking (default 400)"
     )
     ch.add_argument("--seed", type=int, default=None, help="fix the draw for a reproducible session")
+    ch.add_argument("-n", type=int, default=12, help="candidates to ask the model for per turn")
+    ch.add_argument("--backend", help="ollama, openai-compat, llama-cpp or grammar")
+    ch.add_argument("--model", help="model name the local server should load")
+    ch.add_argument("--host", help="base URL of the local server")
+    ch.add_argument("--gguf", help="path to a .gguf for the in-process backend")
+
     ch.add_argument("-k", "--top", type=int, default=3, help="candidates to show (0 = all)")
     ch.add_argument(
         "-p", "--persona", default=None, choices=personas.names(),
