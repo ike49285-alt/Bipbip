@@ -57,6 +57,23 @@ rhetorical frames that needs nothing installed. It's genuinely worse: more
 formulaic, doesn't understand your topic, just arranges your words in shapes
 that read well. It exists so the tool still runs, and it says so in the header.
 
+## Two ways to talk to it
+
+```bash
+python -m thirsttrap serve        # web UI at 127.0.0.1:8765, your local model
+python -m thirsttrap chat "leg day"               # terminal
+```
+
+`serve` binds loopback on purpose: it is an unauthenticated endpoint that
+drives a language model. `--host-bind` opens it wider, deliberately.
+
+There is also a hosted version at
+<https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ> — same scorer, ranker,
+directives and tuning, ported to JavaScript and running in the page. **It
+generates with Claude, not your local model**: a published artifact is
+sandboxed on claude.ai and cannot reach your machine. Use it to try the thing
+from a phone; use `serve` when the model should stay local.
+
 ## Use
 
 ```bash
@@ -138,6 +155,8 @@ judgment. With a model generating, the scorer is an independent judge again.
 python -m pytest tests/ -q
 ```
 
-337 tests, no network. The HTTP backends are tested against a real loopback
-server speaking both protocols — actual sockets, not mocks — so the urllib
-paths, timeouts, error handling and response parsing are genuinely exercised.
+349 tests, no outbound network. Both HTTP surfaces are tested against real
+loopback servers — the model backends against one speaking Ollama's and the
+OpenAI-compatible protocol, and the web UI against its own — so sockets,
+timeouts, error handling and parsing are genuinely exercised rather than
+mocked.

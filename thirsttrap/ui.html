@@ -1,0 +1,132 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>thirsttrap</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #fbfaf9; --panel: #fff; --ink: #1a1a19; --muted: #6b6a67;
+    --line: #e6e3df; --accent: #b5533a; --good: #2f7d5f;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141413; --panel:#1c1c1a; --ink:#ebe9e6; --muted:#9a9791;
+            --line:#2e2e2b; --accent:#e0795c; --good:#5fb08a; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:15px/1.5 ui-sans-serif,system-ui,-apple-system,Segoe UI,sans-serif; }
+  .wrap { max-width: 760px; margin:0 auto; padding:24px 16px 120px; }
+  header { display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:20px; }
+  h1 { font-size:20px; margin:0; letter-spacing:-.01em; }
+  .meta { color:var(--muted); font-size:12.5px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  .chips { display:flex; flex-wrap:wrap; gap:6px; margin-bottom:16px; }
+  .chip { font-size:12px; padding:3px 9px; border:1px solid var(--line); border-radius:999px; color:var(--muted); background:var(--panel); }
+  .chip.rule { border-color:var(--accent); color:var(--accent); }
+  .post { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px 16px; margin-bottom:10px; }
+  .post .top { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .score { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; color:var(--muted); min-width:44px; }
+  .text { font-size:16px; line-height:1.45; }
+  .dup { font-size:11px; color:var(--muted); border:1px solid var(--line); padding:1px 6px; border-radius:4px; }
+  button { font:inherit; cursor:pointer; border-radius:8px; border:1px solid var(--line); background:transparent; color:var(--muted); padding:4px 10px; font-size:12.5px; }
+  button:hover { color:var(--ink); border-color:var(--muted); }
+  button.keep { margin-left:auto; }
+  .note { color:var(--accent); font-size:13px; white-space:pre-wrap; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; margin-bottom:12px; }
+  .bar { position:fixed; left:0; right:0; bottom:0; background:var(--panel); border-top:1px solid var(--line);
+         padding:12px 16px calc(12px + env(safe-area-inset-bottom,0px)); }
+  .bar form { max-width:760px; margin:0 auto; display:flex; gap:8px; }
+  input { flex:1; font:inherit; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:var(--bg); color:var(--ink); }
+  input:focus { outline:2px solid var(--accent); outline-offset:-1px; }
+  .send { border-color:var(--accent); color:var(--accent); padding:0 16px; }
+  .hint { color:var(--muted); font-size:12px; margin-top:8px; text-align:center; }
+  .empty { color:var(--muted); padding:32px 0; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>thirsttrap</h1>
+    <span class="meta" id="meta">…</span>
+  </header>
+  <div class="chips" id="chips"></div>
+  <div class="note" id="note" hidden></div>
+  <div id="posts"><p class="empty">Type a topic below to start.</p></div>
+</div>
+
+<div class="bar">
+  <form id="form">
+    <input id="line" autocomplete="off" placeholder="a topic, or: shorter / no questions / more like 2 / /help" autofocus>
+    <button class="send" type="submit">Send</button>
+  </form>
+  <p class="hint">Runs against your local model. Nothing leaves this machine.</p>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+function render(d) {
+  $("meta").textContent = `${d.persona} · ${d.backend} · ${d.confidence}`;
+
+  const chips = [];
+  for (const r of d.rules) chips.push(`<span class="chip rule">${esc(r)}</span>`);
+  for (const c of d.constraints) if (!d.rules.includes(c)) chips.push(`<span class="chip">${esc(c)}</span>`);
+  if (d.kept.length) chips.push(`<span class="chip">${d.kept.length} kept</span>`);
+  $("chips").innerHTML = chips.join("");
+
+  $("note").hidden = !d.note;
+  $("note").textContent = d.note || "";
+
+  if (!d.posts.length) {
+    $("posts").innerHTML = '<p class="empty">Nothing to show.</p>';
+    return;
+  }
+  $("posts").innerHTML = d.posts.map((p, i) => `
+    <div class="post">
+      <div class="top">
+        <span class="score">${p.score.toFixed(1)}</span>
+        ${p.duplicate ? '<span class="dup">near-duplicate</span>' : ""}
+        <button class="keep" data-i="${i + 1}">Keep</button>
+      </div>
+      <div class="text">${esc(p.text)}</div>
+    </div>`).join("");
+
+  for (const b of document.querySelectorAll("button.keep")) {
+    b.onclick = () => say("/keep " + b.dataset.i);
+  }
+}
+
+function esc(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function say(line) {
+  $("line").disabled = true;
+  try {
+    const r = await fetch("/api/say", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ line }),
+    });
+    render(await r.json());
+  } catch (e) {
+    $("note").hidden = false;
+    $("note").textContent = "could not reach the local server: " + e;
+  } finally {
+    $("line").disabled = false;
+    $("line").focus();
+  }
+}
+
+$("form").onsubmit = (e) => {
+  e.preventDefault();
+  const v = $("line").value.trim();
+  if (!v) return;
+  $("line").value = "";
+  say(v);
+};
+
+fetch("/api/state").then((r) => r.json()).then(render).catch(() => {});
+</script>
+</body>
+</html>

@@ -112,6 +112,24 @@ def cmd_chat(args: argparse.Namespace) -> int:
             return 0
 
 
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .profile import Profile
+    from .serve import serve
+
+    profile = Profile(path=None) if args.fresh else Profile.load()
+    if args.persona:
+        profile.persona = args.persona
+    try:
+        serve(
+            host=args.host_bind, port=args.port, backend=_backend(args),
+            profile=profile, n=args.n, top=args.top, open_browser=not args.no_browser,
+        )
+    except OSError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_personas(_: argparse.Namespace) -> int:
     for name in personas.names():
         print(f"{name:<14} {personas.PERSONAS[name].summary}")
@@ -174,6 +192,26 @@ def build_parser() -> argparse.ArgumentParser:
         help="start from nothing instead of loading the saved profile",
     )
     ch.set_defaults(func=cmd_chat)
+
+    sv = sub.add_parser("serve", help="local web UI in your browser")
+    sv.add_argument("--port", type=int, default=8765, help="port (default 8765)")
+    sv.add_argument(
+        "--host-bind", default="127.0.0.1",
+        help="interface to bind (default 127.0.0.1 -- this endpoint is unauthenticated)",
+    )
+    sv.add_argument("--no-browser", action="store_true", help="do not open a browser")
+    sv.add_argument("-n", type=int, default=12, help="candidates per batch")
+    sv.add_argument("-k", "--top", type=int, default=5, help="candidates to show")
+    sv.add_argument(
+        "-p", "--persona", default=None, choices=personas.names(),
+        help="voice preset (default: whatever the profile remembers)",
+    )
+    sv.add_argument("--fresh", action="store_true", help="ignore the saved profile")
+    sv.add_argument("--backend", help="ollama, openai-compat, llama-cpp or grammar")
+    sv.add_argument("--model", help="model name the local server should load")
+    sv.add_argument("--host", help="base URL of the local model server")
+    sv.add_argument("--gguf", help="path to a .gguf for the in-process backend")
+    sv.set_defaults(func=cmd_serve)
 
     pl = sub.add_parser("personas", help="list the voice presets")
     pl.set_defaults(func=cmd_personas)
