@@ -101,6 +101,8 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
 .quick{display:flex;gap:6px;flex-wrap:wrap;margin-top:9px}
 .quick button{font-size:11.5px;padding:2px 9px;color:var(--faint)}
 .msg{font-family:var(--mono);font-size:12px;color:var(--accent);margin-top:9px;white-space:pre-wrap}
+.foot{margin:9px 0 0;font-size:11.5px;line-height:1.5;color:var(--faint);max-width:62ch}
+.foot code{font-family:var(--mono);font-size:11px;color:var(--muted)}
 .thinking{color:var(--muted);font-family:var(--mono);font-size:13px}
 .dots::after{content:"";animation:d 1.2s steps(4,end) infinite}
 @keyframes d{0%{content:""}25%{content:"."}50%{content:".."}75%{content:"..."}}
@@ -111,7 +113,7 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
   <header>
     <div class="mark">thirst<em>trap</em></div>
     <div class="status">
-      <div id="st-engine">checking for Claude…</div>
+      <div id="st-engine">writing <b>in this page</b> · no model, no tokens</div>
       <div id="st-tune"><b>untuned</b> · 0 keeps</div>
     </div>
   </header>
@@ -120,9 +122,6 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
     <main>
       <p class="eyebrow">Transcript</p>
       <div id="stream"></div>
-      <div id="pending" hidden class="turn">
-        <div class="thinking"><span class="dots">Writing</span></div>
-      </div>
     </main>
 
     <aside class="rail">
@@ -151,6 +150,10 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
     </form>
     <div class="quick" id="quick"></div>
     <div class="msg" id="msg" hidden></div>
+    <p class="foot">Posts are built here, by a slot grammar — no model, no network, nothing billed.
+      It arranges your words in shapes that read well; it does not understand your topic.
+      For a real model writing the copy, run <code>python -m thirsttrap serve</code> against your
+      own Ollama — that stays on your machine too.</p>
   </div>
 </div>
 
@@ -349,7 +352,11 @@ function parseDirective(text){
   const low = text.toLowerCase();
   const c = {banned: []};
   let recognised = false;
-  for (const [re, eff] of ADJUST) if (re.test(low)){ Object.assign(c, eff); recognised = true; }
+  // First match wins, so "much shorter" (60) is not overwritten by "shorter" (95).
+  for (const [re, eff] of ADJUST) if (re.test(low)){
+    for (const k in eff) if (c[k] === undefined) c[k] = eff[k];
+    recognised = true;
+  }
   for (const [re, term] of BANS) if (re.test(low) && !c.banned.includes(term)){ c.banned.push(term); recognised = true; }
   const q = BANQ_RE.exec(low);
   if (q){ c.banned.push(q[1].trim()); recognised = true; }
@@ -438,52 +445,184 @@ function learnFromKeep(chosen, others){
   return moved;
 }
 
-/* ---------- generation ---------- */
-let sample = null;
-const state = {topic:null, turn:{banned:[]}, batch:[], busy:false, ctl:null, seeded:true};
+/* ---------- generation: the grammar, in this page ---------- */
+/* ---------- topic parsing: port of topic.py ---------- */
+const LEADERS = ["about ", "on ", "re ", "regarding "];
+const DETERMINERS = new Set("a an the my your his her their our its this that these those".split(" "));
+const PREPS = new Set("at in on of for with from to about after before during under over into through against between among around near past".split(" "));
+const FUNCTION = new Set("a an the my your his her their our its this that these those and or but is are was were be been am do does did done not no so as if then than when while again still just very really quite finally".split(" ").concat([...PREPS]));
+const IRREGULAR = {run:"running",sit:"sitting",quit:"quitting",get:"getting",put:"putting",cut:"cutting",win:"winning",begin:"beginning",swim:"swimming",plan:"planning",stop:"stopping",drop:"dropping",lie:"lying",die:"dying",tie:"tying",be:"being",see:"seeing",shut:"shutting",set:"setting",let:"letting",forget:"forgetting"};
+const KNOWN_VERBS = new Set(Object.keys(IRREGULAR).concat(
+  "leave love hate want need miss text call date meet kiss chase block delete post ghost move walk drive train lift work wake sleep eat drink cook clean learn teach read write build make take give send wait watch listen talk speak ask answer say tell think know feel try start finish fail pass fall rise dance sing swim climb ride travel pack unpack apply resign retire".split(" ")));
+const VOWELS = "aeiou";
+const WORDS_RE = /[A-Za-z0-9'\-]+/g;
 
-function buildPrompt(topic, n, constraints, likeText){
-  const lines = [
-    "You write short-form posts for X (Twitter). Attention is won in the first five words and lost by trying too hard.",
-    "", "Hard rules, no exceptions:", ...RULES_TXT.map(r => "- " + r),
-    "", "Craft: specific beats general; say one thing; cut every word doing nothing. Make the candidates genuinely different from each other — two posts that could be edited into one another means one is wasted.",
-    "", "Voice — " + state_persona() + ":", PERSONAS[P.persona],
-  ];
-  const standing = describe(P.standing);
-  if (standing.length) lines.push("", "Standing preferences from this user:", ...standing.map(s => "- " + s));
-  if (P.kept.length) lines.push("", "Posts this user kept. Match what these have in common, do not reuse their wording:", ...P.kept.slice(-6).map(k => "- " + k));
-  const asked = describe(constraints);
-  if (asked.length) lines.push("", "Requirements for every post:", ...asked.map(s => "- " + s));
-  if (likeText) lines.push("", "Aim for the register of this one, without repeating it:", likeText);
-  lines.push("", "Topic: " + topic,
-             "", "Reply with only a JSON array of " + n + " strings, each one post. Example: [\"first post\", \"second post\"]");
-  return lines.join("\n");
+const isGerund = w => w.length >= 5 && w.toLowerCase().endsWith("ing");
+function toGerund(word){
+  const w = word.toLowerCase();
+  if (isGerund(w)) return w;
+  if (IRREGULAR[w]) return IRREGULAR[w];
+  if (!KNOWN_VERBS.has(w)) return w;
+  if (w.endsWith("ie")) return w.slice(0, -2) + "ying";
+  if (w.endsWith("e") && !/(ee|oe|ye)$/.test(w)) return w.slice(0, -1) + "ing";
+  if (w.length >= 3 && !VOWELS.includes(w.at(-1)) && !"wxy".includes(w.at(-1))
+      && VOWELS.includes(w.at(-2)) && !VOWELS.includes(w.at(-3))) return w + w.at(-1) + "ing";
+  return w + "ing";
 }
-function state_persona(){ return P.persona.replace("_", " "); }
+function parseTopic(text){
+  const raw = text.trim().replace(/\s+/g, " ");
+  const low = raw.toLowerCase();
+  let phrase = low;
+  for (const lead of LEADERS) if (phrase.startsWith(lead)){ phrase = phrase.slice(lead.length); break; }
 
-async function generate(topic, constraints, likeText){
-  const prompt = buildPrompt(topic, 12, constraints, likeText);
-  state.ctl = new AbortController();
-  const data = await sample.json(prompt, {modelTier:"default", cache:false, signal:state.ctl.signal});
-  if (!Array.isArray(data)) throw {code:"invalid_json", message:"expected an array"};
-  return data.map(x => String(x).trim()).filter(Boolean);
+  const ws = phrase.match(WORDS_RE) || [];
+  if (!ws.length) return {raw, phrase: raw, gerund: raw, head: raw, sentence: raw};
+
+  const converted = toGerund(ws[0]);
+  const gerund = converted !== ws[0] ? [converted, ...ws.slice(1)].join(" ") : phrase;
+
+  const full = low.match(WORDS_RE) || ws;
+  const zone = [];
+  for (const w of full){ if (PREPS.has(w) && zone.length) break; zone.push(w); }
+  const content = zone.map((w, i) => [w, i]).filter(([w]) => !FUNCTION.has(w)).map(([, i]) => i);
+  let head;
+  if (!content.length) head = zone[zone.length - 1];
+  else {
+    const end = content[content.length - 1];
+    let start = end;
+    while (start > 0 && !FUNCTION.has(zone[start - 1])) start--;
+    if (start > 0 && DETERMINERS.has(zone[start - 1])) start--;
+    head = zone.slice(start, end + 1).join(" ");
+  }
+  const sentence = phrase ? phrase[0].toUpperCase() + phrase.slice(1) : "";
+  return {raw, phrase, gerund, head, sentence};
 }
 
-const ERRORS = {
-  not_granted:"Claude access wasn’t allowed for this page, so it can’t write posts. Scoring still works — paste a post with /score.",
-  sampling_disabled:"Claude isn’t available on this account. Scoring still works.",
-  not_declared:"This page no longer has Claude access.",
-  rate_limited:"Too many requests. Wait a moment and try again.",
-  session_expired:"Sign in to Claude again, then retry.",
-  refused:"Claude declined that topic. Try describing it differently.",
-  empty_completion:"Nothing came back. Try a more specific topic.",
-  invalid_json:"The reply wasn’t usable. Try again.",
-  cancelled:"Stopped.",
-  upstream_error:"Something went wrong reaching Claude. Try again.",
+/* ---------- the grammar: port of grammar.py ---------- */
+const F = (templates, personas) => templates.map(t => ({t, p: personas ? new Set(personas) : null}));
+const FRAMES = [].concat(
+  F(["Nobody tells you about {phrase}. {punch}",
+     "Nobody warns you about {phrase}. {punch}",
+     "Nobody mentions the {quiet} of {gerund}.",
+     "The part nobody posts about {phrase}: {cost}.",
+     "Everyone talks about {head}. Nobody mentions {cost}.",
+     "They never tell you {phrase} is mostly {cost}."]),
+  F(["You already know about {head}. You're just {stalling}.",
+     "You don't need permission for {phrase}. You need {need}.",
+     "You keep {circling} {head}. {punch}",
+     "You want {head}. Say it properly.",
+     "You'll think about {head} at {time}. You always do.",
+     "Your version of {phrase} is {cost}. Mine isn't."]),
+  F(["{num} {unit} of {gerund}. {punch}",
+     "{time}. {sentence}. {punch}",
+     "Took me {num} {unit} to {settle} {head}. {punch}",
+     "{sentence} at {time}. Home by {time}. {punch}",
+     "Spent {num} {unit} {circling} {head}. {punch}"]),
+  F(["Stop apologising for {phrase}.",
+     "Stop explaining {head} to people who {dismiss} it.",
+     "Stop waiting for someone to approve {phrase}.",
+     "Say it out loud: {phrase}."]),
+  F(["Thought {phrase} would be the hard part. It wasn't.",
+     "Everyone said {phrase} would {dismiss} me. {punch}",
+     "{sentence} was supposed to be the ending. {punch}",
+     "I was wrong about {head}. Gloriously."]),
+  F(["{sentence}. That's all you're getting.",
+     "{sentence}. Ask me in person.",
+     "Something happened at {time}. {phrase} is involved. That's the post.",
+     "Still thinking about {head}. Still not saying why."], ["soft_launch","flirt","deadpan"]),
+  F(["{sentence}. Still not sorry.",
+     "{sentence}, and I'd do it again at {time}.",
+     "Turns out {phrase} was the easy bit."], ["deadpan","chaos","flex"]),
+  F(["{num} {unit} in and {head} still {dismiss} me. Good.",
+     "{time} for {head}. Every day. That's it, that's the secret.",
+     "Nobody's coming to make {phrase} easier. {punch}"], ["gym","flex"]),
+  F(["How long have you been {circling} {head}?",
+     "What would you do about {phrase} if nobody was watching?",
+     "Who told you {phrase} needed {need}?"]),
+);
+const ANY = "*";
+const LEX = {
+  punch: {"*":["It gets quieter.","I'd do it again.","No notes.","That's the whole story.","It was never close.","Took long enough.","Worth every minute."],
+    flirt:["You'd have stayed.","Ask me why.","You already knew.","Come find out.","You'd look good here."],
+    soft:["It was warm.","Nobody saw.","I kept it.","It still is.","I didn't tell anyone."],
+    chaos:["Anyway.","Unwell about it.","No further questions.","I am normal.","Seek help, not from me."],
+    deadpan:["Fine.","Sure.","It's fine.","Not a metaphor.","Anyway."],
+    flex:["Twice.","On the first try.","Still is.","Nobody asked. Telling you."],
+    gym:["Again tomorrow.","Same time tomorrow.","Unbroken.","Still going."],
+    soft_launch:["That's all.","Don't ask.","You'll find out.","Not yet."]},
+  quiet: {"*":["quiet part","best part","second day","morning after","cost","aftermath","silence"]},
+  cost: {"*":["waiting","silence","admin","cold coffee","logistics","other people's opinions","the bit nobody films","small print"],
+    soft:["quiet","the light at 6am","somebody's playlist"],
+    chaos:["psychic damage","a group chat","unexplained crying"],
+    gym:["sore hamstrings","the drive home","chalk everywhere"]},
+  stalling: {"*":["stalling","waiting for permission","rehearsing it","drafting the message","circling the airport","being polite about it"]},
+  circling: {"*":["circling","rehearsing","avoiding","overthinking","drafting a message about","putting off"]},
+  need: {"*":["a Tuesday","a reason you like","an hour","nerve","one honest sentence","less advice"]},
+  dismiss: {"*":["humble","flatten","outlast","underestimate","test","bore"]},
+  settle: {"*":["admit","say","stop arguing about","forgive","finish with"]},
+  time: {"*":["5am","4am","6am","midnight","11pm","a Tuesday","half past nothing","Sunday","closing time"],
+    gym:["5am","6am","5:40","before work","after work"]},
+  num: {"*":["three","four","six","nine","eleven","two","seven"]},
+  unit: {"*":["years","months","weeks","days","sessions","attempts"], gym:["weeks","sessions","sets","months"]},
 };
+function lexOptions(slot, persona){
+  const bank = LEX[slot];
+  if (!bank) return null;
+  return (bank[persona] || []).concat(bank[ANY] || []);
+}
+function tidy(text){
+  let t = text.replace(/\s+/g, " ").trim().replace(/\s+([.,!?;:])/g, "$1").replace(/([.!?]){2,}/g, "$1");
+  if (t && !".!?".includes(t.at(-1))) t += ".";
+  let out = "", cap = true;
+  for (const ch of t){
+    out += cap && /[a-z]/i.test(ch) ? ch.toUpperCase() : ch;
+    if (/[a-z0-9]/i.test(ch)) cap = false;
+    else if (".!?".includes(ch)) cap = true;
+  }
+  return out;
+}
+const pick = (arr, rnd) => arr[Math.floor(rnd() * arr.length)];
+function expand(template, topic, persona, rnd){
+  let text = template;
+  for (let depth = 0; depth < 6 && /\{\w+\}/.test(text); depth++){
+    text = text.replace(/\{(\w+)\}/g, (m, slot) => {
+      if (typeof topic[slot] === "string") return topic[slot];
+      const opts = lexOptions(slot, persona);
+      return opts && opts.length ? pick(opts, rnd) : m;
+    });
+  }
+  return tidy(text);
+}
+/* mulberry32 — a seeded PRNG, so a pinned seed reproduces a batch */
+function rng(seed){
+  let a = seed >>> 0;
+  return () => { a = (a + 0x6D2B79F5) >>> 0; let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+}
+function grammarGenerate(topicText, persona, count, seed){
+  const topic = parseTopic(topicText);
+  const usable = FRAMES.filter(f => !f.p || f.p.has(persona));
+  if (!usable.length) return [];
+  const rnd = rng(seed ?? (Math.random() * 1e9) | 0);
+  const seen = new Set(), out = [];
+  for (let i = 0; i < count * 8 && out.length < count; i++){
+    const text = expand(pick(usable, rnd).t, topic, persona, rnd);
+    if (!seen.has(text)){ seen.add(text); out.push(text); }
+  }
+  return out;
+}
+
+
+const state = {topic:null, turn:{banned:[]}, batch:[], busy:false, seeded:true, seed:1};
+
+function generate(topic, constraints, likeText){
+  const pool = grammarGenerate(topic, P.persona, 400, state.seed++);
+  return pool.filter(t => allows(constraints, t));
+}
 
 /* ---------- rendering ---------- */
 const $ = id => document.getElementById(id);
+const state_persona = () => P.persona.replace("_", " ");
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function renderStatus(){
@@ -592,7 +731,7 @@ function forgetRule(index){
   saveProfile(); renderRail(); note("Forgot: " + clause);
 }
 
-async function send(raw){
+function send(raw){
   const line = raw.trim();
   if (!line || state.busy) return;
 
@@ -620,17 +759,11 @@ async function send(raw){
   if (!d.recognised){ state.topic = line; state.turn = {banned: []}; }
   else if (!state.topic){ note("Say what the posts should be about first."); return; }
 
-  if (!sample){
-    note(ERRORS.not_granted);
-    saveProfile(); renderRail(); renderStatus();
-    return;
-  }
-
   const constraints = mergeConstraints(P.standing, state.turn);
-  state.busy = true; $("go").disabled = true; $("pending").hidden = false; note("");
+  state.busy = true; $("go").disabled = true; note("");
 
   try {
-    const raws = await generate(state.topic, constraints, likeText);
+    const raws = generate(state.topic, constraints, likeText);
     const allowed = raws.filter(t => allows(constraints, t));
     if (!allowed.length){
       note(raws.length
@@ -647,10 +780,9 @@ async function send(raw){
     addTurn(line, items.slice(0, 5), false);
     if (raws.length > allowed.length) note((raws.length - allowed.length) + " dropped for breaking: " + describe(constraints).join(", "));
   } catch (e){
-    const code = e && e.code ? e.code : "upstream_error";
-    if (code !== "cancelled") note(ERRORS[code] || ERRORS.upstream_error);
+    note("Could not build a batch for that. Try a shorter, plainer topic.");
   } finally {
-    state.busy = false; $("go").disabled = false; $("pending").hidden = true;
+    state.busy = false; $("go").disabled = false;
     saveProfile(); renderRail(); renderStatus();
     $("line").focus();
   }
@@ -673,10 +805,4 @@ addTurn("finally quitting the job", rank(EXAMPLE, P.weights).slice(0, 4), true);
 
 $("form").onsubmit = e => { e.preventDefault(); const v = $("line").value; $("line").value = ""; send(v); };
 
-(async () => {
-  sample = window.claude ? await window.claude.use("sample") : null;
-  $("st-engine").innerHTML = sample
-    ? "writing with <b>Claude</b> · scored in this page"
-    : "<b>scoring only</b> — Claude unavailable here";
-})();
 </script>

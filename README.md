@@ -68,11 +68,18 @@ python -m thirsttrap chat "leg day"               # terminal
 drives a language model. `--host-bind` opens it wider, deliberately.
 
 There is also a hosted version at
-<https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ> — same scorer, ranker,
-directives and tuning, ported to JavaScript and running in the page. **It
-generates with Claude, not your local model**: a published artifact is
-sandboxed on claude.ai and cannot reach your machine. Use it to try the thing
-from a phone; use `serve` when the model should stay local.
+<https://claude.ai/artifact/NPNgsJeHY32B3NvqiGkyLZ> — the whole system ported
+to JavaScript and running in the page: topic parsing, the slot grammar, the
+scorer, the ranker, the directive parser and the weight learning, with the
+profile in `localStorage`.
+
+**It declares no capabilities and spends nothing.** Generation is the grammar,
+in the page — no model, no network call, no tokens. That is a deliberate
+limit rather than a choice of engine: a published artifact is sandboxed, so it
+can neither reach a model on your machine nor download model weights, and the
+only honest options were a grammar or billing someone. Use it to try the
+ranking and the tuning from a phone; run `serve` when you want a real model
+writing the copy.
 
 ## Use
 
