@@ -80,6 +80,8 @@ header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;
 .flag{font-size:11px;font-family:var(--mono);color:var(--faint)}
 .flag.warn{color:var(--accent)}
 .row.notes{margin-top:6px;gap:12px}
+.reply{font-size:16.5px;line-height:1.5;margin:0 0 14px;max-width:62ch}
+.draftlabel{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--faint);font-weight:700;margin:0 0 6px}
 .chars{font-family:var(--mono);font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums}
 
 button{font:inherit;cursor:pointer;border-radius:6px;border:1px solid var(--line);
@@ -112,6 +114,16 @@ button.why{padding:3px 8px}
 .keptline{font-size:13px;padding:6px 0;border-top:1px solid var(--line);color:var(--muted)}
 .keptline:first-of-type{border-top:none}
 .empty{color:var(--faint);font-size:13px}
+.mstate{margin:0 0 9px;font-size:12.5px;color:var(--muted);line-height:1.45}
+.mstate.on{color:var(--good)}
+#mform{display:flex;flex-direction:column;gap:5px;margin-top:11px}
+#mform label{font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--faint);font-weight:700;margin-top:5px}
+#mform input,#mform select{font:inherit;font-size:13px;padding:7px 9px;border-radius:6px;
+  border:1px solid var(--line);background:var(--bg);color:var(--ink);width:100%}
+.mrow{display:flex;gap:6px;margin-top:9px}
+.msave{border-color:var(--accent);color:var(--accent)}
+.mnote{margin:7px 0 0;font-size:11px;line-height:1.45;color:var(--faint)}
+.mnote a{color:var(--muted)}
 
 .composer{position:fixed;left:0;right:0;bottom:0;background:var(--panel);border-top:1px solid var(--line);
   padding:14px 20px calc(14px + env(safe-area-inset-bottom,0px))}
@@ -136,7 +148,7 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
   <header>
     <div class="mark">thirst<em>trap</em></div>
     <div class="status">
-      <div id="st-engine">writing <b>in this page</b> · no model, no tokens</div>
+      <div id="st-engine">no model · grammar only</div>
       <div id="st-tune"><b>untuned</b> · 0 keeps</div>
     </div>
   </header>
@@ -145,9 +157,33 @@ input[type=text]{flex:1;min-width:0;font:inherit;font-size:15px;padding:11px 13p
     <main>
       <p class="eyebrow">Transcript</p>
       <div id="stream"></div>
+      <div id="pending" hidden class="turn">
+        <div class="thinking"><span class="dots">Thinking</span></div>
+      </div>
     </main>
 
     <aside class="rail">
+      <div class="card" id="modelcard">
+        <p class="eyebrow">Model</p>
+        <p class="mstate" id="mstate">Not connected — using the built-in grammar.</p>
+        <button id="mtoggle" type="button">Connect a model</button>
+        <form id="mform" hidden>
+          <label for="mprovider">Provider</label>
+          <select id="mprovider"></select>
+          <label for="mkey">API key</label>
+          <input type="password" id="mkey" autocomplete="off" spellcheck="false" placeholder="paste your key">
+          <label for="mmodel">Model</label>
+          <input type="text" id="mmodel" autocomplete="off" spellcheck="false">
+          <p class="mnote" id="mnote"></p>
+          <div class="mrow">
+            <button type="submit" class="msave">Save</button>
+            <button type="button" id="mclear">Disconnect</button>
+          </div>
+          <p class="mnote">Your key is stored only on this device, and sent only to
+            the provider you picked. It is never committed, uploaded, or visible to
+            anyone else who opens this page — they bring their own.</p>
+        </form>
+      </div>
       <div class="card">
         <p class="eyebrow">Standing rules</p>
         <div id="rules"><p class="empty">None yet. Say “never use exclamation marks”.</p></div>
@@ -636,11 +672,168 @@ function grammarGenerate(topicText, persona, count, seed){
 }
 
 
-const state = {topic:null, turn:{banned:[]}, batch:[], busy:false, seeded:true, seed:1};
+const state = {turn:{banned:[]}, batch:[], history:[], busy:false, seeded:true, seed:1};
 
 function generate(topic, constraints, likeText){
   const pool = grammarGenerate(topic, P.persona, 400, state.seed++);
   return pool.filter(t => allows(constraints, t));
+}
+
+/* ---------- talking to a model you bring ---------- */
+const PROVIDERS = {
+  openrouter: {
+    label: "OpenRouter (free models)",
+    url: "https://openrouter.ai/api/v1/chat/completions",
+    model: "meta-llama/llama-3.3-70b-instruct:free",
+    note: 'Free key at openrouter.ai/keys. Models ending ":free" cost nothing.',
+  },
+  groq: {
+    label: "Groq (fast, free tier)",
+    url: "https://api.groq.com/openai/v1/chat/completions",
+    model: "llama-3.3-70b-versatile",
+    note: "Free key at console.groq.com/keys.",
+  },
+  gemini: {
+    label: "Google Gemini (free tier)",
+    url: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    model: "gemini-2.0-flash",
+    note: "Free key at aistudio.google.com/apikey.",
+  },
+  cerebras: {
+    label: "Cerebras (free tier)",
+    url: "https://api.cerebras.ai/v1/chat/completions",
+    model: "llama3.1-8b",
+    note: "Free key at cloud.cerebras.ai.",
+  },
+  ollama: {
+    label: "Ollama on this machine",
+    url: "http://127.0.0.1:11434/v1/chat/completions",
+    model: "qwen2.5:7b",
+    note: "Only works on a computer running Ollama. No key needed.",
+  },
+  custom: {
+    label: "Custom (OpenAI-compatible)",
+    url: "",
+    model: "",
+    note: "Any endpoint that accepts POST /v1/chat/completions.",
+  },
+};
+
+const MKEY = "thirsttrap.model.v1";
+let MODEL = {provider: "", url: "", key: "", model: ""};
+
+function loadModel(){
+  try {
+    const d = JSON.parse(localStorage.getItem(MKEY) || "null");
+    if (d && typeof d === "object") MODEL = {
+      provider: String(d.provider || ""), url: String(d.url || ""),
+      key: String(d.key || ""), model: String(d.model || ""),
+    };
+  } catch (e) { /* blocked storage: stay disconnected */ }
+}
+function saveModel(){
+  try { localStorage.setItem(MKEY, JSON.stringify(MODEL)); } catch (e) { /* not fatal */ }
+}
+const modelReady = () => Boolean(MODEL.url && MODEL.model);
+
+/* The same framing the Python version uses: she converses, and drafts only
+   when the conversation has given her something to draft from. */
+const POST_RULES = [
+  "Every post stands alone. No threads, no numbering, no \"1/\".",
+  "No hashtags. No @-mentions. No URLs.",
+  "Under 280 characters. Most should be well under.",
+  "Subjects are adults. Never write anything sexual about anyone who could read as underage.",
+  "Suggestive through implication and restraint only. Nothing sexually explicit or anatomical.",
+  "Do not write as, quote, or reference any real named person.",
+  "Confidence, never neediness. No begging for engagement, no fishing for compliments.",
+  "Never demean anyone, including the reader.",
+  "Specific beats general. Say one thing. Cut every word doing nothing.",
+];
+
+function conversationSystem(constraints){
+  const parts = [
+    "You are someone's writing partner. They talk to you about their life; you talk back, "
+    + "and when something in it is worth posting, you draft a few.",
+    "Talk like a person, not a service. React to what they actually said. Ask the question "
+    + "that gets the good detail out of them -- the specific one, not \"tell me more\". Keep "
+    + "it to a sentence or two; you are texting, not writing an essay.",
+    "You are NOT a form that takes a topic and returns tweets. Never ask them for a topic, "
+    + "never say \"here are some options\", never list what you can do.",
+    "Draft only when there is something real to draft from. If they are mid-story, or just "
+    + "venting, or you still do not know the detail that would make the post land, reply with "
+    + "no drafts and ask. An empty posts list is a normal turn.",
+    "Your register -- " + state_persona() + ": " + PERSONAS[P.persona],
+    "Rules for anything you draft:\n" + POST_RULES.map(r => "- " + r).join("\n"),
+  ];
+  const standing = describe(P.standing);
+  if (standing.length) parts.push("Standing preferences from this user:\n" + standing.map(s => "- " + s).join("\n"));
+  if (P.kept.length) parts.push("Posts they kept before. Match what these have in common, do not reuse their wording:\n"
+    + P.kept.slice(-6).map(k => "- " + k).join("\n"));
+  const asked = describe(constraints);
+  if (asked.length) parts.push("Right now they want every draft to be: " + asked.join(", "));
+  parts.push('Reply with only JSON: {"reply": "what you say back", "posts": ["draft", ...]}\n'
+    + 'Leave "posts" empty when there is nothing worth drafting yet.');
+  return parts.join("\n\n");
+}
+
+/* Losing her reply is worse than losing the drafts, so unparseable output is
+   kept whole as conversation. */
+function parseTurn(text){
+  text = (text || "").trim();
+  if (!text) return {reply: "", posts: []};
+  const unfenced = text.replace(/^\s*```(?:\w+)?\s*|\s*```\s*$/gm, "").trim();
+  const a = unfenced.indexOf("{"), b = unfenced.lastIndexOf("}");
+  if (a !== -1 && b > a){
+    try {
+      const d = JSON.parse(unfenced.slice(a, b + 1));
+      if (d && typeof d === "object" && !Array.isArray(d)){
+        const reply = String(d.reply ?? "").trim();
+        const posts = Array.isArray(d.posts) ? d.posts.map(x => String(x).trim()).filter(Boolean) : [];
+        if (reply || posts.length) return {reply, posts};
+      }
+    } catch (e) { /* fall through to prose */ }
+  }
+  return {reply: text, posts: []};
+}
+
+const HTTP_ERRORS = {
+  401: "That key was rejected. Check it, or make a new one.",
+  403: "That key isn't allowed to use this model.",
+  404: "No such model at this provider. Check the model name.",
+  429: "Rate limited — free tiers are stingy. Wait a minute.",
+};
+
+async function converseRemote(history, constraints, signal){
+  const headers = {"Content-Type": "application/json"};
+  if (MODEL.key) headers["Authorization"] = "Bearer " + MODEL.key;
+
+  let response;
+  try {
+    response = await fetch(MODEL.url, {
+      method: "POST", headers, signal,
+      body: JSON.stringify({
+        model: MODEL.model,
+        messages: [{role: "system", content: conversationSystem(constraints)}, ...history.slice(-12)],
+        response_format: {type: "json_object"},
+      }),
+    });
+  } catch (e) {
+    // A blocked cross-origin request and a dead network look identical here.
+    throw new Error("Couldn't reach " + new URL(MODEL.url).host
+      + ". Either it's unreachable, or it refuses requests from a browser (CORS).");
+  }
+
+  if (!response.ok){
+    let detail = "";
+    try { detail = (await response.json())?.error?.message || ""; } catch (e) { /* no body */ }
+    throw new Error(HTTP_ERRORS[response.status] || ("Provider returned " + response.status)
+      + (detail ? " — " + detail : ""));
+  }
+
+  const data = await response.json();
+  const text = data?.choices?.[0]?.message?.content;
+  if (!text) throw new Error("The provider replied with no content.");
+  return parseTurn(text);
 }
 
 /* ---------- rendering ---------- */
@@ -649,6 +842,9 @@ const state_persona = () => P.persona.replace("_", " ");
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 
 function renderStatus(){
+  $("st-engine").innerHTML = modelReady()
+    ? "talking to <b>" + esc(MODEL.model) + "</b>"
+    : "<b>no model</b> \u00b7 grammar only";
   $("st-tune").innerHTML = "<b>" + confidence() + "</b> · " + P.keeps + " keep" + (P.keeps === 1 ? "" : "s") +
     " · voice <b>" + esc(state_persona()) + "</b>";
 }
@@ -709,11 +905,14 @@ function renderBatch(container, items, isExample){
   for (const b of container.querySelectorAll("[data-keep]")) b.onclick = () => keep(+b.dataset.keep, b);
 }
 
-function addTurn(said, items, isExample){
+function addTurn(said, reply, items, isExample){
   const div = document.createElement("div");
   div.className = "turn";
   div.innerHTML = '<div class="said"><span class="caret">&gt;</span><span class="words">' + esc(said) + "</span>" +
-                  (isExample ? '<span class="tag">example</span>' : "") + "</div><div class='batch'></div>";
+                  (isExample ? '<span class="tag">example</span>' : "") + "</div>" +
+                  (reply ? '<p class="reply">' + esc(reply) + "</p>" : "") +
+                  (items.length ? '<p class="draftlabel">Drafts</p>' : "") +
+                  "<div class='batch'></div>";
   $("stream").append(div);
   renderBatch(div.querySelector(".batch"), items, isExample);
   state.batch = isExample ? [] : items;
@@ -754,7 +953,7 @@ function forgetRule(index){
   saveProfile(); renderRail(); note("Forgot: " + clause);
 }
 
-function send(raw){
+async function send(raw){
   const line = raw.trim();
   if (!line || state.busy) return;
 
@@ -763,8 +962,8 @@ function send(raw){
 
   let likeText = null;
   if (d.like !== null){
-    if (!state.batch.length) { note("No batch yet — write a topic first."); return; }
-    if (d.like < 1 || d.like > state.batch.length) { note("Pick 1–" + state.batch.length + "."); return; }
+    if (!state.batch.length) { note("No drafts yet."); return; }
+    if (d.like < 1 || d.like > state.batch.length) { note("Pick 1-" + state.batch.length + "."); return; }
     likeText = state.batch[d.like - 1].text;
   }
 
@@ -779,33 +978,59 @@ function send(raw){
     }
   }
 
-  if (!d.recognised){ state.topic = line; state.turn = {banned: []}; }
-  else if (!state.topic){ note("Say what the posts should be about first."); return; }
-
   const constraints = mergeConstraints(P.standing, state.turn);
   state.busy = true; $("go").disabled = true; note("");
+  if (state.seeded){ $("stream").innerHTML = ""; state.seeded = false; }
 
   try {
-    const raws = generate(state.topic, constraints, likeText);
-    const allowed = raws.filter(t => allows(constraints, t));
-    if (!allowed.length){
-      note(raws.length
-        ? "Nothing came back that fits: " + describe(constraints).join(", ") + ". Loosen it, or say the topic again to reset this turn."
-        : "Nothing came back. Try a more specific topic.");
-      return;
+    if (modelReady()){
+      // She never saw our numbering, so a reference becomes the text itself.
+      const said = likeText ? line + '\n(referring to this draft: "' + likeText + '")' : line;
+      state.history.push({role: "user", content: said});
+      $("pending").hidden = false;
+
+      let turn;
+      try {
+        turn = await converseRemote(state.history, constraints, null);
+      } catch (e) {
+        state.history.pop();          // don't resend a turn that got no reply
+        throw e;
+      }
+
+      const allowed = turn.posts.filter(t => allows(constraints, t));
+      let items = allowed.length ? rank(allowed, P.weights) : [];
+      if (likeText && items.length){
+        for (const it of items) it.final += 60 * similarity(it.text, likeText);
+        items.sort((a, b) => b.final - a.final);
+      }
+      items = items.slice(0, 5);
+
+      const spoken = turn.reply + (items.length ? "\n" + items.map(i => "- " + i.text).join("\n") : "");
+      state.history.push({role: "assistant", content: spoken.trim() || "(no reply)"});
+
+      addTurn(line, turn.reply || "(she said nothing)", items, false);
+      if (turn.posts.length > allowed.length){
+        note((turn.posts.length - allowed.length) + " draft(s) dropped for breaking: " + describe(constraints).join(", "));
+      }
+    } else {
+      // No model connected: the grammar drafts from what they just said.
+      const pool = grammarGenerate(line, P.persona, 400, state.seed++);
+      const allowed = pool.filter(t => allows(constraints, t));
+      if (!allowed.length){
+        note("Nothing the grammar can write fits " + (describe(constraints).join(", ") || "that") + ".");
+        return;
+      }
+      let items = rank(allowed, P.weights);
+      if (likeText){
+        for (const it of items) it.final += 60 * similarity(it.text, likeText);
+        items.sort((a, b) => b.final - a.final);
+      }
+      addTurn(line, "", items.slice(0, 5), false);
     }
-    let items = rank(allowed, P.weights);
-    if (likeText){
-      for (const it of items) it.final += 60 * similarity(it.text, likeText);
-      items.sort((a, b) => b.final - a.final);
-    }
-    if (state.seeded){ $("stream").innerHTML = ""; state.seeded = false; }
-    addTurn(line, items.slice(0, 5), false);
-    if (raws.length > allowed.length) note((raws.length - allowed.length) + " dropped for breaking: " + describe(constraints).join(", "));
   } catch (e){
-    note("Could not build a batch for that. Try a shorter, plainer topic.");
+    note(e && e.message ? e.message : "Something went wrong.");
   } finally {
-    state.busy = false; $("go").disabled = false;
+    state.busy = false; $("go").disabled = false; $("pending").hidden = true;
     saveProfile(); renderRail(); renderStatus();
     $("line").focus();
   }
@@ -820,11 +1045,81 @@ const EXAMPLE = [
 ];
 const QUICK = ["shorter", "no questions", "one line", "more like 1", "try deadpan", "never use exclamation marks"];
 
-loadProfile();
-renderRail(); renderStatus();
+loadProfile(); loadModel();
+
+// The Claude artifact viewer blocks every outbound request, so connecting a
+// model there cannot work however the form is filled in. Say so rather than
+// offering a control that always fails.
+const SANDBOXED = Boolean(window.claude);
+
+function renderModelCard(){
+  if (SANDBOXED){
+    $("mstate").textContent = "This copy is sandboxed and can't reach a model. "
+      + "Open the GitHub Pages version to connect one.";
+    $("mtoggle").hidden = true;
+    $("mform").hidden = true;
+    renderStatus();
+    return;
+  }
+  const ready = modelReady();
+  const provider = PROVIDERS[MODEL.provider];
+  $("mstate").className = "mstate" + (ready ? " on" : "");
+  $("mstate").textContent = ready
+    ? "Talking to " + MODEL.model + " via " + (provider ? provider.label.split(" (")[0] : new URL(MODEL.url).host) + "."
+    : "Not connected \u2014 using the built-in grammar, which drafts but can't converse.";
+  $("mtoggle").textContent = ready ? "Change" : "Connect a model";
+  renderStatus();
+}
+
+$("mprovider").innerHTML = Object.entries(PROVIDERS)
+  .map(([k, v]) => '<option value="' + k + '">' + esc(v.label) + "</option>").join("");
+
+function applyPreset(key){
+  const preset = PROVIDERS[key];
+  if (!preset) return;
+  $("mnote").textContent = preset.note;
+  if (preset.url) $("mmodel").value = preset.model;
+  $("mkey").parentElement.querySelector("#mkey").placeholder =
+    key === "ollama" ? "not needed" : "paste your key";
+}
+$("mprovider").onchange = () => applyPreset($("mprovider").value);
+
+$("mtoggle").onclick = () => {
+  const form = $("mform");
+  form.hidden = !form.hidden;
+  if (!form.hidden){
+    $("mprovider").value = MODEL.provider || "openrouter";
+    $("mkey").value = MODEL.key;
+    applyPreset($("mprovider").value);
+    if (MODEL.model) $("mmodel").value = MODEL.model;
+  }
+};
+
+$("mform").onsubmit = e => {
+  e.preventDefault();
+  const key = $("mprovider").value;
+  const preset = PROVIDERS[key];
+  const url = preset && preset.url ? preset.url : prompt("Endpoint URL (OpenAI-compatible):", MODEL.url || "");
+  if (!url){ note("Need an endpoint URL."); return; }
+  if (!$("mmodel").value.trim()){ note("Need a model name."); return; }
+
+  MODEL = {provider: key, url, key: $("mkey").value.trim(), model: $("mmodel").value.trim()};
+  saveModel(); renderModelCard();
+  $("mform").hidden = true;
+  note("Connected. Say something and she'll actually answer.");
+};
+
+$("mclear").onclick = () => {
+  MODEL = {provider: "", url: "", key: "", model: ""};
+  saveModel(); renderModelCard();
+  $("mform").hidden = true;
+  note("Disconnected. Back to the grammar.");
+};
+
+renderRail(); renderModelCard(); renderStatus();
 $("quick").innerHTML = QUICK.map(q => "<button data-q=\"" + esc(q) + '">' + esc(q) + "</button>").join("");
 for (const b of $("quick").querySelectorAll("[data-q]")) b.onclick = () => { $("line").value = b.dataset.q; $("line").focus(); };
-addTurn("finally quitting the job", rank(EXAMPLE, P.weights).slice(0, 4), true);
+addTurn("finally quitting the job", "", rank(EXAMPLE, P.weights).slice(0, 4), true);
 
 $("form").onsubmit = e => { e.preventDefault(); const v = $("line").value; $("line").value = ""; send(v); };
 

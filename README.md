@@ -81,6 +81,31 @@ python -m thirsttrap chat "leg day"               # terminal
 `serve` binds loopback on purpose: it is an unauthenticated endpoint that
 drives a language model. `--host-bind` opens it wider, deliberately.
 
+## No computer? Use the browser version
+
+The Pages site converses on a phone with nothing installed and nothing hosted.
+Open it, tap **Connect a model** in the sidebar, and paste a free API key:
+
+| Provider | Free key | Suggested model |
+|---|---|---|
+| OpenRouter | openrouter.ai/keys | `meta-llama/llama-3.3-70b-instruct:free` |
+| Groq | console.groq.com/keys | `llama-3.3-70b-versatile` |
+| Google Gemini | aistudio.google.com/apikey | `gemini-2.0-flash` |
+| Cerebras | cloud.cerebras.ai | `llama3.1-8b` |
+
+**The key stays on your device.** It lives in that browser's `localStorage`,
+is sent only to the provider you picked, and is never committed or uploaded.
+The page is public, but there is no shared secret in it — anyone else who
+opens it brings their own key, or gets the grammar.
+
+Any OpenAI-compatible endpoint works via **Custom**, including Ollama on a
+machine you control. Without a key the page still drafts, using the grammar —
+it just can't converse.
+
+One caveat I could not test from here: a provider has to allow browser
+requests (CORS). OpenRouter and Gemini are built for it; if one refuses, the
+page says so by name and you can switch providers in the same panel.
+
 ## In a browser
 
 The whole system also runs as a static page, no install and nothing billed:
@@ -109,9 +134,10 @@ page — no model, no network call, no tokens, no account. That is a limit of
 the medium rather than a choice of engine: a static or sandboxed page can
 neither reach a model on your machine nor download model weights.
 
-So the browser version does not converse — it takes a topic and drafts from
-it. For the actual conversation, and for a real model writing the copy, run
-`serve` locally.
+The **Claude artifact** copy cannot converse at all — the artifact viewer
+blocks every outbound request, so it hides the connect panel and runs the
+grammar. The **Pages** copy has no such restriction, which is why the
+bring-your-own-key flow above lives there.
 
 ## Use
 
