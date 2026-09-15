@@ -1,0 +1,344 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>bot</title>
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="bot">
+<meta name="theme-color" content="#0d0f12">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+  :root{
+    color-scheme: dark;
+    --bg:#0d0f12; --panel:#141820; --line:#222835;
+    --ink:#d7dee8; --dim:#6b7688; --accent:#f0a9c0; --ok:#7fd1a8; --bad:#f08a8a;
+    --mono:"IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+    padding-top: env(safe-area-inset-top, 0px);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--mono);
+       font-size:13.5px;line-height:1.55;display:flex;flex-direction:column}
+  header{padding:12px 16px 10px;border-bottom:1px solid var(--line);display:flex;
+         justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap}
+  h1{margin:0;font-size:14px;font-weight:600;letter-spacing:.06em}
+  h1 span{color:var(--accent)}
+  .state{color:var(--dim);font-size:11.5px}
+  .state b{color:var(--ink);font-weight:500}
+  main{flex:1;overflow-y:auto;padding:14px 16px 8px;-webkit-overflow-scrolling:touch}
+  .line{white-space:pre-wrap;word-break:break-word;margin:0 0 2px}
+  .cmd{color:var(--accent)}
+  .dim{color:var(--dim)}
+  .ok{color:var(--ok)}
+  .bad{color:var(--bad)}
+  .card{border:1px solid var(--line);border-radius:8px;padding:10px 12px;margin:8px 0;background:var(--panel)}
+  .cap{font-size:15px;line-height:1.5;color:#fff}
+  img{display:block;width:100%;max-width:420px;border-radius:8px;margin:8px 0;border:1px solid var(--line)}
+  form{display:flex;gap:8px;padding:10px 16px calc(10px + env(safe-area-inset-bottom,0px));
+       border-top:1px solid var(--line);background:var(--panel)}
+  .prompt{color:var(--accent);align-self:center}
+  input{flex:1;min-width:0;background:transparent;border:none;color:var(--ink);
+        font:inherit;font-size:16px;padding:6px 0}
+  input:focus{outline:none}
+  button{background:transparent;border:1px solid var(--line);color:var(--dim);
+         font:inherit;font-size:12px;border-radius:6px;padding:4px 12px;cursor:pointer}
+  button:hover{color:var(--ink)}
+  .chips{display:flex;gap:6px;flex-wrap:wrap;padding:0 16px 8px}
+  .chips button{font-size:11.5px;padding:3px 9px}
+</style>
+</head>
+<body>
+<header>
+  <h1>bot<span>://</span>mira</h1>
+  <div class="state" id="state"></div>
+</header>
+
+<main id="out"></main>
+
+<div class="chips" id="chips"></div>
+
+<form id="form" autocomplete="off">
+  <span class="prompt">&gt;</span>
+  <input id="line" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="help">
+  <button type="submit">run</button>
+</form>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const out = $("out");
+
+/* ---------- state, on this device only ---------- */
+const KEY = "bot.terminal.v1";
+const BLANK = {
+  look: "dark curly hair, freckles across the nose, warm olive skin, 35mm film grain, muted colour",
+  voice: "playful and confident, teasing rather than pleading",
+  scenes: ["on a fire escape in summer, the city behind her",
+           "in an empty laundrette at midnight, sitting on a machine",
+           "in the back of a taxi, streetlights streaking past"],
+  topics: ["quitting a job nobody liked", "the walk home at 3am", "being the one who left first"],
+  capKey: "", capModel: "llama-3.3-70b-versatile",
+  capUrl: "https://api.groq.com/openai/v1/chat/completions",
+  ghToken: "", repo: "ike49285-alt/Bipbip", ref: "claude/spy-tqqq-trading-algo-kn8akv",
+};
+let S = {...BLANK};
+let last = {caption: "", scene: "", topic: ""};
+
+function load(){
+  try { const d = JSON.parse(localStorage.getItem(KEY) || "null");
+        if (d && typeof d === "object") S = {...BLANK, ...d}; } catch (e) {}
+}
+function save(){ try { localStorage.setItem(KEY, JSON.stringify(S)); } catch (e) {} }
+
+/* ---------- printing ---------- */
+function say(text, cls){
+  const p = document.createElement("p");
+  p.className = "line" + (cls ? " " + cls : "");
+  p.textContent = text;
+  out.append(p);
+  out.scrollTop = out.scrollHeight;
+  return p;
+}
+function node(html){
+  const d = document.createElement("div");
+  d.innerHTML = html;
+  out.append(d);
+  out.scrollTop = out.scrollHeight;
+  return d;
+}
+function state(){
+  $("state").innerHTML =
+    (S.capKey ? "key <b>set</b>" : "<b>no caption key</b>") + " · " +
+    (S.ghToken ? "github <b>set</b>" : "github <b>—</b>") + " · " +
+    S.scenes.length + " scenes";
+}
+
+/* ---------- the same bounds the Python enforces ---------- */
+const BOUNDS = "a fictional adult woman in her late twenties, resembling no real or "
+  + "identifiable person, fully clothed, suggestive through pose and framing rather than "
+  + "nudity, nothing explicit or anatomical, editorial photography";
+const REFUSED = /\b(child|kid|minor|underage|teen|teenage|schoolgirl|loli|preteen|nude|nudes|naked|topless|nsfw|explicit|porn|hardcore|genital|nipple)\b/i;
+
+const TIRED = ["game changer","let that sink in","read that again","who else",
+  "living rent free","main character","it's giving","thoughts?","just saying"];
+const BANNED = /#\w|@\w|https?:\/\/|www\./i;
+const EMOJI = /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u;
+
+function usable(c){
+  return c.length >= 20 && c.length <= 280 && !BANNED.test(c)
+      && !EMOJI.test(c) && (c.match(/!/g) || []).length <= 1;
+}
+function preference(c){
+  const words = (c.toLowerCase().match(/[a-z0-9']+/g) || []);
+  const sents = c.split(/[.!?]+/).filter(s => s.trim());
+  let n = c.length <= 120 ? 2 : (c.length <= 180 ? 1 : 0);
+  if (words.some(w => ["you","your","youre"].includes(w))) n += 1.5;
+  if (sents.length >= 2 && (sents.at(-1).match(/[a-z0-9']+/gi) || []).length <= 6) n += 1.5;
+  n -= 2 * TIRED.filter(t => c.toLowerCase().includes(t)).length;
+  return n;
+}
+const pick = arr => { const ok = arr.filter(usable);
+  if (!ok.length) throw new Error("none of " + arr.length + " captions were usable");
+  return ok.sort((a,b) => preference(b) - preference(a))[0]; };
+
+/* ---------- the work ---------- */
+const RULES = `You write captions for a photo posted to X by a fictional persona.
+
+- One caption stands alone. Under 200 characters; shorter is better.
+- No hashtags, no @-mentions, no links, no emoji.
+- Do not describe the photo. Say the thing the photo is not saying.
+- Specific beats general. One idea. Cut every word doing nothing.
+- Confidence, never neediness. Nothing that reads as asking permission.
+- She is an adult and fictional. Nothing explicit.`;
+
+async function writeCaption(topic){
+  if (!S.capKey) throw new Error("no caption key. run:  key gsk_your_key");
+  const body = {model: S.capModel, messages: [{role: "user", content:
+    RULES + "\n\nHer register: " + S.voice + "\n\nShe is posting about: " + topic
+    + '\n\nReply with only a JSON array of 6 strings.'}]};
+
+  let r;
+  try {
+    r = await fetch(S.capUrl, {method: "POST", body: JSON.stringify(body),
+      headers: {"Content-Type": "application/json", "Authorization": "Bearer " + S.capKey}});
+  } catch (e) {
+    throw new Error("couldn't reach " + new URL(S.capUrl).host
+      + " — unreachable, or it refuses browser requests");
+  }
+  if (!r.ok){
+    let d = ""; try { d = (await r.json())?.error?.message || ""; } catch (e) {}
+    throw new Error("caption provider said " + r.status + (d ? " — " + d : ""));
+  }
+  const text = (await r.json())?.choices?.[0]?.message?.content || "";
+  const a = text.indexOf("["), b = text.lastIndexOf("]");
+  let rows = [];
+  if (a !== -1 && b > a){ try { rows = JSON.parse(text.slice(a, b + 1)); } catch (e) {} }
+  if (!rows.length) rows = text.split("\n").map(l =>
+    l.replace(/^\s*(?:[-*]|\(?\d{1,2}[.):])\s*/, "").replace(/^["'"]|["'"]$/g, "").trim())
+    .filter(Boolean);
+  return rows.map(String);
+}
+
+const imageUrl = prompt => "https://image.pollinations.ai/prompt/"
+  + encodeURIComponent(prompt) + "?model=flux&nologo=true&width=1024&height=1024&seed="
+  + Math.floor(Math.random() * 1e6);
+
+const rand = a => a[Math.floor(Math.random() * a.length)];
+
+async function preview(withImage){
+  if (!S.scenes.length || !S.topics.length) throw new Error("she needs a scene and a topic");
+  const scene = rand(S.scenes), topic = rand(S.topics);
+  const prompt = [S.look, scene, BOUNDS].filter(Boolean).join(", ");
+  if (REFUSED.test(S.look + " " + scene)) throw new Error("that persona is refused: adults only, nothing explicit");
+
+  say("scene   " + scene, "dim");
+  say("topic   " + topic, "dim");
+
+  const working = say("writing…", "dim");
+  const caption = pick(await writeCaption(topic));
+  working.remove();
+
+  last = {caption, scene, topic};
+  node('<div class="card"><div class="cap"></div></div>').querySelector(".cap").textContent = caption;
+  say(caption.length + "/280", "dim");
+
+  if (withImage){
+    const loading = say("drawing…", "dim");
+    const img = new Image();
+    img.alt = "AI-generated image. " + scene + ".";
+    img.onload = () => loading.remove();
+    img.onerror = () => { loading.textContent = "the image provider didn't answer"; loading.className = "line bad"; };
+    img.src = imageUrl(prompt);
+    out.append(img);
+  }
+}
+
+async function publish(){
+  if (!S.ghToken) throw new Error("no github token. run:  gh <token>   (needs actions:write)");
+  const url = "https://api.github.com/repos/" + S.repo
+    + "/actions/workflows/post.yml/dispatches";
+  const r = await fetch(url, {method: "POST",
+    headers: {"Authorization": "Bearer " + S.ghToken, "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28", "Content-Type": "application/json"},
+    body: JSON.stringify({ref: S.ref, inputs: {publish: "true"}})});
+
+  if (r.status === 204) return;
+  let d = ""; try { d = (await r.json())?.message || ""; } catch (e) {}
+  if (r.status === 404) throw new Error("404 — wrong repo, wrong branch, or the token lacks actions:write");
+  throw new Error("github said " + r.status + (d ? " — " + d : ""));
+}
+
+/* ---------- commands ---------- */
+const HELP = `preview            picture + caption
+caption            just a caption, no picture
+post               publish for real, via GitHub Actions
+
+persona            show her
+look <text>        set her look
+voice <text>       set her register
+scene <text>       add a scene      (scenes  to list)
+topic <text>       add a topic      (topics  to list)
+drop scene|topic <n>
+
+key <gsk_...>      caption key, stays on this device
+model [name]       set it, or list what your key can reach
+gh <token>         github token, for post
+repo <o/r> ref <b> where to dispatch
+
+clear              wipe the screen
+reset              forget everything on this device`;
+
+async function run(input){
+  const [word, ...rest] = input.trim().split(/\s+/);
+  const arg = rest.join(" ");
+  const cmd = word.toLowerCase();
+
+  if (cmd === "help" || !cmd) return say(HELP);
+  if (cmd === "clear") return (out.innerHTML = "");
+  if (cmd === "reset"){ S = {...BLANK}; save(); state(); return say("forgotten.", "ok"); }
+
+  if (cmd === "persona")
+    return say("look    " + S.look + "\nvoice   " + S.voice
+      + "\nscenes  " + S.scenes.length + "\ntopics  " + S.topics.length);
+
+  if (cmd === "look"){ if (!arg) return say(S.look);
+    if (REFUSED.test(arg)) return say("refused: adults only, nothing explicit", "bad");
+    S.look = arg; save(); return say("set.", "ok"); }
+  if (cmd === "voice"){ if (!arg) return say(S.voice); S.voice = arg; save(); return say("set.", "ok"); }
+
+  if (cmd === "scenes") return say(S.scenes.map((s,i) => (i+1) + "  " + s).join("\n") || "none");
+  if (cmd === "topics") return say(S.topics.map((t,i) => (i+1) + "  " + t).join("\n") || "none");
+  if (cmd === "scene"){ if (!arg) return say(S.scenes.map((s,i)=>(i+1)+"  "+s).join("\n") || "none");
+    if (REFUSED.test(arg)) return say("refused: adults only, nothing explicit", "bad");
+    S.scenes.push(arg); save(); state(); return say("added.", "ok"); }
+  if (cmd === "topic"){ if (!arg) return say(S.topics.map((t,i)=>(i+1)+"  "+t).join("\n") || "none");
+    S.topics.push(arg); save(); return say("added.", "ok"); }
+
+  if (cmd === "drop"){
+    const [what, n] = rest;
+    const list = what === "scene" ? S.scenes : what === "topic" ? S.topics : null;
+    if (!list) return say("drop scene <n>  or  drop topic <n>", "bad");
+    const i = parseInt(n, 10) - 1;
+    if (!(i >= 0 && i < list.length)) return say("pick 1–" + list.length, "bad");
+    say("dropped: " + list.splice(i, 1)[0], "ok"); save(); return state();
+  }
+
+  if (cmd === "key"){ if (!arg) return say(S.capKey ? "key is set" : "no key");
+    S.capKey = arg; save(); state(); return say("saved on this device only.", "ok"); }
+  if (cmd === "gh"){ if (!arg) return say(S.ghToken ? "token is set" : "no token");
+    S.ghToken = arg; save(); state(); return say("saved on this device only.", "ok"); }
+  if (cmd === "repo"){ if (arg) { S.repo = arg; save(); } return say(S.repo); }
+  if (cmd === "ref"){ if (arg) { S.ref = arg; save(); } return say(S.ref); }
+
+  if (cmd === "model"){
+    if (arg){ S.capModel = arg; save(); return say("set.", "ok"); }
+    if (!S.capKey) return say("no caption key. run:  key gsk_your_key", "bad");
+    const r = await fetch(S.capUrl.replace(/\/chat\/completions\/?$/, "/models"),
+      {headers: {"Authorization": "Bearer " + S.capKey}});
+    if (!r.ok) return say("listing failed (" + r.status + ")", "bad");
+    const rows = (await r.json())?.data || [];
+    const ids = rows.map(m => String(m.id || ""))
+      .filter(i => i && !/whisper|tts|embed|guard|moderat|rerank/i.test(i)).sort();
+    return say("current: " + S.capModel + "\n\n" + ids.join("\n"));
+  }
+
+  if (cmd === "preview") return preview(true);
+  if (cmd === "caption") return preview(false);
+  if (cmd === "post"){
+    await publish();
+    return say("dispatched. Actions is building and posting it now.", "ok");
+  }
+
+  say("no such command: " + word + "   (help)", "bad");
+}
+
+/* ---------- wiring ---------- */
+$("form").onsubmit = async e => {
+  e.preventDefault();
+  const input = $("line").value.trim();
+  if (!input) return;
+  $("line").value = "";
+  say("> " + input, "cmd");
+  $("line").disabled = true;
+  try { await run(input); }
+  catch (err) { say(err.message || String(err), "bad"); }
+  finally { $("line").disabled = false; $("line").focus(); }
+};
+
+const CHIPS = ["preview", "caption", "persona", "post", "help"];
+$("chips").innerHTML = CHIPS.map(c => '<button data-c="' + c + '">' + c + "</button>").join("");
+for (const b of $("chips").querySelectorAll("[data-c]"))
+  b.onclick = () => { $("line").value = b.dataset.c; $("form").requestSubmit(); };
+
+load(); state();
+say("bot terminal. everything you type stays on this device.", "dim");
+say("she writes here; posting goes through GitHub Actions.", "dim");
+say("");
+say(S.capKey ? "ready. try:  preview" : "start with:  key gsk_your_groq_key", S.capKey ? "ok" : "");
+</script>
+</body>
+</html>
