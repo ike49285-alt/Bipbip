@@ -1,0 +1,63 @@
+name: post
+
+# Runs on GitHub's machines, so the bot needs no computer of its own.
+# Credentials are repository secrets: encrypted, never in the repo, and
+# unreadable from a fork or a pull request.
+on:
+  schedule:
+    - cron: "17 18 * * *"   # 18:17 UTC daily, off the hour so it isn't in a stampede
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build a post but do not publish it"
+        type: boolean
+        default: true
+
+concurrency:
+  group: post
+  cancel-in-progress: false   # never interrupt a run that may already have posted
+
+jobs:
+  post:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # The package has no dependencies, so there is nothing to install.
+      - name: Check the persona before spending any API call
+        run: python -m thirsttrap bot --no-image
+
+      - name: Post
+        if: ${{ github.event_name == 'schedule' || inputs.dry_run == false }}
+        env:
+          X_API_KEY: ${{ secrets.X_API_KEY }}
+          X_API_SECRET: ${{ secrets.X_API_SECRET }}
+          X_ACCESS_TOKEN: ${{ secrets.X_ACCESS_TOKEN }}
+          X_ACCESS_SECRET: ${{ secrets.X_ACCESS_SECRET }}
+          THIRSTTRAP_IMAGE_BACKEND: ${{ vars.IMAGE_BACKEND }}
+          THIRSTTRAP_IMAGE_KEY: ${{ secrets.IMAGE_KEY }}
+          THIRSTTRAP_IMAGE_MODEL: ${{ vars.IMAGE_MODEL }}
+          THIRSTTRAP_BACKEND: ${{ vars.CAPTION_BACKEND }}
+          THIRSTTRAP_HOST: ${{ vars.CAPTION_HOST }}
+          THIRSTTRAP_MODEL: ${{ vars.CAPTION_MODEL }}
+          THIRSTTRAP_KEY: ${{ secrets.CAPTION_KEY }}
+        run: python -m thirsttrap bot --post
+
+      - name: Dry run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        env:
+          THIRSTTRAP_IMAGE_BACKEND: ${{ vars.IMAGE_BACKEND }}
+          THIRSTTRAP_IMAGE_KEY: ${{ secrets.IMAGE_KEY }}
+        run: python -m thirsttrap bot --out preview.jpg
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        with:
+          name: preview
+          path: preview.jpg
+          if-no-files-found: ignore

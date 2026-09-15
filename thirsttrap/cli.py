@@ -130,6 +130,64 @@ def cmd_serve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_bot(args: argparse.Namespace) -> int:
+    from pathlib import Path
+
+    from . import images, twitter
+    from .bot import Persona, build, publish
+
+    try:
+        persona = Persona.load(args.persona)
+    except (OSError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+    image_backend = None
+    if args.image_backend:
+        image_backend = images.build(args.image_backend, key=args.image_key or "",
+                                     model=args.image_model or "")
+    else:
+        image_backend = images.detect()
+
+    render = not args.no_image
+    try:
+        draft = build(persona, image_backend=image_backend, llm_backend=_backend(args),
+                      seed=args.seed, render=render)
+    except (ValueError, images.ImageError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    print(f"persona  {persona.name}  [{persona.voice}]")
+    print(f"scene    {draft.scene}")
+    print(f"topic    {draft.topic}")
+    print(f"image    {image_backend.describe()}"
+          + (f" -- {len(draft.image):,} bytes" if draft.image else " -- skipped"))
+    print(f"alt      {draft.alt_text}")
+    print()
+    print(f"caption  {draft.caption}   ({len(draft.caption)}/280)")
+    if args.breakdown:
+        print()
+        print(render_ranked(draft.ranked[:5]))
+
+    if args.out and draft.image:
+        Path(args.out).write_bytes(draft.image)
+        print(f"\nwrote {args.out}")
+
+    if not args.post:
+        print("\ndry run -- nothing posted. Add --post to publish.")
+        return 0
+
+    try:
+        result = publish(draft)
+    except twitter.TwitterError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+
+    posted = (result.get("data") or {}).get("id", "?")
+    print(f"\nposted: https://x.com/i/status/{posted}")
+    return 0
+
+
 def cmd_personas(_: argparse.Namespace) -> int:
     for name in personas.names():
         print(f"{name:<14} {personas.PERSONAS[name].summary}")
@@ -215,6 +273,22 @@ def build_parser() -> argparse.ArgumentParser:
     sv.add_argument("--host", help="base URL of the local model server")
     sv.add_argument("--gguf", help="path to a .gguf for the in-process backend")
     sv.set_defaults(func=cmd_serve)
+
+    bt = sub.add_parser("bot", help="make one post: image + caption (dry run by default)")
+    bt.add_argument("--persona", default="persona.json", help="persona file (default persona.json)")
+    bt.add_argument("--post", action="store_true", help="actually publish it")
+    bt.add_argument("--no-image", action="store_true", help="skip image generation")
+    bt.add_argument("--out", metavar="PATH", help="save the image to a file")
+    bt.add_argument("--seed", type=int, default=None, help="fix the draw (default: today's date)")
+    bt.add_argument("-b", "--breakdown", action="store_true", help="show the runner-up captions")
+    bt.add_argument("--image-backend", help="pollinations, together or openai-compat")
+    bt.add_argument("--image-key", help="key for the image provider")
+    bt.add_argument("--image-model", help="image model name")
+    bt.add_argument("--backend", help="ollama, openai-compat, llama-cpp or grammar (for captions)")
+    bt.add_argument("--model", help="caption model name")
+    bt.add_argument("--host", help="base URL of the caption model server")
+    bt.add_argument("--gguf", help="path to a .gguf for the in-process caption backend")
+    bt.set_defaults(func=cmd_bot)
 
     pl = sub.add_parser("personas", help="list the voice presets")
     pl.set_defaults(func=cmd_personas)

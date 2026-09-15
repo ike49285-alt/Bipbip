@@ -71,6 +71,64 @@ rhetorical frames that needs nothing installed. It's genuinely worse: more
 formulaic, doesn't understand your topic, just arranges your words in shapes
 that read well. It exists so the tool still runs, and it says so in the header.
 
+## The bot
+
+`thirsttrap bot` makes one post: an AI-generated image of a persona you define,
+a caption written and ranked by the rest of this package, published to X.
+`.github/workflows/post.yml` runs it on a daily cron, so it needs no computer
+of its own and the credentials live in encrypted repository secrets rather than
+anywhere in the code.
+
+```bash
+python -m thirsttrap bot                      # dry run: builds, posts nothing
+python -m thirsttrap bot --out preview.jpg -b # keep the image, show runner-up captions
+python -m thirsttrap bot --post               # publish
+```
+
+Edit `persona.json` — a `look`, a list of `scenes`, a list of `topics`, and a
+voice from `personas`. The scene and topic are picked by a seed derived from
+the date, so a day's post is reproducible and two runs on the same day don't
+produce different people.
+
+**This is built for a disclosed AI persona and assumes you will say so.** Put
+it in the account bio; X's rules require automated accounts to declare
+automation, and the version that hides it is the version that gets suspended.
+Alt text on every image starts with "AI-generated image." — that costs none of
+the 280 characters and tells anyone using a screen reader, or anyone who
+checks, what they are looking at.
+
+Two limits are not settings. The image prompt always ends with bounds fixing
+the subject as a fictional adult who resembles no real person, and
+`validate_look` **refuses** a persona mentioning a minor or asking for explicit
+content — refuses, rather than appending a contradiction and hoping the model
+resolves it your way. That check runs when the persona file loads, before any
+API call is billed.
+
+### Setting it up
+
+| Secret | What |
+|---|---|
+| `X_API_KEY`, `X_API_SECRET` | App credentials from developer.x.com |
+| `X_ACCESS_TOKEN`, `X_ACCESS_SECRET` | Access token for the account that posts |
+| `IMAGE_KEY` | Together/OpenAI key, if not using the keyless default |
+| `CAPTION_KEY` | Groq/OpenRouter key for captions |
+
+Repository *variables* (not secrets) pick the backends: `IMAGE_BACKEND`,
+`IMAGE_MODEL`, `CAPTION_BACKEND`, `CAPTION_HOST`, `CAPTION_MODEL`.
+
+Run the workflow manually with **Dry run** ticked first — it builds a post,
+uploads the image as an artifact you can look at, and publishes nothing.
+
+Images default to Pollinations, which needs no key at all, so a dry run works
+before you sign up for anything. Captions fall back to the grammar if no
+caption model is reachable, so a dead provider delays a post rather than
+skipping one.
+
+**Unverified:** X's API was unreachable from where this was built, so nothing
+here has posted a real tweet. The OAuth 1.0a signing is checked against X's own
+published test vector, and every guard is tested, but whether your API tier
+permits media upload is something only your first `--post` will tell you.
+
 ## Two ways to talk to it
 
 ```bash
