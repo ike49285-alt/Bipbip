@@ -50,6 +50,8 @@ class Voice:
     candidates_per_caption: int
     similarity_threshold: float
     history_window: int
+    constraints: dict
+    max_shape_repeats: int
 
 
 @dataclass(frozen=True)
@@ -161,6 +163,8 @@ class Persona:
                 candidates_per_caption=int(voc.get("candidates_per_caption", 4)),
                 similarity_threshold=float(voc.get("similarity_threshold", 0.82)),
                 history_window=int(voc.get("history_window", 50)),
+                constraints=dict(voc.get("constraints") or {}),
+                max_shape_repeats=int(voc.get("max_shape_repeats", 2)),
             ),
             facts=tuple(raw["facts"]),
             bounds=Bounds(

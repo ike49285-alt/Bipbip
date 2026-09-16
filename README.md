@@ -26,7 +26,7 @@ back door, which is still an open decision.
 | 3b. QC gate + curation (`bot/qc.py`) | done |
 | 3b. Bootstrap notebook (`notebooks/bootstrap.py`) | written, **unverified** |
 | 3b. LoRA training | not started — pin a trainer first |
-| 4. Captioning with anti-repetition | not started |
+| 4. Captioning + anti-repetition (`bot/captions.py`) | done |
 | 5. DM agent + gates | not started |
 | 6. Approval queue + Actions workflows | not started |
 | 7. XDriver | not started |
@@ -60,6 +60,7 @@ bot/persona.py   loads and validates the above; renders the voice card
 bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
 bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
 bot/qc.py        identity gate + curation; embedding backend is injected
+bot/captions.py  vision pass, voice pass, repetition scoring; LLM injected
 bot/ui.py        local timeline and DM inbox, stdlib http.server
 ```
 

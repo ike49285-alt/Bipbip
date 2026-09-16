@@ -159,9 +159,25 @@ image ─▶ vision pass ─▶ scene JSON ─▶ voice pass ─▶ 4 candidates
 nothing usable. "always lowercase / max one emoji / no hashtags / fragments over
 sentences / never explains the joke" produces a voice.
 
-**Anti-repetition is what separates this from obvious bot output.** Bots reuse
-sentence constructions. Embed recent captions with a local sentence-transformer
-(free, no API), reject candidates above a cosine threshold, regenerate.
+**Anti-repetition is what separates this from obvious bot output**, and it
+needs two signals, not one. Bots read as bots less because they repeat *words*
+than because they repeat *construction*: a feed where every caption is
+"statement. two-word fragment." reads as automated even with entirely fresh
+vocabulary.
+
+- **Content** -- Jaccard over character trigrams, catching near-duplicate wording.
+- **Shape** -- sentence count, coarse length buckets, whether it ends on a
+  fragment. Bucketed rather than counted, because "bus is late. walking
+  instead." and "coffee went cold. drinking it anyway." are the same rhythm.
+
+Both are pure stdlib, so this costs nothing and needs no model. Eight captions
+hand-written for the preview were run through it: the eighth was rejected as
+the fourth use of one rhythm, which is the check doing its job on its author.
+
+Candidates that break a machine-checkable voice rule (case, length, hashtags,
+em dashes, emoji count) are rejected in code before scoring; the prose rules go
+to the model. When every candidate fails, the captioner retries and finally
+raises rather than posting something off-voice.
 
 ## (c) DMs
 

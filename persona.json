@@ -63,7 +63,17 @@
     "caption_max_chars": 140,
     "candidates_per_caption": 4,
     "similarity_threshold": 0.82,
-    "history_window": 50
+    "history_window": 50,
+    "constraints": {
+      "lowercase": true,
+      "max_emoji": 1,
+      "forbid": [
+        "#",
+        "\u2014",
+        "http"
+      ]
+    },
+    "max_shape_repeats": 2
   },
   "facts": [
     "lives somewhere with bad radiators",
