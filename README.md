@@ -9,6 +9,13 @@ occasional free-GPU notebook sessions and fills a human-approved queue; GitHub
 Actions cron only ever consumes that queue. Ongoing spend is DM tokens alone,
 a few dollars a month.
 
+**Preview:** https://claude.ai/artifact/4zvEoi2b4Xfi2F3o8V2qTE — timeline and DM
+gates, with real prompts and hand-written target captions. Private by default.
+
+The preview's source is deliberately *not* committed: it embeds the anchor as
+base64, so committing it to a public repo would publish that face through the
+back door, which is still an open decision.
+
 ## Status
 
 | Step | |
