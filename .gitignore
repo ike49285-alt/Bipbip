@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# local dev state — the Actions-hosted bot keeps its own
+content/local.db
+
+# model weights and generated images: too big for git, see DESIGN.md
+content/lora/*.safetensors
+content/img/
+content/anchor/
