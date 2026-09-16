@@ -52,6 +52,33 @@ safer — every image is human-approved before it can be posted.
 | Image hosting | The repo, or Cloudflare R2 | R2: 10GB + no egress fees, free. |
 | Always-on (if ever needed) | Oracle Cloud Always Free | 4 ARM cores / 24GB, genuinely free, no expiry. |
 
+### Generation backends: why the free APIs don't fit
+
+Free image APIs exist and are real -- Cloudflare Workers AI gives ~230 FLUX
+images/day with no credit card and hard-stops instead of billing; Pollinations
+needs no key at all. **Neither can run your character.** Hosted endpoints serve
+*their* models from *your text prompt*; there is nowhere to upload a trained
+LoRA or an anchor face. Cloudflare's `stable-diffusion-v1-5-img2img` is not a
+substitute: img2img with low `strength` preserves the entire input frame -- pose,
+composition, everything -- and no value of it means "same face, new scene".
+That gap is exactly what IP-Adapter FaceID / PuLID / InstantID exist to close,
+and running any of them means running your own inference.
+
+So: **free + API + your character is not a combination that exists.** Pick two.
+
+| Backend | Use for | Not for |
+|---|---|---|
+| Perchance | Anchor hunting -- browser, zero setup | Anything repeatable |
+| Cloudflare / Pollinations | Generic images, plumbing tests | The persona -- can't run your model |
+| Kaggle notebook | The real pipeline: LoRA, IP-Adapter, batch | Anything on-demand |
+
+Kaggle is still automation, just at *batch* granularity -- its API can trigger a
+notebook run, so "refill the queue" is one scripted call, not 200. That is what
+the decoupled queue already assumed, so none of the architecture changes.
+
+Cloudflare ships models weekly and retires them without notice; confirm current
+model IDs before building against them.
+
 **Known sharp edges, so they don't surprise you later:**
 
 - Actions cron is *best-effort* — delays of 10–30+ min under load are normal. Posting times are approximate. Don't build anything that needs punctuality.
@@ -186,11 +213,13 @@ doesn't block development either way.
 
 1. `persona.json` + loader + voice card ← everything blocks on this
 2. `LocalDriver` + local UI ← makes output visible immediately
-3. Selfie pipeline: anchor → bootstrap → LoRA → QC gate
+3. Selfie pipeline. **3a** anchor + ~10 samples (browser, no GPU) unblocks step 4;
+   **3b** bootstrap → LoRA → QC gate, which blocks only posting
 4. Captioning with anti-repetition
 5. DM agent — gates written *before* generation logic
 6. Approval queue + Actions workflows
 7. `XDriver`, last
 
-Steps 1–2 are in this commit and are stdlib-only — no install, no dependencies,
+Steps 1–2 and the prompt builder (`bot/scenes.py`, step 3's backend-independent
+half) are done and stdlib-only — no install, no dependencies,
 runs anywhere.

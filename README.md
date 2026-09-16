@@ -15,7 +15,8 @@ a few dollars a month.
 |---|---|
 | 1. Persona core + voice card | done |
 | 2. LocalDriver + local UI | done |
-| 3. Selfie pipeline (anchor → LoRA → QC gate) | not started |
+| 3a. Prompt builder (`bot/scenes.py`) | done |
+| 3b. Anchor → LoRA → QC gate | needs a GPU session |
 | 4. Captioning with anti-repetition | not started |
 | 5. DM agent + gates | not started |
 | 6. Approval queue + Actions workflows | not started |
@@ -26,7 +27,8 @@ a few dollars a month.
 No dependencies — standard library only.
 
 ```bash
-python -m bot.ui          # http://127.0.0.1:8000
+python -m bot.ui            # http://127.0.0.1:8000
+python -m bot.scenes -n 10  # prompts to paste into a generator
 ```
 
 You get a fake timeline and a DM inbox backed by SQLite. Inbound messages are
@@ -42,6 +44,7 @@ pip install pytest && python -m pytest tests/ -q
 persona.json     identity, voice rules, facts, hard bounds
 bot/persona.py   loads and validates the above; renders the voice card
 bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
+bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
 bot/ui.py        local timeline and DM inbox, stdlib http.server
 ```
 
