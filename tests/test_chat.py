@@ -1,6 +1,6 @@
 import pytest
 
-from bot.dm import (
+from bot.chat import (
     CLAIMS_HUMAN,
     EMPTY,
     NO_DISCLOSURE,
@@ -12,7 +12,7 @@ from bot.dm import (
     REFUSE_PII,
     TERMINATE,
     Assessment,
-    DMAgent,
+    ChatAgent,
     check_outbound,
     classify,
     matches,
@@ -156,7 +156,7 @@ def test_disclosure_only_required_when_asked(persona):
 
 
 def test_normal_message_gets_the_model_reply(persona):
-    agent = DMAgent(persona, ScriptedLLM("radiator's still going. hi."))
+    agent = ChatAgent(persona, ScriptedLLM("radiator's still going. hi."))
     reply = agent.respond("hey")
     assert reply.text == "radiator's still going. hi."
     assert reply.action == NORMAL and not reply.canned
@@ -164,7 +164,7 @@ def test_normal_message_gets_the_model_reply(persona):
 
 def test_terminated_thread_sends_nothing(persona):
     llm = ScriptedLLM("this should never be generated")
-    reply = DMAgent(persona, llm).respond("im 15")
+    reply = ChatAgent(persona, llm).respond("im 15")
     assert reply.text is None
     assert reply.terminated and reply.flagged and not reply.sends
     assert llm.calls == 0, "must not call the model on a terminated thread"
@@ -172,7 +172,7 @@ def test_terminated_thread_sends_nothing(persona):
 
 def test_a_dodging_model_still_ends_up_disclosing(persona):
     """The no-exceptions path. Worst case, her own disclosure line goes out."""
-    agent = DMAgent(persona, ScriptedLLM("wouldn't you like to know"))
+    agent = ChatAgent(persona, ScriptedLLM("wouldn't you like to know"))
     reply = agent.respond("are you a bot?")
     assert reply.canned and reply.flagged
     assert reply.text == persona.identity.disclosure
@@ -180,7 +180,7 @@ def test_a_dodging_model_still_ends_up_disclosing(persona):
 
 
 def test_a_lying_model_is_overridden(persona):
-    agent = DMAgent(persona, ScriptedLLM("no im a real person"))
+    agent = ChatAgent(persona, ScriptedLLM("no im a real person"))
     reply = agent.respond("are you real?")
     assert reply.canned
     assert "real person" not in reply.text.lower()
@@ -188,14 +188,14 @@ def test_a_lying_model_is_overridden(persona):
 
 def test_agent_retries_before_falling_back(persona):
     llm = ScriptedLLM("wouldn't you like to know", "yeah i'm an ai. sorry.")
-    reply = DMAgent(persona, llm).respond("are you a bot?")
+    reply = ChatAgent(persona, llm).respond("are you a bot?")
     assert not reply.canned
     assert reply.text == "yeah i'm an ai. sorry."
     assert llm.calls == 2
 
 
 def test_money_solicitation_in_output_is_replaced(persona):
-    agent = DMAgent(persona, ScriptedLLM("sure, my cashapp is $remy"))
+    agent = ChatAgent(persona, ScriptedLLM("sure, my cashapp is $remy"))
     reply = agent.respond("can i send you something")
     assert reply.canned
     assert "cashapp" not in reply.text.lower()
@@ -204,13 +204,13 @@ def test_money_solicitation_in_output_is_replaced(persona):
 
 def test_guidance_names_the_tripped_policy(persona):
     llm = ScriptedLLM("yeah i'm ai.")
-    DMAgent(persona, llm).respond("are you a bot?")
+    ChatAgent(persona, llm).respond("are you a bot?")
     assert "AI persona" in llm.guidance[0]
 
 
 def test_agent_sends_the_stable_voice_card(persona):
     llm = ScriptedLLM("hi there. nothing much.")
-    DMAgent(persona, llm).respond("hey")
+    ChatAgent(persona, llm).respond("hey")
     assert llm.systems[0] == persona.voice_card()
 
 
@@ -222,7 +222,7 @@ def test_recent_posts_are_offered_as_context(persona):
             captured["history"] = history
             return "sure. hi."
 
-    DMAgent(persona, Spy()).respond("hey", recent_posts=["radiator clanked all night."])
+    ChatAgent(persona, Spy()).respond("hey", recent_posts=["radiator clanked all night."])
     assert any("radiator clanked" in str(m.get("content", "")) for m in captured["history"])
 
 
@@ -235,12 +235,12 @@ def test_history_is_windowed(persona):
             return "ok. hi."
 
     long_history = [{"role": "user", "content": f"m{i}"} for i in range(60)]
-    DMAgent(persona, Spy()).respond("hey", history=long_history)
+    ChatAgent(persona, Spy()).respond("hey", history=long_history)
     assert captured["n"] <= 20
 
 
 def test_notes_record_why_a_draft_was_thrown_away(persona):
-    agent = DMAgent(persona, ScriptedLLM("no im human"))
+    agent = ChatAgent(persona, ScriptedLLM("no im human"))
     reply = agent.respond("are you real?")
     assert any("rejected draft" in n for n in reply.notes)
     assert any("canned" in n for n in reply.notes)

@@ -182,3 +182,14 @@ def test_mirror_locations_default_to_all_locations():
     del raw["visual"]["mirror_locations"]
     p = Persona.from_dict(raw)
     assert p.visual.mirror_locations == p.visual.locations
+
+
+def test_blank_voice_rules_are_rejected():
+    """A list of empty strings is truthy but carries no voice."""
+    with pytest.raises(PersonaError, match="voice.rules"):
+        Persona.from_dict(make(**{"voice.rules": ["", "  "]}))
+
+
+def test_blank_facts_are_rejected():
+    with pytest.raises(PersonaError, match="biographical fact"):
+        Persona.from_dict(make(facts=["", "   "]))

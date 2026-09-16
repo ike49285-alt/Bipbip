@@ -179,7 +179,7 @@ em dashes, emoji count) are rejected in code before scoring; the prose rules go
 to the model. When every candidate fails, the captioner retries and finally
 raises rather than posting something off-voice.
 
-## (c) DMs
+## (c) Conversation
 
 ```
 inbound ─▶ policy gate ─▶ context assembly ─▶ model ─▶ outbound gate ─▶ send
@@ -189,6 +189,13 @@ inbound ─▶ policy gate ─▶ context assembly ─▶ model ─▶ outbound 
 
 Including *what she posted recently* is what makes replies cohere with the
 timeline instead of floating free.
+
+This runs in a local chat window (`python -m bot.ui`), which is how the persona
+gets tuned: talk to her, watch which boundary fires, edit the voice card in the
+side panel, talk again. Edits apply to the live prompt immediately and only
+touch `persona.json` when you ask them to. Without an API key it still
+classifies every message and shows the boundary, which is the half you can tune
+for free.
 
 **Gates are deterministic first, model second** — regex and keyword rules that
 work regardless of which model is behind them, with a cheap classifier call as a
@@ -203,27 +210,14 @@ swap in a weaker free model.
 | Meetup / video-call framing | Deflect — the persona has no physical existence to offer. |
 | Any signal the correspondent may be a minor | Terminate thread, flag for human review. The model is never called. |
 
-## The X API boundary
+## No platform integration
 
-Not wired yet. Define the port now and it stays a one-file change:
+X integration is **dropped**. There is no `XDriver` and no posting to a live
+service; the timeline exists locally so captions can be reviewed in context.
 
-```python
-class SocialDriver(Protocol):
-    def post(self, image: Path, caption: str) -> PostId: ...
-    def fetch_dms(self, since: Cursor) -> list[DM]: ...
-    def send_dm(self, thread: ThreadId, text: str) -> None: ...
-```
-
-`LocalDriver` now — SQLite plus a local web UI with a fake timeline and a DM
-inbox you can type into. Nothing else in the codebase learns that X exists. You
-can tune the persona for weeks before touching the API.
-
-**Verify before relying on (c):** X's free API tier has historically been
-write-limited and has *not* included DM read/write — DM access has required a
-paid tier. Confirm the current tier terms early, because if that's still true it
-blocks the DM feature specifically, on a free budget, no matter how good the
-code is. Features (a) and (b) are unaffected. The `LocalDriver` means this
-doesn't block development either way.
+`SocialDriver` and `LocalDriver` stay as they are -- the storage they provide is
+doing real work for the chat window and the timeline, and the protocol costs
+nothing. If a platform is ever wanted again, that boundary is where it would go.
 
 ## Build order
 

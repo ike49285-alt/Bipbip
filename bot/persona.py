@@ -116,9 +116,10 @@ class Persona:
 
         vis, voc, bnd = raw["visual"], raw["voice"], raw["bounds"]
 
-        if not raw["facts"]:
+        # A list of blank strings is truthy but carries no voice at all.
+        if not [f for f in raw["facts"] or [] if str(f).strip()]:
             raise PersonaError("persona needs at least one biographical fact")
-        if not voc.get("rules"):
+        if not [r for r in voc.get("rules") or [] if str(r).strip()]:
             raise PersonaError("voice.rules must list at least one concrete rule")
         if not bnd.get("always_answer_truthfully"):
             raise PersonaError(

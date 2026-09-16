@@ -27,15 +27,16 @@ back door, which is still an open decision.
 | 3b. Bootstrap notebook (`notebooks/bootstrap.py`) | written, **unverified** |
 | 3b. LoRA training | not started — pin a trainer first |
 | 4. Captioning + anti-repetition (`bot/captions.py`) | done |
-| 5. DM agent + gates (`bot/dm.py`) | done |
+| 5. Chat agent + gates (`bot/chat.py`) | done |
 | 6. Approval queue + Actions workflows | not started |
-| 7. XDriver | not started |
+| 7. ~~XDriver~~ | dropped |
 
 ## Running it
 
 No dependencies — standard library only.
 
 ```bash
+export ANTHROPIC_API_KEY=...   # optional; without it, gates only
 python -m bot.ui            # http://127.0.0.1:8000
 python -m bot.scenes -n 10  # prompts to paste into a generator
 python -m bot.scenes -n 200 --json > content/manifest.json   # for the notebook
@@ -45,8 +46,11 @@ Then run `notebooks/bootstrap.py` on a Kaggle GPU to generate against the
 manifest and filter through the QC gate. Sweep `IP_ADAPTER_SCALE` on one
 prompt before committing to a full batch.
 
-You get a fake timeline and a DM inbox backed by SQLite. Inbound messages are
-recorded; nothing replies automatically until step 5.
+You get a chat window for tuning her: talk, watch which boundary fires, edit
+the voice rules and facts in the side panel, talk again. Edits hit the live
+prompt immediately and only touch `persona.json` when you tick the box.
+Without an API key she does not reply, but every message is still classified
+and annotated with the boundary it tripped.
 
 ```bash
 pip install pytest && python -m pytest tests/ -q
@@ -61,7 +65,8 @@ bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
 bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
 bot/qc.py        identity gate + curation; embedding backend is injected
 bot/captions.py  vision pass, voice pass, repetition scoring; LLM injected
-bot/dm.py        inbound classification, outbound gate, canned fallbacks
+bot/chat.py      inbound classification, outbound gate, canned fallbacks
+bot/ui.html      chat window markup, edit it without touching Python
 bot/ui.py        local timeline and DM inbox, stdlib http.server
 ```
 

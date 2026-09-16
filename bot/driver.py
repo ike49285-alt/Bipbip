@@ -158,6 +158,11 @@ class LocalDriver:
     def timeline(self, limit: int = 50) -> list[Post]:
         return self.recent_posts(limit)
 
+    def clear_thread(self, thread: ThreadId) -> None:
+        """Start the conversation over. Used by the tuning UI's reset."""
+        self._conn.execute("DELETE FROM messages WHERE thread_id = ?", (thread,))
+        self._conn.commit()
+
     def _append(self, thread: ThreadId, direction: str, text: str) -> DM:
         cur = self._conn.execute(
             "INSERT INTO messages (thread_id, direction, body, created_at) VALUES (?, ?, ?, ?)",

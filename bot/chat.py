@@ -1,4 +1,7 @@
-"""Step 5: replying to DMs in character, inside hard boundaries.
+"""Conversation in character, inside hard boundaries.
+
+Drives the local chat window, which is how the persona gets tuned: talk to
+her, watch which boundary fires, adjust the voice card, talk again.
 
 Two rules shape this file.
 
@@ -139,7 +142,7 @@ def check_outbound(
     return problems
 
 
-class DMLLM(Protocol):
+class ChatLLM(Protocol):
     """The one call this module makes. Injected so the gates are testable."""
 
     def reply(self, system: str, history: Sequence[dict], guidance: str) -> str: ...
@@ -162,9 +165,9 @@ class Reply:
 
 
 @dataclass
-class DMAgent:
+class ChatAgent:
     persona: Persona
-    llm: DMLLM
+    llm: ChatLLM
     attempts: int = 2
 
     # -- guidance the model receives in addition to the voice card ------
@@ -269,8 +272,8 @@ class DMAgent:
         )
 
 
-class AnthropicDMLLM:
-    """Real backend. Lazy import so bot.dm stays dependency-free."""
+class AnthropicChatLLM:
+    """Real backend. Lazy import so bot.chat stays dependency-free."""
 
     def __init__(self, model: str = "claude-haiku-4-5") -> None:
         import anthropic
