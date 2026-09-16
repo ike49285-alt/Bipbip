@@ -46,7 +46,10 @@ free.
 
 ## Generating images
 
-`bot prompts` emits prompts; where you run them is up to you.
+`bot prompts` emits prompts; where you run them is up to you. For the full
+pipeline there are two Kaggle notebooks: `notebooks/bootstrap.py` generates
+from the anchor and curates a training set, then `notebooks/train_lora.py`
+trains the LoRA on it.
 
 | | Good for | Not for |
 |---|---|---|
@@ -65,14 +68,15 @@ text prompt*, with nowhere to put an anchor face or a trained LoRA. That's why
 | Persona core, voice card, validation | done |
 | Prompt builder | done |
 | Identity gate + curation (`bot/qc.py`) | done |
-| Bootstrap notebook | written, **never executed** |
-| LoRA training | not written — pin a trainer first |
+| Bootstrap orchestration (`bot/bootstrap.py`) | done, tested |
+| Bootstrap notebook | thin driver, **diffusers calls never executed** |
+| LoRA training wrapper | written, **never executed** |
 | Captioning + repetition scoring | done |
 | Chat agent + boundaries | done |
 | Studio UI + CLI | done |
 | ~~X integration~~ | dropped |
 
-198 tests. Standard library only, except `anthropic` for captions and chat.
+222 tests. Standard library only, except `anthropic` for captions and chat.
 
 ```bash
 pip install pytest && python -m pytest tests/ -q
@@ -108,8 +112,22 @@ model at all.
 
 ## The anchor
 
-`content/anchor/remy-anchor.jpg` is gitignored and **not committed**. It's the
-one file that can't be regenerated — lose it and you can never make more
-on-model images — but committing it to a public repo publishes that face
-permanently. Left out as the reversible default; back it up yourself, or commit
-it deliberately.
+`content/anchor/remy-anchor.jpg` is the one reference picture of her.
+Generators have no memory between runs — the same prompt twice gives you two
+different people — so the only way to get *her* repeatedly is to hand the
+generator this image and say "this person, new scene."
+
+```
+anchor ──▶ ~200 varied images ──▶ curate 40 ──▶ LoRA ──▶ unlimited on-model images
+```
+
+Everything inherits from it, and nothing regenerates it. Lose the anchor and
+you pick a new face and start over; nothing new will match what you already
+have.
+
+It is **gitignored and not committed**, because committing it to a public repo
+publishes that face permanently. That's the reversible default — but it means
+the file exists only where you put it. Back it up, or commit it deliberately.
+
+For a Kaggle run, upload it as a private dataset: a fresh clone of this repo
+won't contain it.
