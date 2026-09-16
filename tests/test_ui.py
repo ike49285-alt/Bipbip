@@ -209,3 +209,19 @@ def test_malformed_json_is_rejected(server):
     with pytest.raises(urllib.error.HTTPError) as exc:
         urllib.request.urlopen(req, timeout=5)
     assert exc.value.code == 400
+
+
+# -- timeline ------------------------------------------------------------
+
+
+def test_timeline_starts_empty(server):
+    base, _, _ = server
+    assert json.loads(get(base + "/api/timeline")[1])["posts"] == []
+
+
+def test_timeline_shows_captioned_posts(server):
+    base, driver, _ = server
+    driver.post(Path("content/img/a.png"), "radiator clanked all night.")
+    posts = json.loads(get(base + "/api/timeline")[1])["posts"]
+    assert [p["caption"] for p in posts] == ["radiator clanked all night."]
+    assert posts[0]["image"] == "content/img/a.png"

@@ -1,56 +1,78 @@
-# Persona bot
+# Character studio
 
-A Twitter/X account for a **disclosed AI persona** — generated selfies,
-captions, and DM replies — built to run on free infrastructure.
+A local tool for building and tuning a disclosed AI persona: generate images of
+her, caption them in her voice, and talk to her. Everything runs on your
+machine. There is no posting to any platform.
 
-Read [DESIGN.md](DESIGN.md) for the architecture, the free-hosting constraints,
-and the calculated running costs. The short version: image generation happens in
-occasional free-GPU notebook sessions and fills a human-approved queue; GitHub
-Actions cron only ever consumes that queue. Ongoing spend is DM tokens alone,
-a few dollars a month.
+The persona shipped here is **Remy** (`@remy_synthetic`) — an agender femboy,
+she/her, drawn rather than photographed, and labelled as AI in her own bio.
 
-**Preview:** https://claude.ai/artifact/4zvEoi2b4Xfi2F3o8V2qTE — timeline and DM
-gates, with real prompts and hand-written target captions. Private by default.
+**Preview:** https://claude.ai/artifact/4zvEoi2b4Xfi2F3o8V2qTE
 
-The preview's source is deliberately *not* committed: it embeds the anchor as
-base64, so committing it to a public repo would publish that face through the
-back door, which is still an open decision.
+## The loop
 
-## Status
-
-| Step | |
-|---|---|
-| 1. Persona core + voice card | done |
-| 2. LocalDriver + local UI | done |
-| 3a. Prompt builder (`bot/scenes.py`) | done |
-| 3b. QC gate + curation (`bot/qc.py`) | done |
-| 3b. Bootstrap notebook (`notebooks/bootstrap.py`) | written, **unverified** |
-| 3b. LoRA training | not started — pin a trainer first |
-| 4. Captioning + anti-repetition (`bot/captions.py`) | done |
-| 5. Chat agent + gates (`bot/chat.py`) | done |
-| 6. Approval queue + Actions workflows | not started |
-| 7. ~~XDriver~~ | dropped |
-
-## Running it
-
-No dependencies — standard library only.
-
-```bash
-export ANTHROPIC_API_KEY=...   # optional; without it, gates only
-python -m bot.ui            # http://127.0.0.1:8000
-python -m bot.scenes -n 10  # prompts to paste into a generator
-python -m bot.scenes -n 200 --json > content/manifest.json   # for the notebook
+```
+persona.json ──▶ bot prompts ──▶ [your generator] ──▶ bot caption ──▶ timeline
+     ▲                                                                   │
+     └──────────────── bot chat: talk to her, edit her voice ◀────────────┘
 ```
 
-Then run `notebooks/bootstrap.py` on a Kaggle GPU to generate against the
-manifest and filter through the QC gate. Sweep `IP_ADAPTER_SCALE` on one
-prompt before committing to a full batch.
+Four commands, one file of truth.
 
-You get a chat window for tuning her: talk, watch which boundary fires, edit
-the voice rules and facts in the side panel, talk again. Edits hit the live
-prompt immediately and only touch `persona.json` when you tick the box.
-Without an API key she does not reply, but every message is still classified
-and annotated with the boundary it tripped.
+```bash
+python -m bot check              # is persona.json sane?
+python -m bot prompts -n 20      # prompts to paste into a generator
+python -m bot caption out/       # caption those images into the timeline
+python -m bot                    # open the studio: chat + timeline + tuning
+```
+
+`persona.json` is the only thing you edit. Everything reads from it — the image
+prompts, the caption voice, the conversation, the boundaries.
+
+## The studio
+
+`python -m bot` opens a local window on port 8000 with three panes:
+
+- **Chat** — talk to her. Each message is annotated with the boundary it
+  tripped, if any.
+- **Timeline** — what has been captioned so far.
+- **Tune** — edit her voice rules and facts and see the change take effect on
+  the next message. The panel shows the exact system prompt being sent. Edits
+  only touch `persona.json` if you tick the box.
+
+Set `ANTHROPIC_API_KEY` for replies. Without one she stays quiet, but every
+message is still classified and annotated — which is the half you can tune for
+free.
+
+## Generating images
+
+`bot prompts` emits prompts; where you run them is up to you.
+
+| | Good for | Not for |
+|---|---|---|
+| **Perchance** | Finding an anchor face — browser, zero setup | Anything repeatable |
+| **Cloudflare / Pollinations** | Generic images, quick tests | Her — hosted APIs can't run your model |
+| **Kaggle notebook** | The real pipeline: IP-Adapter, LoRA, batches | Anything on-demand |
+
+Free hosted APIs can't hold a character: they serve *their* models from *your
+text prompt*, with nowhere to put an anchor face or a trained LoRA. That's why
+`notebooks/bootstrap.py` targets a Kaggle GPU — see `DESIGN.md`.
+
+## What's built
+
+| | |
+|---|---|
+| Persona core, voice card, validation | done |
+| Prompt builder | done |
+| Identity gate + curation (`bot/qc.py`) | done |
+| Bootstrap notebook | written, **never executed** |
+| LoRA training | not written — pin a trainer first |
+| Captioning + repetition scoring | done |
+| Chat agent + boundaries | done |
+| Studio UI + CLI | done |
+| ~~X integration~~ | dropped |
+
+198 tests. Standard library only, except `anthropic` for captions and chat.
 
 ```bash
 pip install pytest && python -m pytest tests/ -q
@@ -59,16 +81,35 @@ pip install pytest && python -m pytest tests/ -q
 ## Layout
 
 ```
-persona.json     identity, voice rules, facts, hard bounds
-bot/persona.py   loads and validates the above; renders the voice card
-bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
-bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
-bot/qc.py        identity gate + curation; embedding backend is injected
-bot/captions.py  vision pass, voice pass, repetition scoring; LLM injected
-bot/chat.py      inbound classification, outbound gate, canned fallbacks
-bot/ui.html      chat window markup, edit it without touching Python
-bot/ui.py        local timeline and DM inbox, stdlib http.server
+persona.json       identity, voice rules, facts, hard boundaries
+bot/persona.py     loads and validates it; renders the voice card
+bot/scenes.py      scene pools → generator-ready prompts
+bot/qc.py          identity gate + curation (embedding backend injected)
+bot/captions.py    vision pass, voice pass, repetition scoring (LLM injected)
+bot/chat.py        inbound classification, outbound gate, canned fallbacks
+bot/driver.py      local storage for the timeline and conversation
+bot/ui.py          the studio server
+bot/ui.html        its markup — edit without touching Python
+notebooks/         Kaggle-side image generation
 ```
 
-`bot/persona.py` will refuse to load a persona that doesn't disclose itself as
-synthetic. That's deliberate — see the ground rule in DESIGN.md.
+## Two rules the code enforces
+
+**She discloses.** `Persona.load()` refuses a persona that doesn't identify
+itself as synthetic. The chat agent re-checks every outgoing reply: a model that
+dodges "are you real?" or claims to be human is overridden, and her own
+disclosure line is sent instead. That's a guarantee, not a prompt instruction.
+
+**Boundaries are deterministic.** Money, personal details, meetups, and any
+signal of a minor are matched by string rules that hold regardless of which
+model sits behind them — matched both plainly and squashed, so `c a s h a p p`
+lands the same as `cashapp`. A minor signal ends the thread without calling the
+model at all.
+
+## The anchor
+
+`content/anchor/remy-anchor.jpg` is gitignored and **not committed**. It's the
+one file that can't be regenerated — lose it and you can never make more
+on-model images — but committing it to a public repo publishes that face
+permanently. Left out as the reversible default; back it up yourself, or commit
+it deliberately.

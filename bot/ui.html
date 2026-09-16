@@ -46,6 +46,13 @@ button{font:inherit; cursor:pointer}
 main{flex:1; display:flex; min-height:0; overflow:hidden}
 #chatcol{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
 #log{flex:1; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:12px}
+#feed{flex:1; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:14px}
+#feed[hidden]{display:none}
+.post{border:1px solid var(--line-soft); border-radius:10px; background:var(--surface);
+  overflow:hidden; max-width:520px; width:100%; align-self:center}
+.post .cap{padding:12px 14px; font-size:15px}
+.post .src{padding:0 14px 11px; font:10.5px/1.4 ui-monospace,monospace; color:var(--faint);
+  overflow-wrap:anywhere}
 .turn{display:flex; flex-direction:column; gap:4px; max-width:min(560px,86%)}
 .turn.out{align-self:flex-end; align-items:flex-end}
 .bubble{padding:9px 13px; border-radius:15px; white-space:pre-wrap; word-break:break-word}
@@ -102,6 +109,7 @@ pre{
     <p>@{{HANDLE}} · {{DISCLOSURE}}</p>
   </div>
   <span class="mode {{MODECLASS}}" id="mode">{{MODE}}</span>
+  <button class="ghost" id="view" aria-pressed="false">Timeline</button>
   <button class="ghost" id="toggle" aria-pressed="false">Tune</button>
   <button class="ghost" id="reset">Reset</button>
 </header>
@@ -109,6 +117,7 @@ pre{
 <main>
   <div id="chatcol">
     <div id="log"></div>
+    <div id="feed" hidden></div>
     <form id="composer">
       <input type="text" id="box" placeholder="Say something to {{NAME}}" autocomplete="off">
       <button class="send" type="submit" id="send">Send</button>
@@ -164,7 +173,21 @@ function draw(state){
   if (document.activeElement !== $('facts')) $('facts').value = state.facts.join('\n');
 }
 
-async function refresh(){ draw(await (await fetch('/api/state')).json()); }
+function drawFeed(posts){
+  $('feed').innerHTML = posts.length
+    ? posts.map(p => `<article class="post"><div class="cap">${esc(p.caption)}</div>`
+        + `<div class="src">${esc(p.image)} &middot; ${esc(p.created_at)}</div></article>`).join('')
+    : '<p class="empty">Nothing captioned yet. Run '
+      + '<code>python -m bot caption &lt;dir&gt;</code>.</p>';
+}
+
+async function refresh(){
+  const [s, f] = await Promise.all([
+    (await fetch('/api/state')).json(),
+    (await fetch('/api/timeline')).json(),
+  ]);
+  draw(s); drawFeed(f.posts);
+}
 
 $('composer').addEventListener('submit', async e => {
   e.preventDefault();
@@ -176,6 +199,15 @@ $('composer').addEventListener('submit', async e => {
       body: JSON.stringify({text})});
     await refresh();
   } finally { $('send').disabled = false; $('box').focus(); }
+});
+
+$('view').addEventListener('click', () => {
+  const showFeed = $('feed').hidden;
+  $('feed').hidden = !showFeed;
+  $('log').hidden = showFeed;
+  $('composer').hidden = showFeed;
+  $('view').setAttribute('aria-pressed', String(showFeed));
+  $('view').textContent = showFeed ? 'Chat' : 'Timeline';
 });
 
 $('toggle').addEventListener('click', () => {

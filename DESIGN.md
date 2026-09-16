@@ -1,8 +1,9 @@
-# Persona bot — design
+# Character studio — design
 
-An automated Twitter/X account for a disclosed AI persona. Three capabilities:
-generated selfies, captions for them, and coherent DM replies. Built to run on
-free infrastructure.
+A local tool for building and tuning a disclosed AI persona: generated images,
+captions in her voice, and conversation. Runs on your machine and on free
+infrastructure for the GPU work. No platform integration — that was dropped;
+see "No platform integration" below.
 
 ## Ground rule
 
@@ -221,15 +222,12 @@ nothing. If a platform is ever wanted again, that boundary is where it would go.
 
 ## Build order
 
-1. `persona.json` + loader + voice card ← everything blocks on this
-2. `LocalDriver` + local UI ← makes output visible immediately
-3. Selfie pipeline. **3a** anchor + ~10 samples (browser, no GPU) unblocks step 4;
-   **3b** bootstrap → LoRA → QC gate, which blocks only posting
-4. Captioning with anti-repetition
-5. DM agent — gates written *before* generation logic
-6. Approval queue + Actions workflows
-7. `XDriver`, last
+1. Persona core + voice card ← everything blocks on this
+2. Local storage + studio UI
+3. Selfie pipeline. **3a** anchor + samples (browser, no GPU); **3b** bootstrap → LoRA → QC gate
+4. Captioning with repetition scoring
+5. Chat agent — boundaries written *before* generation logic
+6. CLI joining the halves (`bot caption` fills the timeline)
 
-Steps 1–2 and the prompt builder (`bot/scenes.py`, step 3's backend-independent
-half) are done and stdlib-only — no install, no dependencies,
-runs anywhere.
+All done except **3b**, which needs one GPU session: run
+`notebooks/bootstrap.py` on Kaggle, then pin a LoRA trainer and script it.

@@ -100,6 +100,8 @@ class Handler(BaseHTTPRequestHandler):
             self._send(self._page(), "text/html; charset=utf-8")
         elif path == "/api/state":
             self._json(self._state())
+        elif path == "/api/timeline":
+            self._json({"posts": [p.__dict__ for p in self.driver.timeline(100)]})
         else:
             self._json({"error": "not found"}, 404)
 
