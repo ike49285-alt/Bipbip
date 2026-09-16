@@ -16,7 +16,9 @@ a few dollars a month.
 | 1. Persona core + voice card | done |
 | 2. LocalDriver + local UI | done |
 | 3a. Prompt builder (`bot/scenes.py`) | done |
-| 3b. Anchor → LoRA → QC gate | needs a GPU session |
+| 3b. QC gate + curation (`bot/qc.py`) | done |
+| 3b. Bootstrap notebook (`notebooks/bootstrap.py`) | written, **unverified** |
+| 3b. LoRA training | not started — pin a trainer first |
 | 4. Captioning with anti-repetition | not started |
 | 5. DM agent + gates | not started |
 | 6. Approval queue + Actions workflows | not started |
@@ -29,7 +31,12 @@ No dependencies — standard library only.
 ```bash
 python -m bot.ui            # http://127.0.0.1:8000
 python -m bot.scenes -n 10  # prompts to paste into a generator
+python -m bot.scenes -n 200 --json > content/manifest.json   # for the notebook
 ```
+
+Then run `notebooks/bootstrap.py` on a Kaggle GPU to generate against the
+manifest and filter through the QC gate. Sweep `IP_ADAPTER_SCALE` on one
+prompt before committing to a full batch.
 
 You get a fake timeline and a DM inbox backed by SQLite. Inbound messages are
 recorded; nothing replies automatically until step 5.
@@ -45,6 +52,7 @@ persona.json     identity, voice rules, facts, hard bounds
 bot/persona.py   loads and validates the above; renders the voice card
 bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
 bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
+bot/qc.py        identity gate + curation; embedding backend is injected
 bot/ui.py        local timeline and DM inbox, stdlib http.server
 ```
 
