@@ -1,8 +1,12 @@
 """Turns persona scene pools into generator-ready prompts.
 
-Deliberately independent of *how* you generate. The same strings paste into a
-browser generator, POST to a hosted API, or feed a notebook running your own
-LoRA -- so this module never has to change when the generation backend does.
+Deliberately independent of *how* you generate: the same strings paste into a
+browser generator, POST to a hosted API, or feed a notebook running a LoRA.
+
+Style matters more than it looks. A prompt grammar written for photography
+("natural available light", negative "airbrushed") actively fights an
+illustrated character, whose smooth shading is the point. The persona picks a
+StyleProfile and every prompt is composed from it.
 """
 
 from __future__ import annotations
@@ -14,43 +18,98 @@ from typing import Iterable
 
 from bot.persona import Persona, Scene
 
-# A selfie should read as a selfie, not a portrait session. These fragments are
-# about the genre's visual language: phones held at arm's length, ordinary
-# light, imperfect framing.
-SELFIE_GRAMMAR = (
-    "front-facing phone camera selfie",
-    "arm's length",
-    "candid",
-    "natural available light",
-    "slight handheld motion",
-    "casual framing",
+
+@dataclass(frozen=True)
+class StyleProfile:
+    """Rendering grammar for one visual style."""
+
+    name: str
+    grammar: tuple[str, ...]
+    mirror_grammar: tuple[str, ...]
+    negative: tuple[str, ...]
+
+    def grammar_for(self, activity: str) -> tuple[str, ...]:
+        # A mirror shot is rear-camera with the phone visible -- the opposite of
+        # an arm's-length front-camera frame. Mixing the two muddies the prompt.
+        return self.mirror_grammar if "mirror" in activity.lower() else self.grammar
+
+
+ILLUSTRATED = StyleProfile(
+    name="illustrated",
+    grammar=(
+        "digital illustration",
+        "anime style",
+        "cel shading",
+        "clean lineart",
+        "selfie composition",
+        "arm's length framing",
+    ),
+    mirror_grammar=(
+        "digital illustration",
+        "anime style",
+        "cel shading",
+        "clean lineart",
+        "mirror selfie",
+        "phone visible in the reflection",
+    ),
+    negative=(
+        "photorealistic",
+        "photograph",
+        "3d render",
+        "extra fingers",
+        "deformed hands",
+        "malformed limbs",
+        "watermark",
+        "text",
+        "logo",
+        "multiple people",
+        "breasts",
+    ),
 )
 
-# What makes generated selfies read as fake: studio polish, and hands.
-# A mirror shot is rear-camera with the phone visible -- the opposite of an
-# arm's-length front-camera frame. Mixing the two yields a muddy prompt.
-MIRROR_GRAMMAR = (
-    "mirror selfie",
-    "phone visible in the reflection",
-    "natural available light",
-    "slight handheld motion",
-    "casual framing",
+PHOTO = StyleProfile(
+    name="photo",
+    grammar=(
+        "front-facing phone camera selfie",
+        "arm's length",
+        "candid",
+        "natural available light",
+        "slight handheld motion",
+        "casual framing",
+    ),
+    mirror_grammar=(
+        "mirror selfie",
+        "phone visible in the reflection",
+        "natural available light",
+        "slight handheld motion",
+        "casual framing",
+    ),
+    negative=(
+        "studio lighting",
+        "professional photography",
+        "dslr",
+        "posed",
+        "airbrushed",
+        "extra fingers",
+        "deformed hands",
+        "malformed limbs",
+        "watermark",
+        "text",
+        "logo",
+        "multiple people",
+    ),
 )
 
-NEGATIVE = (
-    "studio lighting",
-    "professional photography",
-    "dslr",
-    "posed",
-    "airbrushed",
-    "extra fingers",
-    "deformed hands",
-    "malformed limbs",
-    "watermark",
-    "text",
-    "logo",
-    "multiple people",
-)
+STYLES = {p.name: p for p in (ILLUSTRATED, PHOTO)}
+
+
+def style_for(persona: Persona) -> StyleProfile:
+    try:
+        return STYLES[persona.visual.style]
+    except KeyError:
+        raise ValueError(
+            f"unknown visual.style {persona.visual.style!r}; known: {sorted(STYLES)}"
+        ) from None
 
 
 @dataclass(frozen=True)
@@ -61,6 +120,7 @@ class Shot:
     prompt: str
     negative: str
     seed: int
+    style: str
     wardrobe: str
     location: str
     time: str
@@ -71,19 +131,21 @@ class Shot:
 
 
 def build_prompt(persona: Persona, scene: Scene, *, subject: str | None = None) -> str:
-    """Compose a single positive prompt.
+    """Compose one positive prompt.
 
-    `subject` overrides the physical description of the character -- pass the
-    anchor description once you have one, so every prompt anchors to the same
-    person even before a LoRA exists.
+    Order is deliberate: subject first (it carries identity), then the signature
+    accessories that never vary, then the scene, then the style grammar.
     """
-    who = subject or f"a woman, {persona.identity.name}"
-    grammar = MIRROR_GRAMMAR if "mirror" in scene.activity.lower() else SELFIE_GRAMMAR
-    return ", ".join((who, scene.as_prompt(), *grammar))
+    style = style_for(persona)
+    parts = [subject or persona.visual.subject]
+    parts.extend(persona.visual.signature)
+    parts.append(scene.as_prompt())
+    parts.extend(style.grammar_for(scene.activity))
+    return ", ".join(parts)
 
 
-def negative_prompt() -> str:
-    return ", ".join(NEGATIVE)
+def negative_prompt(persona: Persona) -> str:
+    return ", ".join(style_for(persona).negative)
 
 
 def plan_shoot(
@@ -98,6 +160,7 @@ def plan_shoot(
     if count < 1:
         raise ValueError("count must be at least 1")
     rng = rng or random.Random()
+    style, negative = style_for(persona), negative_prompt(persona)
     seen = list(recent or [])
     shots: list[Shot] = []
     for i in range(count):
@@ -107,8 +170,9 @@ def plan_shoot(
             Shot(
                 index=i,
                 prompt=build_prompt(persona, scene, subject=subject),
-                negative=negative_prompt(),
+                negative=negative,
                 seed=rng.randrange(2**31),
+                style=style.name,
                 wardrobe=scene.wardrobe,
                 location=scene.location,
                 time=scene.time,
@@ -124,17 +188,14 @@ def as_manifest(shots: Iterable[Shot]) -> str:
 
 
 def as_paste_list(shots: Iterable[Shot]) -> str:
-    """Human-readable block for pasting into a browser generator."""
-    blocks = []
-    for shot in shots:
-        blocks.append(
-            f"--- {shot.index + 1} "
-            f"({shot.activity} / {shot.location})\n"
-            f"{shot.prompt}\n"
-            f"negative: {shot.negative}\n"
-            f"seed: {shot.seed}"
-        )
-    return "\n\n".join(blocks)
+    """Human-readable blocks for pasting into a browser generator."""
+    return "\n\n".join(
+        f"--- {s.index + 1} ({s.activity} / {s.location})\n"
+        f"{s.prompt}\n"
+        f"negative: {s.negative}\n"
+        f"seed: {s.seed}"
+        for s in shots
+    )
 
 
 if __name__ == "__main__":
@@ -142,7 +203,7 @@ if __name__ == "__main__":
 
     ap = argparse.ArgumentParser(description="Emit generator-ready selfie prompts.")
     ap.add_argument("-n", "--count", type=int, default=10)
-    ap.add_argument("--subject", default=None, help="anchor description, once you have one")
+    ap.add_argument("--subject", default=None, help="override the persona's anchor description")
     ap.add_argument("--seed", type=int, default=None, help="make the plan reproducible")
     ap.add_argument("--json", action="store_true", help="emit a manifest instead of paste text")
     ap.add_argument("--persona", default="persona.json")

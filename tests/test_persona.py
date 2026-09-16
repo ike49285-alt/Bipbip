@@ -147,7 +147,38 @@ def test_scene_prompt_mentions_every_axis():
         assert part in prompt
 
 
-def test_combinations_is_the_product_of_the_pools():
+def test_combinations_accounts_for_the_mirror_constraint():
+    """Mirror shots can only happen where a mirror is, so the count is not the
+    naive product of all four pools."""
     p = Persona.load()
     v = p.visual
-    assert p.combinations() == len(v.wardrobe) * len(v.locations) * len(v.times) * len(v.activities)
+    mirror = sum(1 for a in v.activities if "mirror" in a.lower())
+    plain = len(v.activities) - mirror
+    expected = len(v.wardrobe) * len(v.times) * (
+        plain * len(v.locations) + mirror * len(v.mirror_locations)
+    )
+    assert p.combinations() == expected
+
+
+def test_mirror_constraint_reduces_the_combination_count():
+    p = Persona.load()
+    v = p.visual
+    naive = len(v.wardrobe) * len(v.locations) * len(v.times) * len(v.activities)
+    assert v.mirror_locations != v.locations
+    assert p.combinations() < naive
+
+
+def test_subject_is_required():
+    import copy
+    raw = copy.deepcopy(RAW)
+    raw["visual"]["subject"] = "  "
+    with pytest.raises(PersonaError, match="visual.subject"):
+        Persona.from_dict(raw)
+
+
+def test_mirror_locations_default_to_all_locations():
+    import copy
+    raw = copy.deepcopy(RAW)
+    del raw["visual"]["mirror_locations"]
+    p = Persona.from_dict(raw)
+    assert p.visual.mirror_locations == p.visual.locations

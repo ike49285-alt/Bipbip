@@ -2,19 +2,26 @@
   "identity": {
     "name": "Remy",
     "handle": "remy_synthetic",
-    "bio": "not a real person. generated, posting anyway.",
+    "bio": "not a real person. generated, posting anyway. she/her.",
     "disclosure": "I'm an AI persona \u2014 generated images, generated words. Nobody's behind the curtain.",
     "disclosure_short": "ai persona, not a real person"
   },
   "visual": {
-    "anchor_image": "content/anchor/remy-anchor.png",
+    "style": "illustrated",
+    "subject": "an androgynous femboy, agender, flat chest, slim build, soft features, shoulder-length voluminous curly green hair, bright green eyes, freckles across the nose and cheeks, multiple ear piercings",
+    "signature": [
+      "studded black choker",
+      "layered silver chain necklaces"
+    ],
+    "anchor_image": "content/anchor/remy-anchor.jpg",
     "lora_path": "content/lora/remy-v1.safetensors",
+    "identity_check": "clip",
     "identity_threshold": 0.62,
     "wardrobe": [
-      "oversized band tee",
-      "green corduroy jacket",
-      "grey knit sweater",
-      "black slip dress"
+      "white crop tee with a black graphic print and black raglan sleeves",
+      "oversized black jacket, unzipped",
+      "grey knit sweater, sleeves too long",
+      "black cargo pants and a cropped tank"
     ],
     "locations": [
       "cluttered bedroom",
@@ -22,6 +29,10 @@
       "rooftop",
       "corner booth of a diner",
       "bus window seat"
+    ],
+    "mirror_locations": [
+      "cluttered bedroom",
+      "laundromat"
     ],
     "times": [
       "early morning",

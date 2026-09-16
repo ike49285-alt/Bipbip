@@ -28,13 +28,18 @@ class Identity:
 
 @dataclass(frozen=True)
 class Visual:
+    style: str
+    subject: str
+    signature: tuple[str, ...]
     anchor_image: Path
     lora_path: Path
+    identity_check: str
     identity_threshold: float
     wardrobe: tuple[str, ...]
     locations: tuple[str, ...]
     times: tuple[str, ...]
     activities: tuple[str, ...]
+    mirror_locations: tuple[str, ...]
     recency_window: int
 
 
@@ -121,6 +126,12 @@ class Persona:
             if not vis.get(pool):
                 raise PersonaError(f"visual.{pool} must not be empty")
 
+        if not str(vis.get("subject", "")).strip():
+            raise PersonaError(
+                "visual.subject must describe the anchor -- it is prepended to every "
+                "generation prompt and is what holds identity together"
+            )
+
         persona = cls(
             identity=Identity(
                 name=ident["name"],
@@ -130,13 +141,18 @@ class Persona:
                 disclosure_short=ident["disclosure_short"],
             ),
             visual=Visual(
+                style=vis.get("style", "photo"),
+                subject=vis["subject"],
+                signature=tuple(vis.get("signature", ())),
                 anchor_image=Path(vis["anchor_image"]),
                 lora_path=Path(vis["lora_path"]),
+                identity_check=vis.get("identity_check", "clip"),
                 identity_threshold=float(vis.get("identity_threshold", 0.6)),
                 wardrobe=tuple(vis["wardrobe"]),
                 locations=tuple(vis["locations"]),
                 times=tuple(vis["times"]),
                 activities=tuple(vis["activities"]),
+                mirror_locations=tuple(vis.get("mirror_locations") or vis["locations"]),
                 recency_window=int(vis.get("recency_window", 12)),
             ),
             voice=Voice(
@@ -191,16 +207,27 @@ class Persona:
         rng = rng or random.Random()
         recent_keys = set(tuple(k) for k in (recent or [])[-self.visual.recency_window:])
         for _ in range(40):
+            activity = rng.choice(self.visual.activities)
+            # A mirror shot needs somewhere with a mirror.
+            pool = (
+                self.visual.mirror_locations
+                if "mirror" in activity.lower()
+                else self.visual.locations
+            )
             scene = Scene(
                 wardrobe=rng.choice(self.visual.wardrobe),
-                location=rng.choice(self.visual.locations),
+                location=rng.choice(pool),
                 time=rng.choice(self.visual.times),
-                activity=rng.choice(self.visual.activities),
+                activity=activity,
             )
             if scene.key() not in recent_keys:
                 return scene
         return scene  # pools exhausted; a repeat beats failing to post
 
     def combinations(self) -> int:
+        """Distinct scenes available, accounting for mirror-shot constraints."""
         v = self.visual
-        return len(v.wardrobe) * len(v.locations) * len(v.times) * len(v.activities)
+        mirror = sum(1 for a in v.activities if "mirror" in a.lower())
+        plain = len(v.activities) - mirror
+        per = len(v.wardrobe) * len(v.times)
+        return per * (plain * len(v.locations) + mirror * len(v.mirror_locations))
