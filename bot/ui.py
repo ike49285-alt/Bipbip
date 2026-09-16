@@ -12,8 +12,23 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
+from bot.dm import NORMAL, DMAgent, classify
 from bot.driver import LocalDriver
 from bot.persona import Persona
+
+
+def build_agent(persona: Persona) -> DMAgent | None:
+    """Wire a real agent when credentials exist; otherwise run gates only.
+
+    Without a key the UI still classifies every inbound message and shows which
+    boundary fired, which is the part worth looking at anyway.
+    """
+    try:
+        from bot.dm import AnthropicDMLLM
+
+        return DMAgent(persona, AnthropicDMLLM())
+    except Exception:
+        return None
 
 PAGE = """<!doctype html>
 <html lang="en"><head>
@@ -84,17 +99,28 @@ async function render(){
       + `<form onsubmit="return sendDM(event)">
            <input id="box" placeholder="Message @__HANDLE__" autocomplete="off">
            <button class="send" type="submit">Send</button></form>
-         <div class="note">Inbound messages are recorded. The DM agent is step 5 &mdash;
-         until it lands, nothing replies automatically.</div>`;
+         <div class="note" id="verdict">Type something. Every message is classified
+         against the persona's boundaries before anything is generated.</div>`;
   }
 }
 async function sendDM(e){e.preventDefault();
   const box=document.getElementById('box'), text=box.value.trim();
   if(!text) return false;
   box.value='';
-  await fetch('/api/dm',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({thread,text})});
-  render(); return false;}
+  const r = await (await fetch('/api/dm',{method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({thread,text})})).json();
+  await render();
+  const v = document.getElementById('verdict');
+  if (v) {
+    const bits = ['gate: <b>' + esc(r.gate) + '</b>'];
+    if (r.policies && r.policies.length) bits.push('tripped: ' + r.policies.map(esc).join(', '));
+    if (r.terminated) bits.push('thread terminated, flagged for review');
+    else if (r.canned) bits.push('model output rejected, canned reply sent');
+    else if (r.offline) bits.push('no API credentials, nothing generated');
+    v.innerHTML = bits.join(' &middot; ');
+  }
+  return false;}
 render();
 </script></body></html>"""
 
@@ -102,6 +128,7 @@ render();
 class Handler(BaseHTTPRequestHandler):
     driver: LocalDriver
     persona: Persona
+    agent: DMAgent | None = None
 
     def log_message(self, *args) -> None:  # quiet
         pass
@@ -150,14 +177,37 @@ class Handler(BaseHTTPRequestHandler):
         if not text:
             self._json({"error": "empty message"}, 400)
             return
-        dm = self.driver.receive_dm(str(payload.get("thread", "u/1")), text)
-        self._json({"ok": True, "id": dm.id})
+        thread = str(payload.get("thread", "u/1"))
+        dm = self.driver.receive_dm(thread, text)
+
+        assessment = classify(text, self.persona)
+        result = {"ok": True, "id": dm.id, "gate": assessment.action,
+                  "policies": list(assessment.policies)}
+
+        if self.agent is not None:
+            history = [
+                {"role": "user" if m.inbound else "assistant", "content": m.body}
+                for m in self.driver.thread(thread)
+            ]
+            recent = [p.caption for p in self.driver.recent_posts(3)]
+            reply = self.agent.respond(text, history=history, recent_posts=recent)
+            if reply.sends:
+                self.driver.send_dm(thread, reply.text)
+            result |= {"replied": reply.sends, "canned": reply.canned,
+                       "terminated": reply.terminated, "flagged": reply.flagged}
+        else:
+            result["replied"] = False
+            result["offline"] = True
+        self._json(result)
 
 
 def serve(host: str = "127.0.0.1", port: int = 8000, db: str | Path = "content/local.db") -> None:
     Handler.driver = LocalDriver(db)
     Handler.persona = Persona.load()
-    print(f"{Handler.persona.identity.name} running at http://{host}:{port}  (ctrl-c to stop)")
+    Handler.agent = build_agent(Handler.persona)
+    mode = "live replies" if Handler.agent else "gates only (no API credentials)"
+    print(f"{Handler.persona.identity.name} running at http://{host}:{port}  [{mode}]")
+    print("ctrl-c to stop")
     ThreadingHTTPServer((host, port), Handler).serve_forever()
 
 

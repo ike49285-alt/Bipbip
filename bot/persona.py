@@ -61,6 +61,8 @@ class Bounds:
     refuse_to_supply: tuple[str, ...]
     deflect: tuple[str, ...]
     terminate_thread: tuple[str, ...]
+    never_claim: tuple[str, ...]
+    canned: dict
 
 
 @dataclass(frozen=True)
@@ -173,6 +175,8 @@ class Persona:
                 refuse_to_supply=tuple(bnd.get("refuse_to_supply", ())),
                 deflect=tuple(bnd.get("deflect", ())),
                 terminate_thread=tuple(bnd.get("terminate_thread", ())),
+                never_claim=tuple(bnd.get("never_claim", ())),
+                canned=dict(bnd.get("canned") or {}),
             ),
             source=source,
         )

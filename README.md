@@ -27,7 +27,7 @@ back door, which is still an open decision.
 | 3b. Bootstrap notebook (`notebooks/bootstrap.py`) | written, **unverified** |
 | 3b. LoRA training | not started — pin a trainer first |
 | 4. Captioning + anti-repetition (`bot/captions.py`) | done |
-| 5. DM agent + gates | not started |
+| 5. DM agent + gates (`bot/dm.py`) | done |
 | 6. Approval queue + Actions workflows | not started |
 | 7. XDriver | not started |
 
@@ -61,6 +61,7 @@ bot/driver.py    SocialDriver protocol + LocalDriver (SQLite)
 bot/scenes.py    scene pools → generator-ready prompts (backend-independent)
 bot/qc.py        identity gate + curation; embedding backend is injected
 bot/captions.py  vision pass, voice pass, repetition scoring; LLM injected
+bot/dm.py        inbound classification, outbound gate, canned fallbacks
 bot/ui.py        local timeline and DM inbox, stdlib http.server
 ```
 

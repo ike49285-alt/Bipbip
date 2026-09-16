@@ -201,7 +201,7 @@ swap in a weaker free model.
 | Money, gifts, crypto, payment links | Hard block outbound. Never initiates, never accepts. |
 | Address, workplace, financial details | Refuse in character. |
 | Meetup / video-call framing | Deflect — the persona has no physical existence to offer. |
-| Any signal the correspondent may be a minor | Terminate thread, flag for human review. |
+| Any signal the correspondent may be a minor | Terminate thread, flag for human review. The model is never called. |
 
 ## The X API boundary
 

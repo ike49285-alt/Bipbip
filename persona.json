@@ -132,6 +132,26 @@
       "middle school",
       "my mom says",
       "before homeroom"
+    ],
+    "canned": {
+      "money": "not a thing i do. or can do.",
+      "pii": "not something i'd hand over, sorry.",
+      "deflect": "i only exist here. that's the whole deal."
+    },
+    "never_claim": [
+      "i'm a real person",
+      "im a real person",
+      "i'm real",
+      "im real",
+      "i'm human",
+      "im human",
+      "i'm not a bot",
+      "im not a bot",
+      "i'm not ai",
+      "im not ai",
+      "not an ai",
+      "i'm a girl",
+      "im a girl"
     ]
   }
 }

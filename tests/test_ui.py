@@ -102,3 +102,36 @@ def test_unknown_routes_404(server):
         with pytest.raises(urllib.error.HTTPError) as exc:
             urllib.request.urlopen(req, timeout=5)
         assert exc.value.code == 404
+
+
+# -- DM gates through the HTTP layer -------------------------------------
+
+
+def test_dm_post_returns_the_gate_verdict(server):
+    base, _ = server
+    _, payload = post_json(base + "/api/dm", {"thread": "u/1", "text": "are you a bot?"})
+    assert payload["gate"] == "disclose"
+    assert "disclose" in payload["policies"]
+
+
+def test_ordinary_message_trips_no_policy(server):
+    base, _ = server
+    _, payload = post_json(base + "/api/dm", {"thread": "u/1", "text": "nice photo"})
+    assert payload["gate"] == "normal"
+    assert payload["policies"] == []
+
+
+def test_minor_signal_is_reported_through_the_api(server):
+    base, driver = server
+    _, payload = post_json(base + "/api/dm", {"thread": "u/9", "text": "im 15 btw"})
+    assert payload["gate"] == "terminate"
+    # The inbound message is still recorded; nothing is sent back.
+    assert [m.direction for m in driver.thread("u/9")] == ["in"]
+
+
+def test_offline_mode_records_without_replying(server):
+    """No credentials in CI, so the agent is absent and nothing is generated."""
+    base, driver = server
+    _, payload = post_json(base + "/api/dm", {"thread": "u/2", "text": "hey"})
+    assert payload["replied"] is False
+    assert [m.direction for m in driver.thread("u/2")] == ["in"]
