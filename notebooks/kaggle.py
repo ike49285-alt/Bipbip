@@ -68,8 +68,32 @@ def bot(*args):
 bot("doctor")
 
 # %% 3. pick the anchor strength ------------------------------------------
-# Four renders of one prompt. Look at them before spending a session on 200.
+# Four renders of one prompt at different anchor strengths, shown side by side.
+# The number under each one is what you pass as --scale in the next cell.
 bot("generate", "--sweep", "--out", str(OUT), "--family", "sdxl")
+
+from IPython.display import HTML, display  # noqa: E402
+
+sweeps = sorted(OUT.glob("sweep-*.png"))
+if sweeps:
+    import base64
+
+    tiles = "".join(
+        '<figure style="margin:0;text-align:center">'
+        f'<img src="data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}" '
+        'style="width:100%;border-radius:6px">'
+        f'<figcaption style="font:13px sans-serif;padding-top:6px">'
+        f'--scale {p.stem.split("-", 1)[1]}</figcaption></figure>'
+        for p in sweeps
+    )
+    display(HTML(
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));'
+        f'gap:12px;max-width:960px">{tiles}</div>'
+        '<p style="font:14px sans-serif;margin-top:10px">Pick the one that still looks like '
+        'her but is not copying the anchor pose. Put that number in the next cell.</p>'
+    ))
+else:
+    print("no sweep images were written -- check the error above")
 
 # %% 4. the batch ----------------------------------------------------------
 # Set --scale to whichever sweep image you liked. Resumes if the session drops.
@@ -77,6 +101,21 @@ bot("generate", "-n", "200", "--scale", "0.65", "--out", str(OUT), "--family", "
 
 # %% 5. curate -------------------------------------------------------------
 bot("curate", "--keep", "40", "--out", str(OUT))
+
+# A look at what it chose to train on. The gate catches off-model, not ugly --
+# if these are not all clearly her, fix that before training.
+import base64  # noqa: E402
+
+picks = sorted((OUT / "train").glob("*.png"))[:8]
+if picks:
+    tiles = "".join(
+        f'<img src="data:image/png;base64,{base64.b64encode(p.read_bytes()).decode()}" '
+        'style="width:100%;border-radius:6px">' for p in picks
+    )
+    display(HTML(
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));'
+        f'gap:8px;max-width:960px">{tiles}</div>'
+    ))
 
 # %% 6. train --------------------------------------------------------------
 # !git clone -q --depth 1 --branch v0.31.0 https://github.com/huggingface/diffusers /kaggle/working/diffusers
