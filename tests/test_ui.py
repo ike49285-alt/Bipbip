@@ -57,13 +57,16 @@ def test_index_renders_persona_identity(server):
     base, _, _ = server
     status, body = get(base + "/")
     assert status == 200
-    assert "Remy" in body and "remy_synthetic" in body
+    assert "Remy" in body
     assert "{{" not in body, "an unsubstituted template token leaked"
 
 
 def test_index_reports_offline_mode(server):
+    """Offline should say what to do about it, not just label itself."""
     base, _, _ = server
-    assert "gates only" in get(base + "/")[1]
+    body = get(base + "/")[1]
+    assert "gates only" in body
+    assert "ANTHROPIC_API_KEY" in body
 
 
 # -- state ---------------------------------------------------------------

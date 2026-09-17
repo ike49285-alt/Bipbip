@@ -31,14 +31,16 @@ prompts, the caption voice, the conversation, the boundaries.
 
 ## The studio
 
-`python -m bot` opens a local window on port 8000 with three panes:
+`python -m bot` opens a chat window on port 8000. You talk to her; that's the
+whole screen. Three links underneath open the rest:
 
-- **Chat** — talk to her. Each message is annotated with the boundary it
-  tripped, if any.
-- **Timeline** — what has been captioned so far.
-- **Tune** — edit her voice rules and facts and see the change take effect on
-  the next message. The panel shows the exact system prompt being sent. Edits
-  only touch `persona.json` if you tick the box.
+- **Edit her voice** — her rules and facts, as plain text. Change them, talk
+  again, see the difference. Nothing is written to `persona.json` unless you
+  tick "keep them".
+- **Her captions** — what has been captioned so far.
+- **Start over** — clears the conversation.
+
+Replies where a boundary fired carry a short note under them saying why.
 
 Set `ANTHROPIC_API_KEY` for replies. Without one she stays quiet, but every
 message is still classified and annotated — which is the half you can tune for

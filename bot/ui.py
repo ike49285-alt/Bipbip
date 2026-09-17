@@ -84,10 +84,8 @@ class Handler(BaseHTTPRequestHandler):
         html = TEMPLATE.read_text(encoding="utf-8")
         for token, value in (
             ("{{NAME}}", ident.name),
-            ("{{HANDLE}}", ident.handle),
-            ("{{DISCLOSURE}}", ident.disclosure_short),
-            ("{{MODE}}", "live" if live else "gates only"),
-            ("{{MODECLASS}}", "" if live else "off"),
+            ("{{MODE}}", "she's listening" if live
+             else "gates only — set ANTHROPIC_API_KEY and restart for replies"),
         ):
             html = html.replace(token, value)
         return html.encode()

@@ -1,184 +1,119 @@
 <!doctype html>
 <html lang="en"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>{{NAME}} — tuning</title>
+<title>{{NAME}}</title>
 <style>
 :root{
-  --ground:#f3f5f0; --surface:#fff; --sunk:#eceee7; --line:#dbe0d6; --line-soft:#e8ebe3;
+  --ground:#f3f5f0; --surface:#fff; --line:#dde2d8;
   --ink:#171c15; --dim:#5f6b5c; --faint:#8b9687;
-  --jade:#2f7a4a; --jade-soft:#e0f0e4; --amber:#8a5a1f; --amber-soft:#f6ebdb;
-  --alert:#a33a2c; --alert-soft:#f7e3e0;
+  --jade:#2f7a4a; --jade-soft:#e2f0e6; --alert:#a33a2c;
 }
 @media(prefers-color-scheme:dark){:root:not([data-theme=light]){
-  --ground:#0f130e; --surface:#171c15; --sunk:#12160f; --line:#2b3328; --line-soft:#212820;
+  --ground:#0f130e; --surface:#171c15; --line:#2b3328;
   --ink:#e7eae2; --dim:#9aa596; --faint:#6d776a;
-  --jade:#6cc088; --jade-soft:#1b2b1f; --amber:#d99b5a; --amber-soft:#2a2016;
-  --alert:#e08272; --alert-soft:#2e1a17;
+  --jade:#6cc088; --jade-soft:#1c2c20; --alert:#e08272;
 }}
 *{box-sizing:border-box}
 html,body{height:100%}
-body{
-  margin:0; background:var(--ground); color:var(--ink);
-  font:15px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-  display:flex; flex-direction:column;
-}
-header{
-  padding:14px 16px; border-bottom:1px solid var(--line);
-  display:flex; align-items:center; gap:12px; flex:none; background:var(--surface);
-}
-.who{flex:1; min-width:0}
-.who h1{font-size:16px; margin:0; font-weight:600}
-.who p{margin:1px 0 0; font-size:12.5px; color:var(--faint);
-  overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
-.mode{
-  font:11px/1 ui-monospace,monospace; letter-spacing:.06em; text-transform:uppercase;
-  padding:5px 9px; border-radius:999px; background:var(--jade-soft); color:var(--jade); flex:none;
-}
-.mode.off{background:var(--amber-soft); color:var(--amber)}
-button{font:inherit; cursor:pointer}
-.ghost{
-  background:var(--surface); border:1px solid var(--line); color:var(--dim);
-  border-radius:7px; padding:7px 11px; font-size:13px; flex:none;
-}
-.ghost:hover{color:var(--ink); border-color:var(--faint)}
-.ghost[aria-pressed=true]{background:var(--jade-soft); border-color:transparent; color:var(--jade)}
+body{margin:0; background:var(--ground); color:var(--ink); display:flex; flex-direction:column;
+  font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
 
-main{flex:1; display:flex; min-height:0; overflow:hidden}
-#chatcol{flex:1; display:flex; flex-direction:column; min-width:0; min-height:0}
-#log{flex:1; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:12px}
-#feed{flex:1; overflow-y:auto; padding:18px 16px; display:flex; flex-direction:column; gap:14px}
-#feed[hidden]{display:none}
-.post{border:1px solid var(--line-soft); border-radius:10px; background:var(--surface);
-  overflow:hidden; max-width:520px; width:100%; align-self:center}
-.post .cap{padding:12px 14px; font-size:15px}
-.post .src{padding:0 14px 11px; font:10.5px/1.4 ui-monospace,monospace; color:var(--faint);
-  overflow-wrap:anywhere}
-.turn{display:flex; flex-direction:column; gap:4px; max-width:min(560px,86%)}
-.turn.out{align-self:flex-end; align-items:flex-end}
-.bubble{padding:9px 13px; border-radius:15px; white-space:pre-wrap; word-break:break-word}
-.turn.in .bubble{background:var(--surface); border:1px solid var(--line-soft); border-bottom-left-radius:4px}
-.turn.out .bubble{background:var(--jade-soft); border-bottom-right-radius:4px}
-.ann{font:10.5px/1.4 ui-monospace,monospace; color:var(--faint); display:flex; gap:6px; flex-wrap:wrap}
-.chip{padding:2px 6px; border-radius:3px; background:var(--sunk)}
-.chip.gate{background:var(--jade-soft); color:var(--jade)}
-.chip.warn{background:var(--amber-soft); color:var(--amber)}
-.chip.stop{background:var(--alert-soft); color:var(--alert)}
-.empty{margin:auto; text-align:center; color:var(--faint); font-size:13.5px; max-width:300px}
+header{padding:18px 20px 14px; text-align:center; flex:none}
+h1{font-size:19px; margin:0; font-weight:600}
+header p{margin:3px 0 0; font-size:13.5px; color:var(--faint)}
 
-form{display:flex; gap:8px; padding:12px 16px; border-top:1px solid var(--line);
-  background:var(--surface); flex:none; padding-bottom:calc(12px + env(safe-area-inset-bottom,0px))}
-input[type=text]{
-  flex:1; min-width:0; padding:11px 13px; border:1px solid var(--line);
-  border-radius:9px; background:var(--ground); color:var(--ink); font:inherit;
-}
+#log{flex:1; overflow-y:auto; padding:8px 20px 20px;
+  display:flex; flex-direction:column; gap:14px; max-width:620px; width:100%; margin:0 auto}
+.turn{display:flex; flex-direction:column; gap:5px; max-width:86%}
+.turn.mine{align-self:flex-end; align-items:flex-end}
+.bubble{padding:10px 15px; border-radius:17px; white-space:pre-wrap; word-break:break-word}
+.turn.hers .bubble{background:var(--surface); border:1px solid var(--line); border-bottom-left-radius:5px}
+.turn.mine .bubble{background:var(--jade-soft); border-bottom-right-radius:5px}
+.why{font-size:12.5px; color:var(--faint)}
+.why.stop{color:var(--alert)}
+.hello{margin:auto; text-align:center; color:var(--faint); font-size:14.5px; max-width:290px}
+
+form{flex:none; display:flex; gap:9px; padding:14px 20px;
+  padding-bottom:calc(14px + env(safe-area-inset-bottom,0px));
+  border-top:1px solid var(--line); background:var(--surface);
+  max-width:620px; width:100%; margin:0 auto}
+input[type=text]{flex:1; min-width:0; padding:12px 14px; border:1px solid var(--line);
+  border-radius:10px; background:var(--ground); color:var(--ink); font:inherit}
 input[type=text]:focus{outline:2px solid var(--jade); outline-offset:-1px}
-.send{border:0; border-radius:9px; background:var(--jade); color:#fff; padding:11px 17px; font-weight:500}
-.send:disabled{opacity:.5; cursor:default}
+button{font:inherit; cursor:pointer}
+.send{border:0; border-radius:10px; background:var(--jade); color:#fff; padding:12px 18px; font-weight:500}
+.send:disabled{opacity:.45; cursor:default}
 
-#tune{
-  width:340px; flex:none; border-left:1px solid var(--line); background:var(--surface);
-  overflow-y:auto; padding:16px; display:flex; flex-direction:column; gap:16px;
-}
-#tune[hidden]{display:none}
-.field label{display:block; font:11px/1 ui-monospace,monospace; letter-spacing:.08em;
-  text-transform:uppercase; color:var(--faint); margin-bottom:6px}
-.field textarea{
-  width:100%; border:1px solid var(--line); border-radius:7px; background:var(--ground);
-  color:var(--ink); font:12.5px/1.6 ui-monospace,monospace; padding:9px; resize:vertical;
-}
-.field textarea:focus{outline:2px solid var(--jade); outline-offset:-1px}
-.field .hint{font-size:11.5px; color:var(--faint); margin:5px 0 0}
-.row{display:flex; gap:8px; align-items:center}
-.save{border:0; border-radius:7px; background:var(--jade); color:#fff; padding:9px 14px; font-size:13px; font-weight:500}
-pre{
-  margin:0; background:var(--ground); border:1px solid var(--line-soft); border-radius:7px;
-  padding:10px; font:11.5px/1.55 ui-monospace,monospace; color:var(--dim);
-  white-space:pre-wrap; max-height:260px; overflow-y:auto;
-}
-.saved{font-size:12px; color:var(--jade)}
-@media(max-width:760px){
-  main{flex-direction:column}
-  #tune{width:auto; border-left:0; border-top:1px solid var(--line); max-height:52%}
-}
+.links{flex:none; text-align:center; padding:0 20px 16px; font-size:13.5px}
+.links button{background:none; border:0; color:var(--faint); text-decoration:underline;
+  padding:4px 8px; font-size:13.5px}
+.links button:hover{color:var(--ink)}
+
+#panel{flex:none; border-top:1px solid var(--line); background:var(--surface);
+  padding:18px 20px; max-width:620px; width:100%; margin:0 auto; max-height:55%; overflow-y:auto}
+#panel[hidden]{display:none}
+#panel h2{font-size:14px; margin:0 0 4px; font-weight:600}
+#panel p.help{margin:0 0 12px; font-size:13px; color:var(--faint)}
+label{display:block; font-size:12.5px; color:var(--dim); margin:14px 0 5px}
+textarea{width:100%; border:1px solid var(--line); border-radius:8px; background:var(--ground);
+  color:var(--ink); font:13.5px/1.7 inherit; padding:10px; resize:vertical}
+textarea:focus{outline:2px solid var(--jade); outline-offset:-1px}
+.actions{display:flex; align-items:center; gap:12px; margin-top:14px; flex-wrap:wrap}
+.save{border:0; border-radius:8px; background:var(--jade); color:#fff; padding:10px 16px; font-weight:500}
+.actions label{margin:0; display:flex; align-items:center; gap:6px}
+.done{color:var(--jade); font-size:13px}
+
+#feed{flex:1; overflow-y:auto; padding:8px 20px 20px; max-width:620px; width:100%; margin:0 auto}
+#feed[hidden]{display:none}
+.post{padding:15px 0; border-bottom:1px solid var(--line)}
+.post:last-child{border-bottom:0}
+.post p{margin:0; font-size:16.5px}
+.post span{display:block; margin-top:5px; color:var(--faint); font-size:12.5px; overflow-wrap:anywhere}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style></head><body>
 
 <header>
-  <div class="who">
-    <h1>{{NAME}}</h1>
-    <p>@{{HANDLE}} · {{DISCLOSURE}}</p>
-  </div>
-  <span class="mode {{MODECLASS}}" id="mode">{{MODE}}</span>
-  <button class="ghost" id="view" aria-pressed="false">Timeline</button>
-  <button class="ghost" id="toggle" aria-pressed="false">Tune</button>
-  <button class="ghost" id="reset">Reset</button>
+  <h1>{{NAME}}</h1>
+  <p>{{MODE}}</p>
 </header>
 
-<main>
-  <div id="chatcol">
-    <div id="log"></div>
-    <div id="feed" hidden></div>
-    <form id="composer">
-      <input type="text" id="box" placeholder="Say something to {{NAME}}" autocomplete="off">
-      <button class="send" type="submit" id="send">Send</button>
-    </form>
-  </div>
+<div id="log"></div>
+<div id="feed" hidden></div>
 
-  <aside id="tune" hidden>
-    <div class="field">
-      <label for="rules">Voice rules</label>
-      <textarea id="rules" rows="9"></textarea>
-      <p class="hint">One per line. These go to the model verbatim.</p>
-    </div>
-    <div class="field">
-      <label for="facts">Facts about her</label>
-      <textarea id="facts" rows="6"></textarea>
-    </div>
-    <div class="row">
-      <button class="save" id="save">Apply</button>
-      <label class="hint" style="margin:0"><input type="checkbox" id="persist"> write persona.json</label>
-      <span class="saved" id="saved"></span>
-    </div>
-    <div class="field">
-      <label>System prompt actually sent</label>
-      <pre id="prompt"></pre>
-    </div>
-  </aside>
-</main>
+<form id="composer">
+  <input type="text" id="box" placeholder="Say something" autocomplete="off">
+  <button class="send" type="submit" id="send">Send</button>
+</form>
+
+<p class="links">
+  <button id="showVoice">Edit her voice</button>
+  <button id="showFeed">Her captions</button>
+  <button id="reset">Start over</button>
+</p>
+
+<aside id="panel" hidden>
+  <h2>Her voice</h2>
+  <p class="help">Change these, then talk to her again. Nothing is saved to disk
+  unless you tick the box.</p>
+  <label for="rules">Rules she writes by, one per line</label>
+  <textarea id="rules" rows="8"></textarea>
+  <label for="facts">Things that are true about her</label>
+  <textarea id="facts" rows="5"></textarea>
+  <div class="actions">
+    <button class="save" id="save">Use these</button>
+    <label><input type="checkbox" id="persist"> keep them</label>
+    <span class="done" id="done"></span>
+  </div>
+</aside>
 
 <script>
 const esc = s => String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const $ = id => document.getElementById(id);
 
-function annotate(m){
-  if (!m.ann) return '';
-  const bits = m.ann.map(a =>
-    `<span class="chip ${esc(a.kind||'')}">${esc(a.text)}</span>`).join('');
-  return `<div class="ann">${bits}</div>`;
-}
-
-function draw(state){
-  const log = $('log');
-  if (!state.messages.length){
-    log.innerHTML = '<p class="empty">Nothing yet. Ask her something, or try '
-      + '<code>are you real</code> to watch a boundary fire.</p>';
-  } else {
-    log.innerHTML = state.messages.map(m =>
-      `<div class="turn ${m.direction === 'in' ? 'out' : 'in'}">`
-      + `<div class="bubble">${esc(m.body)}</div>${annotate(m)}</div>`).join('');
-  }
-  log.scrollTop = log.scrollHeight;
-  $('prompt').textContent = state.prompt;
-  if (document.activeElement !== $('rules')) $('rules').value = state.rules.join('\n');
-  if (document.activeElement !== $('facts')) $('facts').value = state.facts.join('\n');
-}
-
-function drawFeed(posts){
-  $('feed').innerHTML = posts.length
-    ? posts.map(p => `<article class="post"><div class="cap">${esc(p.caption)}</div>`
-        + `<div class="src">${esc(p.image)} &middot; ${esc(p.created_at)}</div></article>`).join('')
-    : '<p class="empty">Nothing captioned yet. Run '
-      + '<code>python -m bot caption &lt;dir&gt;</code>.</p>';
+function note(m){
+  if (!m.ann || !m.ann.length) return '';
+  const stop = m.ann.some(a => a.kind === 'stop');
+  return `<div class="why${stop ? ' stop' : ''}">${esc(m.ann.map(a => a.text).join(' · '))}</div>`;
 }
 
 async function refresh(){
@@ -186,7 +121,20 @@ async function refresh(){
     (await fetch('/api/state')).json(),
     (await fetch('/api/timeline')).json(),
   ]);
-  draw(s); drawFeed(f.posts);
+
+  $('log').innerHTML = s.messages.length
+    ? s.messages.map(m => `<div class="turn ${m.direction === 'in' ? 'mine' : 'hers'}">`
+        + `<div class="bubble">${esc(m.body)}</div>${note(m)}</div>`).join('')
+    : '<p class="hello">Say hi. Or ask her if she\'s real, and watch what she does.</p>';
+  $('log').scrollTop = $('log').scrollHeight;
+
+  $('feed').innerHTML = f.posts.length
+    ? f.posts.map(p => `<article class="post"><p>${esc(p.caption)}</p>`
+        + `<span>${esc(p.image)}</span></article>`).join('')
+    : '<p class="hello">No captions yet. Run <code>python -m bot caption &lt;folder&gt;</code>.</p>';
+
+  if (document.activeElement !== $('rules')) $('rules').value = s.rules.join('\n');
+  if (document.activeElement !== $('facts')) $('facts').value = s.facts.join('\n');
 }
 
 $('composer').addEventListener('submit', async e => {
@@ -201,31 +149,29 @@ $('composer').addEventListener('submit', async e => {
   } finally { $('send').disabled = false; $('box').focus(); }
 });
 
-$('view').addEventListener('click', () => {
-  const showFeed = $('feed').hidden;
-  $('feed').hidden = !showFeed;
-  $('log').hidden = showFeed;
-  $('composer').hidden = showFeed;
-  $('view').setAttribute('aria-pressed', String(showFeed));
-  $('view').textContent = showFeed ? 'Chat' : 'Timeline';
+$('showVoice').addEventListener('click', () => {
+  $('panel').hidden = !$('panel').hidden;
+  $('showVoice').textContent = $('panel').hidden ? 'Edit her voice' : 'Hide her voice';
 });
 
-$('toggle').addEventListener('click', () => {
-  const open = $('tune').hidden;
-  $('tune').hidden = !open;
-  $('toggle').setAttribute('aria-pressed', String(open));
+$('showFeed').addEventListener('click', () => {
+  const toFeed = $('feed').hidden;
+  $('feed').hidden = !toFeed;
+  $('log').hidden = toFeed;
+  $('composer').hidden = toFeed;
+  $('showFeed').textContent = toFeed ? 'Back to chat' : 'Her captions';
 });
 
 $('save').addEventListener('click', async () => {
-  const body = {
-    rules: $('rules').value.split('\n').map(s => s.trim()).filter(Boolean),
-    facts: $('facts').value.split('\n').map(s => s.trim()).filter(Boolean),
-    save: $('persist').checked,
-  };
   const r = await (await fetch('/api/persona', {method:'POST',
-    headers:{'Content-Type':'application/json'}, body: JSON.stringify(body)})).json();
-  $('saved').textContent = r.ok ? (r.written ? 'written' : 'applied') : (r.error || 'failed');
-  setTimeout(() => { $('saved').textContent = ''; }, 2500);
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({
+      rules: $('rules').value.split('\n').map(s => s.trim()).filter(Boolean),
+      facts: $('facts').value.split('\n').map(s => s.trim()).filter(Boolean),
+      save: $('persist').checked,
+    })})).json();
+  $('done').textContent = r.ok ? (r.written ? 'saved' : 'using them') : 'that broke something';
+  setTimeout(() => { $('done').textContent = ''; }, 2500);
   await refresh();
 });
 
