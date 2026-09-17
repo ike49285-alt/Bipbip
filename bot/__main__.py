@@ -6,6 +6,7 @@
     python -m bot direct "..."    tell the writer what is wrong with the captions
     python -m bot timeline        print what has been captioned so far
     python -m bot check           validate persona.json
+    python -m bot doctor          what this machine can run
 
 `caption` is the step that joins the halves: it reads images you generated,
 writes captions in her voice, and stores them so the timeline and the chat
@@ -143,6 +144,13 @@ def cmd_timeline(args) -> None:
         print(f"{'':19}  {post.image}")
 
 
+def cmd_doctor(args) -> None:
+    """What this machine can run: GPU, image model, who writes the words."""
+    from bot.doctor import diagnose, render
+
+    print(render(diagnose()))
+
+
 def cmd_check(args) -> None:
     persona = _persona(args)
     v = persona.visual
@@ -188,6 +196,9 @@ def build_parser() -> argparse.ArgumentParser:
     timeline = sub.add_parser("timeline", help="print captioned posts")
     timeline.add_argument("--limit", type=int, default=50)
     timeline.set_defaults(func=cmd_timeline)
+
+    doctor = sub.add_parser("doctor", help="what can this machine run?")
+    doctor.set_defaults(func=cmd_doctor)
 
     check = sub.add_parser("check", help="validate persona.json")
     check.set_defaults(func=cmd_check)
