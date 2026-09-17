@@ -302,3 +302,75 @@ class AnthropicLLM:
         )
         lines = response.content[0].text.splitlines()
         return [ln.strip().lstrip("-*0123456789. ").strip('"') for ln in lines if ln.strip()]
+
+
+# -- directing the voice -------------------------------------------------
+
+REVISION_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "rules": {"type": "array", "items": {"type": "string"}},
+        "changed": {"type": "string"},
+    },
+    "required": ["rules", "changed"],
+    "additionalProperties": False,
+}
+
+
+class Director(Protocol):
+    """Turns a note about the writing into revised rules."""
+
+    def revise(self, prompt: str, schema: dict) -> dict: ...
+
+
+def revision_prompt(persona: Persona, note: str, samples: Sequence[str]) -> str:
+    """Ask for concrete rules, not adjectives -- the voice card only works
+    when every line is checkable."""
+    rules = "\n".join(f"- {r}" for r in persona.voice.rules)
+    written = "\n".join(f"- {c}" for c in samples) or "- (nothing written yet)"
+    return (
+        "You direct the voice of a writer producing short social captions.\n\n"
+        f"Her current rules:\n{rules}\n\n"
+        f"What she wrote:\n{written}\n\n"
+        f'The director\'s note: "{note}"\n\n'
+        "Turn the note into rules. A rule is concrete and checkable, never an "
+        'adjective: "no self-pity, state the annoyance and move on" not "be less '
+        'whiny". Add at most two, and drop or reword any existing rule the note '
+        "contradicts. Keep every rule the note does not touch, unchanged.\n\n"
+        'Reply with only JSON: {"rules": [string], "changed": string} where '
+        "changed is one short sentence naming what you altered."
+    )
+
+
+def direct(
+    persona: Persona, note: str, director: Director, samples: Sequence[str] = ()
+) -> tuple[list[str], str]:
+    """Revise the voice rules from a plain-English note about the writing."""
+    if not note.strip():
+        raise ValueError("say what is wrong with the writing")
+    raw = director.revise(revision_prompt(persona, note, samples), REVISION_SCHEMA)
+    rules = [str(r).strip() for r in raw.get("rules", []) if str(r).strip()]
+    if not rules:
+        raise CaptionError("the revision dropped every rule; nothing was changed")
+    return rules, str(raw.get("changed", "rules updated"))
+
+
+class AnthropicDirector:
+    """Real backend. Lazy import so bot.captions stays dependency-free."""
+
+    def __init__(self, model: str = DEFAULT_MODEL) -> None:
+        import anthropic
+
+        self._client = anthropic.Anthropic()
+        self._model = model
+
+    def revise(self, prompt: str, schema: dict) -> dict:
+        import json
+
+        response = self._client.messages.create(
+            model=self._model,
+            max_tokens=2048,
+            output_config={"format": {"type": "json_schema", "schema": schema}},
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return json.loads(response.content[0].text)

@@ -23,8 +23,30 @@ Four commands, one file of truth.
 python -m bot check              # is persona.json sane?
 python -m bot prompts -n 20      # prompts to paste into a generator
 python -m bot caption out/       # caption those images into the timeline
+python -m bot direct "too whiny" # tell the writer what's wrong with the captions
 python -m bot                    # open the studio: chat + timeline + tuning
 ```
+
+## Directing the voice
+
+You don't hand-edit rules to change how she writes — you say what's wrong with
+what she wrote:
+
+```
+$ python -m bot direct "too whiny"
+cut the self-pity; the annoyance is stated once and dropped
+  + no self-pity: name the annoyance once, then move on
+  + never end on a complaint
+  - sentence fragments over full sentences
+```
+
+The note becomes a *concrete, checkable* rule in `persona.json` — "no
+self-pity, name it and move on", never "be less whiny". Adjectives in a voice
+card give the writer nothing to follow. Everything downstream reads the revised
+file.
+
+The published preview does the same thing in a browser, against a fixed set of
+scenes so a change you make is a change you can see.
 
 `persona.json` is the only thing you edit. Everything reads from it — the image
 prompts, the caption voice, the conversation, the boundaries.
@@ -78,7 +100,7 @@ text prompt*, with nowhere to put an anchor face or a trained LoRA. That's why
 | Studio UI + CLI | done |
 | ~~X integration~~ | dropped |
 
-222 tests. Standard library only, except `anthropic` for captions and chat.
+230 tests. Standard library only, except `anthropic` for captions and chat.
 
 ```bash
 pip install pytest && python -m pytest tests/ -q

@@ -78,3 +78,9 @@ def test_every_subcommand_is_wired():
     for command in ("chat", "prompts", "caption", "timeline", "check"):
         args = parser.parse_args([command] + (["d"] if command == "caption" else []))
         assert callable(args.func)
+
+
+def test_direct_is_wired_with_a_note():
+    parser = build_parser()
+    args = parser.parse_args(["direct", "too whiny"])
+    assert args.note == "too whiny" and callable(args.func)

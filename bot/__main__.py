@@ -3,6 +3,7 @@
     python -m bot                 chat with her and tune her voice
     python -m bot prompts -n 20   generation prompts to paste into a generator
     python -m bot caption DIR     caption a folder of images into the timeline
+    python -m bot direct "..."    tell the writer what is wrong with the captions
     python -m bot timeline        print what has been captioned so far
     python -m bot check           validate persona.json
 
@@ -19,7 +20,9 @@ import random
 import sys
 from pathlib import Path
 
-from bot.captions import CaptionError, Captioner
+import json
+
+from bot.captions import CaptionError, Captioner, direct
 from bot.driver import LocalDriver
 from bot.persona import Persona, PersonaError
 from bot.scenes import as_manifest, as_paste_list, plan_shoot
@@ -95,6 +98,40 @@ def cmd_caption(args) -> None:
     print(summary)
 
 
+def cmd_direct(args) -> None:
+    """Tell the caption writer what is wrong with the writing."""
+    persona = _persona(args)
+    try:
+        from bot.captions import AnthropicDirector
+
+        director = AnthropicDirector(args.model or None)
+    except Exception as exc:
+        sys.exit(
+            f"directing needs the Anthropic SDK and a key ({exc}).\n"
+            "  pip install anthropic && export ANTHROPIC_API_KEY=..."
+        )
+
+    with LocalDriver(args.db) as driver:
+        samples = [p.caption for p in driver.recent_posts(12)]
+
+    try:
+        rules, changed = direct(persona, args.note, director, samples)
+    except (ValueError, CaptionError) as exc:
+        sys.exit(str(exc))
+
+    raw = json.loads(Path(args.persona).read_text(encoding="utf-8"))
+    before = list(raw["voice"]["rules"])
+    raw["voice"]["rules"] = rules
+    Path(args.persona).write_text(json.dumps(raw, indent=2) + "\n", encoding="utf-8")
+
+    print(changed)
+    for rule in rules:
+        print(f"  {'+' if rule not in before else ' '} {rule}")
+    for rule in before:
+        if rule not in rules:
+            print(f"  - {rule}")
+
+
 def cmd_timeline(args) -> None:
     with LocalDriver(args.db) as driver:
         posts = driver.timeline(args.limit)
@@ -142,6 +179,11 @@ def build_parser() -> argparse.ArgumentParser:
     caption.add_argument("directory")
     caption.add_argument("--model", default=None)
     caption.set_defaults(func=cmd_caption)
+
+    direct_p = sub.add_parser("direct", help="tell the writer what is wrong with the captions")
+    direct_p.add_argument("note", help='e.g. "too whiny"')
+    direct_p.add_argument("--model", default=None)
+    direct_p.set_defaults(func=cmd_direct)
 
     timeline = sub.add_parser("timeline", help="print captioned posts")
     timeline.add_argument("--limit", type=int, default=50)

@@ -232,3 +232,85 @@ def test_prompt_includes_recent_captions_to_avoid(persona):
     prompt = captioner.compose_prompt(facts, ["an earlier caption."])
     assert "an earlier caption." in prompt
     assert "a diner" in prompt
+
+
+# -- directing the voice -------------------------------------------------
+
+
+class FakeDirector:
+    def __init__(self, reply):
+        self.reply = reply
+        self.prompts = []
+
+    def revise(self, prompt, schema):
+        self.prompts.append(prompt)
+        return self.reply
+
+
+def test_direct_returns_revised_rules(persona):
+    from bot.captions import direct
+
+    d = FakeDirector({"rules": ["always lowercase", "no self-pity"], "changed": "cut the whining"})
+    rules, changed = direct(persona, "too whiny", d)
+    assert rules == ["always lowercase", "no self-pity"]
+    assert changed == "cut the whining"
+
+
+def test_direct_sends_the_note_and_the_current_rules(persona):
+    from bot.captions import direct
+
+    d = FakeDirector({"rules": ["a rule"], "changed": "x"})
+    direct(persona, "too whiny", d, ["room's a disaster. posting anyway."])
+    prompt = d.prompts[0]
+    assert "too whiny" in prompt
+    assert "room's a disaster" in prompt
+    for rule in persona.voice.rules:
+        assert rule in prompt
+
+
+def test_direct_asks_for_checkable_rules_not_adjectives(persona):
+    """An adjective in the voice card produces nothing the writer can follow."""
+    from bot.captions import revision_prompt
+
+    prompt = revision_prompt(persona, "too whiny", [])
+    assert "concrete and checkable" in prompt
+    assert "never an" in prompt and "adjective" in prompt
+
+
+def test_direct_rejects_an_empty_note(persona):
+    from bot.captions import direct
+
+    with pytest.raises(ValueError, match="what is wrong"):
+        direct(persona, "   ", FakeDirector({"rules": ["x"], "changed": "y"}))
+
+
+def test_direct_refuses_to_wipe_every_rule(persona):
+    """A revision that drops all rules leaves the writer with no voice."""
+    from bot.captions import CaptionError, direct
+
+    with pytest.raises(CaptionError, match="dropped every rule"):
+        direct(persona, "start over", FakeDirector({"rules": [], "changed": "cleared"}))
+
+
+def test_direct_ignores_blank_rules(persona):
+    from bot.captions import direct
+
+    rules, _ = direct(persona, "tidy up", FakeDirector({"rules": ["keep", "  ", ""], "changed": "x"}))
+    assert rules == ["keep"]
+
+
+def test_revised_rules_still_load_as_a_persona(persona):
+    """Whatever comes back has to survive Persona validation."""
+    import copy
+    import json
+    from pathlib import Path
+
+    from bot.captions import direct
+
+    rules, _ = direct(persona, "drier", FakeDirector(
+        {"rules": ["always lowercase", "no self-pity, name it and move on"], "changed": "x"}))
+    raw = json.loads(Path("persona.json").read_text())
+    raw["voice"]["rules"] = rules
+    revised = Persona.from_dict(raw)
+    assert revised.voice.rules == tuple(rules)
+    assert "no self-pity" in revised.voice_card()
