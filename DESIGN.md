@@ -237,4 +237,6 @@ nothing. If a platform is ever wanted again, that boundary is where it would go.
 6. CLI joining the halves (`bot caption` fills the timeline)
 
 All done except **3b**, which needs one GPU session: run
-`notebooks/bootstrap.py` on Kaggle, then pin a LoRA trainer and script it.
+`python -m bot generate` / `curate` / `train`, either on the local card or on a
+free Kaggle GPU via `notebooks/kaggle.py` — the same commands, and Kaggle's
+16GB fits SDXL where a 6GB local card does not.

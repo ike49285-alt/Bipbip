@@ -72,13 +72,23 @@ free.
 
 ## Generating images
 
-Everything runs on your own GPU. Start with `bot doctor` — VRAM decides which
-model family you get, and it picks automatically from there.
+Run these on your own GPU, or on a free Kaggle one. Same commands either way —
+`notebooks/kaggle.py` just clones the repo and calls them. Start with
+`bot doctor`; VRAM decides the model family and it picks automatically.
 
 | VRAM | Family | Resolution |
 |---|---|---|
-| 7GB+ | SDXL | 1024px |
-| under 7GB | SD 1.5 | 512px |
+| 7GB+ (Kaggle T4/P100, 16GB) | SDXL | 1024px |
+| under 7GB (GTX 1060, 6GB) | SD 1.5 | 512px |
+
+**Kaggle is worth the round trip.** 30 GPU-hours a week, free, on a card big
+enough for SDXL — better pictures than a 6GB local card can make, and faster.
+The cost is that it's batch work: upload the anchor as a private dataset, run,
+download the LoRA. Sessions cap at about 9 hours and can drop, but `generate`
+resumes from whatever is already on disk.
+
+Once the LoRA exists, bring it home — generating *with* a trained LoRA is much
+lighter than training one, and runs fine on the 1060.
 
 The full run:
 
@@ -134,7 +144,7 @@ bot/chat.py        inbound classification, outbound gate, canned fallbacks
 bot/driver.py      local storage for the timeline and conversation
 bot/ui.py          the studio server
 bot/ui.html        its markup — edit without touching Python
-notebooks/         Kaggle-side image generation
+notebooks/kaggle.py  runs the same commands on a free Kaggle GPU
 ```
 
 ## Two rules the code enforces

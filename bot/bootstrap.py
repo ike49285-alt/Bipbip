@@ -2,8 +2,8 @@
 
 The GPU work is injected as a callable, so everything around it -- resume after
 a timed-out session, QC wiring, curation, the report -- is ordinary tested code
-rather than something that only runs on Kaggle. `notebooks/bootstrap.py` builds
-a real diffusers pipeline and hands it in; the tests hand in a stub.
+rather than something that only runs where there is a GPU. `bot.images.Generator`
+hands in a real diffusers pipeline; the tests hand in a stub.
 """
 
 from __future__ import annotations
