@@ -19,26 +19,45 @@ disconnect, though `generate` resumes from whatever is already on disk.
 
 # %% 2. the anchor ---------------------------------------------------------
 # The anchor is gitignored, so a fresh clone does not have it. Add it as a
-# private Kaggle Dataset ("+ Add Input"), then point this at the file.
+# private Kaggle Dataset via "+ Add Input" -- this finds it wherever it landed,
+# so the dataset name and filename do not have to match anything.
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 REPO = Path("/kaggle/working/Bipbip")
-ANCHOR_SOURCE = Path("/kaggle/input/remy-anchor/remy-anchor.jpg")   # <- your dataset
+INPUTS = Path("/kaggle/input")
 OUT = Path("/kaggle/working/out")
 
 sys.path.insert(0, str(REPO))
+
+
+def find_anchor():
+    found = sorted(p for p in INPUTS.glob("*/**/*")
+                   if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".webp"})
+    if len(found) == 1:
+        return found[0]
+    if not found:
+        existing = [d.name for d in INPUTS.iterdir()] if INPUTS.exists() else []
+        raise SystemExit(
+            "No image found under /kaggle/input.\n"
+            f"Datasets attached: {existing or 'none'}\n"
+            "Use '+ Add Input' in the right-hand panel to attach the dataset "
+            "holding your anchor image."
+        )
+    raise SystemExit(
+        "Several images are attached; pick one explicitly:\n"
+        + "\n".join(f"  {p}" for p in found[:10])
+        + "\n\nSet: anchor_source = Path(\"<one of the above>\")"
+    )
+
+
+anchor_source = find_anchor()
 anchor_target = REPO / "content/anchor/remy-anchor.jpg"
 anchor_target.parent.mkdir(parents=True, exist_ok=True)
-if ANCHOR_SOURCE.exists():
-    shutil.copy(ANCHOR_SOURCE, anchor_target)
-else:
-    raise SystemExit(
-        f"anchor not found at {ANCHOR_SOURCE}.\n"
-        "Add it as a Kaggle Dataset via '+ Add Input', then fix ANCHOR_SOURCE."
-    )
+shutil.copy(anchor_source, anchor_target)
+print(f"anchor: {anchor_source}  ->  {anchor_target}")
 
 
 def bot(*args):
