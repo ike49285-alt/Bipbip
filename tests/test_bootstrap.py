@@ -184,7 +184,7 @@ def test_report_records_scores_and_what_was_trained_on(gated):
 # The training run itself needs a GPU, but a mistyped flag costs an hour of
 # one. These assert the command before it is ever spent.
 
-from bot.bootstrap import BASE_MODEL, FP16_VAE, train_command  # noqa: E402
+from bot.bootstrap import SD15, SDXL, family_for_vram, train_command  # noqa: E402
 
 
 def flags(cmd):
@@ -194,7 +194,46 @@ def flags(cmd):
 def test_command_launches_the_maintained_trainer():
     cmd = train_command(Path("train"), Path("out"), instance_token="remyx")
     assert cmd[:2] == ["accelerate", "launch"]
-    assert cmd[2].endswith("train_dreambooth_lora_sdxl.py")
+    assert cmd[2].endswith("train_dreambooth_lora.py")
+
+
+# -- which family fits the card -----------------------------------------
+# A 6GB GTX 1060 cannot hold SDXL. Picking wrong costs a multi-gigabyte
+# download and an out-of-memory crash after it.
+
+
+@pytest.mark.parametrize("vram,expected", [
+    (4096, "sd15"), (6144, "sd15"), (7000, "sdxl"), (8192, "sdxl"), (24576, "sdxl"),
+])
+def test_family_follows_vram(vram, expected):
+    assert family_for_vram(vram).name == expected
+
+
+def test_sd15_is_the_default():
+    assert train_command(Path("t"), Path("o"), instance_token="x")[2].endswith(
+        "train_dreambooth_lora.py")
+
+
+def test_sd15_trains_at_512_and_sdxl_at_1024():
+    assert flags(train_command(Path("t"), Path("o"), instance_token="x"))["--resolution"] == "512"
+    assert flags(train_command(Path("t"), Path("o"), instance_token="x",
+                               family=SDXL))["--resolution"] == "1024"
+
+
+def test_only_sdxl_gets_the_replacement_vae():
+    """SD 1.5's stock VAE is fine in fp16; SDXL's is not."""
+    assert "--pretrained_vae_model_name_or_path" not in flags(
+        train_command(Path("t"), Path("o"), instance_token="x"))
+    assert flags(train_command(Path("t"), Path("o"), instance_token="x", family=SDXL)
+                 )["--pretrained_vae_model_name_or_path"] == SDXL.vae
+
+
+def test_each_family_names_its_own_base_and_adapter():
+    assert flags(train_command(Path("t"), Path("o"), instance_token="x")
+                 )["--pretrained_model_name_or_path"] == SD15.base
+    assert SD15.ip_adapter_weight.endswith("_sd15.bin")
+    assert SD15.ip_adapter_subfolder == "models"
+    assert SDXL.ip_adapter_subfolder == "sdxl_models"
 
 
 def test_command_points_at_the_data_and_output():
@@ -211,13 +250,6 @@ def test_instance_prompt_carries_the_rare_token():
 def test_blank_token_is_rejected():
     with pytest.raises(ValueError, match="rare word"):
         train_command(Path("t"), Path("o"), instance_token="  ")
-
-
-def test_fp16_safe_vae_is_used():
-    """SDXL's stock VAE produces NaNs in fp16; training silently yields noise."""
-    cmd = train_command(Path("t"), Path("o"), instance_token="remyx")
-    assert flags(cmd)["--pretrained_vae_model_name_or_path"] == FP16_VAE
-    assert flags(cmd)["--pretrained_model_name_or_path"] == BASE_MODEL
 
 
 def test_memory_flags_are_present_for_a_16gb_gpu():

@@ -1,7 +1,10 @@
 """One front door for the character studio.
 
     python -m bot                 chat with her and tune her voice
-    python -m bot prompts -n 20   generation prompts to paste into a generator
+    python -m bot generate -n 20  render her pictures on this GPU
+    python -m bot curate          score them and pick a LoRA training set
+    python -m bot train           train her LoRA
+    python -m bot prompts -n 20   just the prompts, if you generate elsewhere
     python -m bot caption DIR     caption a folder of images into the timeline
     python -m bot direct "..."    tell the writer what is wrong with the captions
     python -m bot timeline        print what has been captioned so far
@@ -49,6 +52,107 @@ def cmd_prompts(args) -> None:
     rng = random.Random(args.seed) if args.seed is not None else None
     shots = plan_shoot(persona, args.count, subject=args.subject, rng=rng)
     print(as_manifest(shots) if args.json else as_paste_list(shots))
+
+
+def _generator(args, persona, lora=None):
+    from bot.bootstrap import FAMILIES, family_for_vram
+    from bot.doctor import diagnose
+
+    if args.family:
+        family = FAMILIES[args.family]
+    else:
+        report = diagnose()
+        family = family_for_vram(report.vram_mb)
+        print(f"{report.gpu or 'no GPU'}: using {family.name} at {family.resolution}px")
+
+    try:
+        from bot.images import Generator
+    except ImportError as exc:
+        sys.exit(f"image generation needs torch and diffusers ({exc}).\n"
+                 "  run: python -m bot doctor")
+    return Generator(persona, family=family, scale=args.scale, lora=lora)
+
+
+def cmd_generate(args) -> None:
+    """Render the shot list onto disk, resuming anything already there."""
+    from bot.bootstrap import run_batch
+
+    persona = _persona(args)
+    rng = random.Random(args.seed) if args.seed is not None else None
+    shots = [s.as_dict() for s in plan_shoot(persona, args.count, rng=rng)]
+    gen = _generator(args, persona)
+    out = Path(args.out)
+
+    if args.sweep:
+        for path in gen.sweep(shots[0], out):
+            print(f"  {path}")
+        print("look at those, then rerun with --scale set to the one you liked")
+        return
+
+    result = run_batch(shots, gen.generate, out,
+                       on_progress=lambda n, total: print(f"  {n}/{total}", flush=True))
+    print(result.summary())
+    for index, reason in result.failed:
+        print(f"  shot {index}: {reason}", file=sys.stderr)
+
+
+def cmd_curate(args) -> None:
+    """Score what was generated against the anchor and pick a training set."""
+    from bot.bootstrap import assemble_training_set, gate_images, write_report
+    from bot.qc import summarise
+
+    persona = _persona(args)
+    images = sorted(p for p in Path(args.out).iterdir()
+                    if p.suffix.lower() in IMAGE_SUFFIXES and not p.name.startswith("sweep-"))
+    if not images:
+        sys.exit(f"nothing to curate in {args.out}")
+
+    try:
+        from bot.qc import ClipEmbedder
+    except ImportError as exc:
+        sys.exit(f"curation needs torch and transformers ({exc})")
+
+    judgements, vectors = gate_images(
+        images, persona.visual.anchor_image, ClipEmbedder(), persona.visual.identity_threshold)
+    print(summarise(judgements))
+    picked = assemble_training_set(judgements, vectors, Path(args.out) / "train", keep=args.keep)
+    write_report(judgements, picked, Path(args.out) / "qc-report.json")
+    print(f"{len(picked)} curated into {Path(args.out) / 'train'}")
+    print("look through that folder before training -- the gate catches off-model, not ugly")
+
+
+def cmd_train(args) -> None:
+    """Train the character LoRA on the curated set."""
+    import subprocess
+
+    from bot.bootstrap import FAMILIES, family_for_vram, train_command
+    from bot.doctor import diagnose
+
+    train_dir = Path(args.out) / "train"
+    images = [p for p in train_dir.iterdir()] if train_dir.exists() else []
+    if not images:
+        sys.exit(f"no training images in {train_dir} -- run generate and curate first")
+
+    family = FAMILIES[args.family] if args.family else family_for_vram(diagnose().vram_mb)
+    trainer = Path(args.trainer).expanduser()
+    if not trainer.exists():
+        sys.exit(
+            f"trainer not found at {trainer}. Clone the examples once:\n"
+            f"  git clone --depth 1 --branch v0.31.0 "
+            f"https://github.com/huggingface/diffusers ~/diffusers"
+        )
+
+    cmd = train_command(train_dir, Path(args.lora_out), instance_token=args.token,
+                        family=family, trainer=str(trainer), steps=args.steps, rank=args.rank)
+    print(f"{len(images)} images, ~{args.steps // max(len(images), 1)} steps each")
+    print(" \\\n  ".join(cmd))
+    subprocess.run(cmd, check=True)
+
+    weights = list(Path(args.lora_out).glob("*.safetensors"))
+    if not weights:
+        sys.exit(f"training produced no weights in {args.lora_out}")
+    print(f"trained: {weights[0]} ({weights[0].stat().st_size / 1e6:.1f} MB)")
+    print(f"point visual.lora_path at it, then: python -m bot generate --lora {weights[0]}")
 
 
 def cmd_caption(args) -> None:
@@ -182,6 +286,34 @@ def build_parser() -> argparse.ArgumentParser:
     prompts.add_argument("--seed", type=int, default=None)
     prompts.add_argument("--json", action="store_true")
     prompts.set_defaults(func=cmd_prompts)
+
+    def image_args(parser):
+        parser.add_argument("--out", default="content/img", help="where the images live")
+        parser.add_argument("--family", choices=("sd15", "sdxl"), default=None,
+                            help="default: chosen from your VRAM")
+        return parser
+
+    generate = image_args(sub.add_parser("generate", help="render her pictures on this GPU"))
+    generate.add_argument("-n", "--count", type=int, default=20)
+    generate.add_argument("--scale", type=float, default=0.65,
+                          help="how strongly the anchor pulls (sweep this first)")
+    generate.add_argument("--seed", type=int, default=None)
+    generate.add_argument("--sweep", action="store_true",
+                          help="render one prompt at four anchor strengths and stop")
+    generate.set_defaults(func=cmd_generate)
+
+    curate = image_args(sub.add_parser("curate", help="score images and pick a training set"))
+    curate.add_argument("--keep", type=int, default=40)
+    curate.set_defaults(func=cmd_curate)
+
+    train = image_args(sub.add_parser("train", help="train her LoRA on the curated set"))
+    train.add_argument("--token", default="rmyx", help="a rare word, not her name")
+    train.add_argument("--steps", type=int, default=1200)
+    train.add_argument("--rank", type=int, default=16)
+    train.add_argument("--lora-out", default="content/lora")
+    train.add_argument("--trainer",
+                       default="~/diffusers/examples/dreambooth/train_dreambooth_lora.py")
+    train.set_defaults(func=cmd_train)
 
     caption = sub.add_parser("caption", help="caption a folder of images")
     caption.add_argument("directory")

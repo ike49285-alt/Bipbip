@@ -18,6 +18,13 @@ code should make the first easy and the second awkward.
 
 ## The constraint that shapes everything
 
+*(Superseded: this now runs on the user's own machine, a 2018-era Omen with a
+6GB card. The decoupling below still holds — generation is a batch step, the
+studio only consumes what it produced — but the GPU is local and free, and the
+Kaggle notebooks are replaced by `bot generate` / `bot curate` / `bot train`.
+The family split is in `bot/bootstrap.py`: under 7GB of VRAM means SD 1.5 at
+512px, not SDXL.)*
+
 Free hosting means **no always-on GPU** and **no always-on server**. The naive
 design — generate a selfie on demand, caption it, post it — needs both. So it's
 restructured into two halves that run in different places at different times:

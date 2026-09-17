@@ -19,14 +19,56 @@ from bot.qc import Embedder, Judgement, QCGate, curate, summarise
 # Given one shot dict and a destination, write an image there.
 GenerateFn = Callable[[dict, Path], None]
 
-# Pinned so a rerun months later reproduces this one. The trainer script lives
+# Pinned so a rerun months later reproduces this one. The trainer scripts live
 # in the diffusers examples; writing our own training loop would be strictly
 # worse than the maintained one.
 DIFFUSERS_VERSION = "0.31.0"
-TRAINER = "examples/dreambooth/train_dreambooth_lora_sdxl.py"
-BASE_MODEL = "stabilityai/stable-diffusion-xl-base-1.0"
-# SDXL's stock VAE produces NaNs in fp16; this is the standard replacement.
-FP16_VAE = "madebyollin/sdxl-vae-fp16-fix"
+
+
+@dataclass(frozen=True)
+class Family:
+    """One model family and everything that differs because of it."""
+
+    name: str
+    base: str
+    trainer: str
+    ip_adapter_subfolder: str
+    ip_adapter_weight: str
+    resolution: int
+    vae: str = ""          # only SDXL needs a replacement VAE
+    min_vram_mb: int = 0
+
+
+# SD 1.5: the one that fits a 6GB card. 512px native, no VAE swap needed.
+SD15 = Family(
+    name="sd15",
+    base="runwayml/stable-diffusion-v1-5",
+    trainer="examples/dreambooth/train_dreambooth_lora.py",
+    ip_adapter_subfolder="models",
+    ip_adapter_weight="ip-adapter-plus-face_sd15.bin",
+    resolution=512,
+    min_vram_mb=4000,
+)
+
+# SDXL: sharper, but wants 8GB+ and a replacement VAE, because the stock one
+# produces NaNs in fp16 and you get noise with no error.
+SDXL = Family(
+    name="sdxl",
+    base="stabilityai/stable-diffusion-xl-base-1.0",
+    trainer="examples/dreambooth/train_dreambooth_lora_sdxl.py",
+    ip_adapter_subfolder="sdxl_models",
+    ip_adapter_weight="ip-adapter-plus-face_sdxl_vit-h.bin",
+    resolution=1024,
+    vae="madebyollin/sdxl-vae-fp16-fix",
+    min_vram_mb=7000,
+)
+
+FAMILIES = {f.name: f for f in (SD15, SDXL)}
+
+
+def family_for_vram(vram_mb: int) -> Family:
+    """Pick the biggest family this card can actually hold."""
+    return SDXL if vram_mb >= SDXL.min_vram_mb else SD15
 
 
 def train_command(
@@ -34,30 +76,33 @@ def train_command(
     output_dir: Path,
     *,
     instance_token: str,
-    trainer: str = TRAINER,
+    family: Family = SD15,
+    trainer: str | None = None,
     steps: int = 1200,
     rank: int = 16,
     learning_rate: float = 1e-4,
-    resolution: int = 1024,
+    resolution: int | None = None,
     seed: int = 0,
 ) -> list[str]:
     """Build the accelerate invocation for a character LoRA.
 
-    Defaults are sized for a free 16GB Kaggle GPU: fp16, gradient checkpointing
-    and 8-bit Adam are what keep SDXL training inside that budget. `rank` 16 is
-    the usual range for a character (identity, not style); raise it only if the
-    likeness is still soft after a full run.
+    Defaults target a 6GB card: fp16, gradient checkpointing and 8-bit Adam are
+    what keep training inside that budget. `rank` 16 is the usual range for a
+    character (identity, not style); raise it only if the likeness stays soft.
     """
     if not instance_token.strip():
         raise ValueError("instance_token must be a rare word the model has no prior for")
-    return [
-        "accelerate", "launch", trainer,
-        f"--pretrained_model_name_or_path={BASE_MODEL}",
-        f"--pretrained_vae_model_name_or_path={FP16_VAE}",
+    cmd = [
+        "accelerate", "launch", trainer or family.trainer,
+        f"--pretrained_model_name_or_path={family.base}",
+    ]
+    if family.vae:
+        cmd.append(f"--pretrained_vae_model_name_or_path={family.vae}")
+    cmd += [
         f"--instance_data_dir={train_dir}",
         f"--output_dir={output_dir}",
         f"--instance_prompt=a picture of {instance_token}",
-        f"--resolution={resolution}",
+        f"--resolution={resolution or family.resolution}",
         "--train_batch_size=1",
         "--gradient_accumulation_steps=4",
         "--gradient_checkpointing",
@@ -71,6 +116,7 @@ def train_command(
         "--checkpointing_steps=400",
         f"--seed={seed}",
     ]
+    return cmd
 
 
 @dataclass(frozen=True)

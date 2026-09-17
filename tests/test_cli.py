@@ -84,3 +84,20 @@ def test_direct_is_wired_with_a_note():
     parser = build_parser()
     args = parser.parse_args(["direct", "too whiny"])
     assert args.note == "too whiny" and callable(args.func)
+
+
+def test_image_commands_are_wired():
+    parser = build_parser()
+    for command in ("generate", "curate", "train"):
+        args = parser.parse_args([command])
+        assert callable(args.func)
+
+
+def test_generate_defaults_to_detecting_the_family():
+    assert build_parser().parse_args(["generate"]).family is None
+
+
+def test_train_token_defaults_to_a_rare_word():
+    """Her name already means things to the base model; the LoRA fights it."""
+    token = build_parser().parse_args(["train"]).token
+    assert token and "remy" != token.lower()

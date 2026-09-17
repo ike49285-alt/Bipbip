@@ -20,8 +20,10 @@ persona.json ──▶ bot prompts ──▶ [your generator] ──▶ bot capt
 Four commands, one file of truth.
 
 ```bash
-python -m bot check              # is persona.json sane?
-python -m bot prompts -n 20      # prompts to paste into a generator
+python -m bot doctor             # what can this machine run?
+python -m bot generate -n 20     # render her pictures on your GPU
+python -m bot curate             # score them, pick a LoRA training set
+python -m bot train              # train her LoRA
 python -m bot caption out/       # caption those images into the timeline
 python -m bot direct "too whiny" # tell the writer what's wrong with the captions
 python -m bot                    # open the studio: chat + timeline + tuning
@@ -70,20 +72,34 @@ free.
 
 ## Generating images
 
-`bot prompts` emits prompts; where you run them is up to you. For the full
-pipeline there are two Kaggle notebooks: `notebooks/bootstrap.py` generates
-from the anchor and curates a training set, then `notebooks/train_lora.py`
-trains the LoRA on it.
+Everything runs on your own GPU. Start with `bot doctor` — VRAM decides which
+model family you get, and it picks automatically from there.
 
-| | Good for | Not for |
+| VRAM | Family | Resolution |
 |---|---|---|
-| **Perchance** | Finding an anchor face — browser, zero setup | Anything repeatable |
-| **Cloudflare / Pollinations** | Generic images, quick tests | Her — hosted APIs can't run your model |
-| **Kaggle notebook** | The real pipeline: IP-Adapter, LoRA, batches | Anything on-demand |
+| 7GB+ | SDXL | 1024px |
+| under 7GB | SD 1.5 | 512px |
 
-Free hosted APIs can't hold a character: they serve *their* models from *your
-text prompt*, with nowhere to put an anchor face or a trained LoRA. That's why
-`notebooks/bootstrap.py` targets a Kaggle GPU — see `DESIGN.md`.
+The full run:
+
+```bash
+python -m bot generate --sweep        # one prompt at four anchor strengths
+python -m bot generate -n 200 --scale 0.65
+python -m bot curate --keep 40        # score against the anchor, pick a set
+python -m bot train                   # LoRA, on the curated set
+python -m bot generate --lora content/lora/*.safetensors
+```
+
+**Sweep first.** `--scale` is how hard the anchor pulls: too high and every
+picture copies its pose, too low and she stops being recognisably herself. That
+one number decides whether the batch is usable, and four test renders is
+cheaper than finding out after two hundred.
+
+`generate` resumes — a crashed or interrupted run picks up where it stopped.
+
+Free hosted image APIs can't help here: they serve *their* models from *your
+text prompt*, with nowhere to put an anchor face or a trained LoRA. That's the
+whole reason this runs locally.
 
 ## What's built
 
@@ -92,15 +108,15 @@ text prompt*, with nowhere to put an anchor face or a trained LoRA. That's why
 | Persona core, voice card, validation | done |
 | Prompt builder | done |
 | Identity gate + curation (`bot/qc.py`) | done |
-| Bootstrap orchestration (`bot/bootstrap.py`) | done, tested |
-| Bootstrap notebook | thin driver, **diffusers calls never executed** |
+| Image pipeline (`bot/images.py`, local) | written, **never executed here — no GPU** |
+| Batch orchestration (`bot/bootstrap.py`) | done, tested |
 | LoRA training wrapper | written, **never executed** |
 | Captioning + repetition scoring | done |
 | Chat agent + boundaries | done |
 | Studio UI + CLI | done |
 | ~~X integration~~ | dropped |
 
-230 tests. Standard library only, except `anthropic` for captions and chat.
+256 tests. Standard library only, except `anthropic` for captions and chat.
 
 ```bash
 pip install pytest && python -m pytest tests/ -q
